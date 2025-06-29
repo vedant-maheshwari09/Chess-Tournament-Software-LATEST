@@ -96,6 +96,11 @@ ChessTournament Pro is a comprehensive chess tournament management system built 
 Changelog:
 - June 29, 2025. Initial setup
 - June 29, 2025. Added PostgreSQL database integration with Drizzle ORM
+- June 29, 2025. Implemented comprehensive USCF bye management system
+  - Added database schema for bye requests and player bye tracking
+  - Implemented full-point and half-point bye rules according to USCF standards
+  - Enhanced Swiss pairing algorithm with proper bye assignment logic
+  - Added API endpoints for bye request management
 ```
 
 ## User Preferences
