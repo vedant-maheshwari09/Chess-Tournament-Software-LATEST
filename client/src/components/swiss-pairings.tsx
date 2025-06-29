@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -16,6 +16,26 @@ interface SwissPairingsProps {
 export default function SwissPairings({ tournamentId }: SwissPairingsProps) {
   const [currentRound, setCurrentRound] = useState(1);
   const { toast } = useToast();
+
+  // Get all matches to determine the current round
+  const { data: allMatches } = useQuery<Match[]>({
+    queryKey: [`/api/tournaments/${tournamentId}/matches`],
+    queryFn: async () => {
+      const response = await fetch(`/api/tournaments/${tournamentId}/matches`, {
+        credentials: "include",
+      });
+      if (!response.ok) throw new Error("Failed to fetch all matches");
+      return response.json();
+    },
+  });
+
+  // Update current round based on latest matches
+  useEffect(() => {
+    if (allMatches && allMatches.length > 0) {
+      const latestRound = Math.max(...allMatches.map(match => match.round));
+      setCurrentRound(latestRound);
+    }
+  }, [allMatches]);
 
   const { data: matches, isLoading } = useQuery<Match[]>({
     queryKey: [`/api/tournaments/${tournamentId}/matches`, { round: currentRound }],
@@ -107,8 +127,40 @@ export default function SwissPairings({ tournamentId }: SwissPairingsProps) {
       <CardHeader>
         <div className="flex justify-between items-center">
           <div>
-            <CardTitle>Round {currentRound} Pairings</CardTitle>
-            <p className="text-sm text-gray-600 mt-1">Swiss System - Auto-generated pairings</p>
+            <div className="flex items-center space-x-4">
+              <div>
+                <CardTitle>Round {currentRound} Pairings</CardTitle>
+                <p className="text-sm text-gray-600 mt-1">Swiss System - Auto-generated pairings</p>
+              </div>
+              
+              {/* Round Navigation */}
+              {allMatches && allMatches.length > 0 && (
+                <div className="flex items-center space-x-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setCurrentRound(Math.max(1, currentRound - 1))}
+                    disabled={currentRound <= 1}
+                  >
+                    Previous
+                  </Button>
+                  <span className="text-sm text-gray-500">
+                    Round {currentRound} of {Math.max(...allMatches.map(m => m.round))}
+                  </span>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      const maxRound = Math.max(...allMatches.map(m => m.round));
+                      setCurrentRound(Math.min(maxRound, currentRound + 1));
+                    }}
+                    disabled={currentRound >= Math.max(...allMatches.map(m => m.round))}
+                  >
+                    Next
+                  </Button>
+                </div>
+              )}
+            </div>
           </div>
           <div className="flex space-x-3">
             <Button
@@ -117,7 +169,7 @@ export default function SwissPairings({ tournamentId }: SwissPairingsProps) {
               className="bg-green-600 hover:bg-green-700"
             >
               <Play className="h-4 w-4 mr-2" />
-              {generatePairingsMutation.isPending ? "Generating..." : "Start Round"}
+              {generatePairingsMutation.isPending ? "Generating..." : "Generate Next Round"}
             </Button>
             <Button
               variant="outline"

@@ -180,27 +180,67 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const currentRound = existingMatches.length > 0 ? 
         Math.max(...existingMatches.map(match => match.round)) + 1 : 1;
       
-      // Generate pairings based on tournament format
-      const pairings = await generatePairings(tournament, players, existingMatches, currentRound);
+      // Clear existing matches for this round first
+      const existingRoundMatches = await storage.getMatchesByRound(tournamentId, currentRound);
       
-      // Save pairings to storage and create matches
-      const savedPairings = await Promise.all(
-        pairings.map(pairing => storage.createPairing(pairing))
-      );
-
-      // Create matches from Swiss pairings (not from the generic pairings)
+      // Generate Swiss pairings directly
       const swissPairings = generateSwissPairings(players, existingMatches, currentRound);
-      const matches = await Promise.all(
-        swissPairings.filter(p => !p.isBye).map(pairing => storage.createMatch({
-          tournamentId: tournament.id,
-          round: currentRound,
-          board: pairing.board,
-          whitePlayerId: pairing.whitePlayerId,
-          blackPlayerId: pairing.blackPlayerId,
-          result: null,
-          status: 'pending'
-        }))
-      );
+      
+      // Create both pairings and matches from the Swiss algorithm
+      const savedPairings = [];
+      const matches = [];
+      
+      for (const pairing of swissPairings) {
+        if (pairing.isBye) {
+          // Create pairing for bye
+          const savedPairing = await storage.createPairing({
+            tournamentId: tournament.id,
+            round: currentRound,
+            playerId: pairing.whitePlayerId,
+            opponentId: null,
+            color: null,
+            points: 1, // Full point for bye
+            isBye: true,
+            byeType: 'full_point',
+          });
+          savedPairings.push(savedPairing);
+        } else {
+          // Create match
+          const match = await storage.createMatch({
+            tournamentId: tournament.id,
+            round: currentRound,
+            board: pairing.board,
+            whitePlayerId: pairing.whitePlayerId,
+            blackPlayerId: pairing.blackPlayerId,
+            result: null,
+            status: 'pending'
+          });
+          matches.push(match);
+          
+          // Create pairings for both players
+          const whitePairing = await storage.createPairing({
+            tournamentId: tournament.id,
+            round: currentRound,
+            playerId: pairing.whitePlayerId,
+            opponentId: pairing.blackPlayerId,
+            color: 'white',
+            points: 0,
+            isBye: false,
+          });
+          
+          const blackPairing = await storage.createPairing({
+            tournamentId: tournament.id,
+            round: currentRound,
+            playerId: pairing.blackPlayerId,
+            opponentId: pairing.whitePlayerId,
+            color: 'black',
+            points: 0,
+            isBye: false,
+          });
+          
+          savedPairings.push(whitePairing, blackPairing);
+        }
+      }
       
       res.json({ pairings: savedPairings, matches, round: currentRound });
     } catch (error) {
