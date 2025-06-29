@@ -21,8 +21,10 @@ export default function TournamentWizard({ tournament, onTournamentCreated }: To
   const [rounds, setRounds] = useState(tournament?.rounds || 5);
   const [timeControl, setTimeControl] = useState(tournament?.timeControl || "90 min + 30 sec increment");
   const [isDoubleRoundRobin, setIsDoubleRoundRobin] = useState(tournament?.isDoubleRoundRobin || false);
-  const [useQuickSetup, setUseQuickSetup] = useState(tournament?.useQuickSetup || false);
+  const [tournamentMode, setTournamentMode] = useState<'casual' | 'official'>('casual');
   const [playerCount, setPlayerCount] = useState(tournament?.playerCount || 8);
+  const [showAdvancedOptions, setShowAdvancedOptions] = useState(false);
+  const [skipAutoGeneration, setSkipAutoGeneration] = useState(false);
   const { toast } = useToast();
 
   const createTournamentMutation = useMutation({
@@ -30,7 +32,7 @@ export default function TournamentWizard({ tournament, onTournamentCreated }: To
       const response = await apiRequest("POST", "/api/tournaments", tournamentData);
       const tournament = await response.json();
       
-      // If using quick setup, automatically create players
+      // If using casual mode, automatically create players
       if (tournamentData.useQuickSetup && tournamentData.playerCount) {
         const playerPromises = [];
         for (let i = 1; i <= tournamentData.playerCount; i++) {
@@ -51,7 +53,7 @@ export default function TournamentWizard({ tournament, onTournamentCreated }: To
     onSuccess: (newTournament) => {
       toast({
         title: "Tournament Created",
-        description: useQuickSetup 
+        description: tournamentMode === 'casual'
           ? `Tournament created with ${playerCount} players automatically added.`
           : "Your tournament has been successfully created.",
       });
@@ -86,8 +88,8 @@ export default function TournamentWizard({ tournament, onTournamentCreated }: To
       timeControl,
       currentRound: 0,
       isDoubleRoundRobin: format === 'roundrobin' ? isDoubleRoundRobin : false,
-      useQuickSetup,
-      playerCount: useQuickSetup ? playerCount : undefined,
+      useQuickSetup: tournamentMode === 'casual',
+      playerCount: tournamentMode === 'casual' ? playerCount : undefined,
     };
 
     createTournamentMutation.mutate(tournamentData);
@@ -228,41 +230,117 @@ export default function TournamentWizard({ tournament, onTournamentCreated }: To
           )}
 
           <div className="bg-blue-50 rounded-lg p-4">
-            <h4 className="font-medium text-gray-900 mb-3">Player Setup</h4>
+            <h4 className="font-medium text-gray-900 mb-3">Tournament Mode</h4>
             <div className="space-y-4">
-              <div className="flex items-center space-x-2">
-                <input
-                  type="checkbox"
-                  id="useQuickSetup"
-                  checked={useQuickSetup}
-                  onChange={(e) => setUseQuickSetup(e.target.checked)}
-                  className="rounded border-gray-300"
-                />
-                <Label htmlFor="useQuickSetup">Quick Setup - Just specify number of players (Player 1, Player 2, etc.)</Label>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div 
+                  className={`p-4 rounded-lg border-2 cursor-pointer transition-all ${
+                    tournamentMode === 'casual' 
+                      ? 'border-blue-500 bg-blue-50' 
+                      : 'border-gray-200 bg-white hover:border-gray-300'
+                  }`}
+                  onClick={() => setTournamentMode('casual')}
+                >
+                  <div className="flex items-center space-x-2 mb-2">
+                    <input
+                      type="radio"
+                      id="casual"
+                      name="tournamentMode"
+                      checked={tournamentMode === 'casual'}
+                      onChange={() => setTournamentMode('casual')}
+                      className="text-blue-600"
+                    />
+                    <Label htmlFor="casual" className="font-medium">Casual Mode</Label>
+                  </div>
+                  <p className="text-sm text-gray-600">
+                    Quick setup - just specify number of players. Players will be auto-generated as "Player 1", "Player 2", etc.
+                  </p>
+                </div>
+                
+                <div 
+                  className={`p-4 rounded-lg border-2 cursor-pointer transition-all ${
+                    tournamentMode === 'official' 
+                      ? 'border-blue-500 bg-blue-50' 
+                      : 'border-gray-200 bg-white hover:border-gray-300'
+                  }`}
+                  onClick={() => setTournamentMode('official')}
+                >
+                  <div className="flex items-center space-x-2 mb-2">
+                    <input
+                      type="radio"
+                      id="official"
+                      name="tournamentMode"
+                      checked={tournamentMode === 'official'}
+                      onChange={() => setTournamentMode('official')}
+                      className="text-blue-600"
+                    />
+                    <Label htmlFor="official" className="font-medium">USCF Official Mode</Label>
+                  </div>
+                  <p className="text-sm text-gray-600">
+                    Full player registration with real names, ratings, and federation details for official tournaments.
+                  </p>
+                </div>
               </div>
               
-              {useQuickSetup && (
-                <div>
-                  <Label htmlFor="playerCount">Number of Players</Label>
-                  <Select value={playerCount.toString()} onValueChange={(value) => setPlayerCount(parseInt(value))}>
-                    <SelectTrigger className="w-full">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {Array.from({ length: 15 }, (_, i) => i + 4).map((num) => (
-                        <SelectItem key={num} value={num.toString()}>{num} players</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <p className="text-sm text-gray-600 mt-1">
-                    Players will be automatically created as "Player 1", "Player 2", etc.
-                  </p>
+              {tournamentMode === 'casual' && (
+                <div className="space-y-4">
+                  <div>
+                    <Label htmlFor="playerCount">Number of Players</Label>
+                    <Select value={playerCount.toString()} onValueChange={(value) => setPlayerCount(parseInt(value))}>
+                      <SelectTrigger className="w-full">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {Array.from({ length: 15 }, (_, i) => i + 4).map((num) => (
+                          <SelectItem key={num} value={num.toString()}>{num} players</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-sm text-gray-600 mt-1">
+                      Players will be automatically created as "Player 1", "Player 2", etc. with default 1000 rating.
+                    </p>
+                  </div>
+                  
+                  <div className="border-t pt-4">
+                    <button
+                      type="button"
+                      onClick={() => setShowAdvancedOptions(!showAdvancedOptions)}
+                      className="text-blue-600 hover:text-blue-800 text-sm font-medium flex items-center space-x-1"
+                    >
+                      <span>{showAdvancedOptions ? 'Hide' : 'Show'} Advanced Options</span>
+                      <span className={`transform transition-transform ${showAdvancedOptions ? 'rotate-180' : ''}`}>
+                        ▼
+                      </span>
+                    </button>
+                    
+                    {showAdvancedOptions && (
+                      <div className="mt-3 p-4 bg-gray-50 rounded-lg">
+                        <p className="text-sm text-gray-700 mb-2">
+                          <strong>Advanced Setup:</strong> Skip auto-generation and manually add players with custom names, ratings, and details after creating the tournament.
+                        </p>
+                        <div className="flex items-center space-x-2">
+                          <input
+                            type="checkbox"
+                            id="skipAutoGeneration"
+                            checked={!tournamentMode || tournamentMode === 'official'}
+                            onChange={(e) => {
+                              // This will be handled by switching the mode logic
+                            }}
+                            className="rounded border-gray-300"
+                          />
+                          <Label htmlFor="skipAutoGeneration" className="text-sm">
+                            Skip auto-generation and add players manually
+                          </Label>
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
               
-              {!useQuickSetup && (
+              {tournamentMode === 'official' && (
                 <p className="text-sm text-gray-600">
-                  You'll be able to add players manually with names, ratings, and other details after creating the tournament.
+                  You'll be able to add players manually with full details (names, ratings, federation info) after creating the tournament.
                 </p>
               )}
             </div>
