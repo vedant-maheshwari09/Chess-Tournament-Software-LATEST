@@ -204,17 +204,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       // Clear existing matches and pairings for this round first (especially important for regeneration)
-      const existingRoundMatches = await storage.getMatchesByRound(tournamentId, currentRound);
-      const existingRoundPairings = await storage.getPairingsByRound(tournamentId, currentRound);
-      
-      // Delete existing matches for this round
-      for (const match of existingRoundMatches) {
-        await storage.updateMatch(match.id, { result: null, status: 'deleted' });
-      }
-      
-      // Delete existing pairings for this round
-      for (const pairing of existingRoundPairings) {
-        await storage.updatePairing(pairing.id, { points: 0, isBye: false });
+      if (regenerate) {
+        console.log(`Clearing existing data for round ${currentRound}`);
+        await storage.deleteMatchesByRound(tournamentId, currentRound);
+        await storage.deletePairingsByRound(tournamentId, currentRound);
       }
       
       // Generate Swiss pairings directly (excluding matches from the round being regenerated)
