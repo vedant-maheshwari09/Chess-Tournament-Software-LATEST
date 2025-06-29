@@ -18,7 +18,7 @@ export default function SwissPairings({ tournamentId }: SwissPairingsProps) {
   const { toast } = useToast();
 
   const { data: matches, isLoading } = useQuery<Match[]>({
-    queryKey: ["/api/tournaments", tournamentId, "matches", currentRound],
+    queryKey: [`/api/tournaments/${tournamentId}/matches`, { round: currentRound }],
     queryFn: async () => {
       const response = await fetch(`/api/tournaments/${tournamentId}/matches?round=${currentRound}`, {
         credentials: "include",
@@ -29,7 +29,7 @@ export default function SwissPairings({ tournamentId }: SwissPairingsProps) {
   });
 
   const { data: players } = useQuery<Player[]>({
-    queryKey: ["/api/tournaments", tournamentId, "players"],
+    queryKey: [`/api/tournaments/${tournamentId}/players`],
   });
 
   const generatePairingsMutation = useMutation({
@@ -44,7 +44,7 @@ export default function SwissPairings({ tournamentId }: SwissPairingsProps) {
         title: "Pairings Generated",
         description: `Round ${currentRound} pairings have been generated.`,
       });
-      queryClient.invalidateQueries({ queryKey: ["/api/tournaments", tournamentId, "matches"] });
+      queryClient.invalidateQueries({ queryKey: [`/api/tournaments/${tournamentId}/matches`] });
     },
     onError: () => {
       toast({
@@ -64,7 +64,7 @@ export default function SwissPairings({ tournamentId }: SwissPairingsProps) {
       return response.json();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/tournaments", tournamentId, "matches"] });
+      queryClient.invalidateQueries({ queryKey: [`/api/tournaments/${tournamentId}/matches`] });
     },
     onError: () => {
       toast({
