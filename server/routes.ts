@@ -357,9 +357,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         
         console.log(`No rounds to regenerate. maxExistingRound: ${maxExistingRound}, fromRound: ${fromRound}`);
         
-        if (fromRound === maxExistingRound + 1) {
-          // Generate the next round
-          console.log(`No future rounds exist yet, generating Round ${fromRound} as the next round`);
+        if (fromRound <= maxExistingRound + 1) {
+          // Generate the requested round (could be next round or replacing existing rounds)
+          console.log(`Generating Round ${fromRound}. MaxExisting: ${maxExistingRound}, Requested: ${fromRound}`);
           
           const baseMatches = existingMatches; // Use all existing matches for pairing
           const swissPairings = generateSwissPairings(players, baseMatches, fromRound);
