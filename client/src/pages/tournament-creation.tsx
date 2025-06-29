@@ -21,8 +21,8 @@ export default function TournamentCreation() {
   const [activeTab, setActiveTab] = useState("setup");
 
   const handleTournamentCreated = (newTournament: Tournament) => {
-    setTournament(newTournament);
-    setActiveTab("players");
+    // Redirect to the dedicated tournament view page
+    setLocation(`/tournaments/${newTournament.id}`);
   };
 
   const handleStartTournament = () => {
