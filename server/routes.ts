@@ -180,60 +180,73 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.log(`Request body:`, JSON.stringify(req.body));
 
       const existingMatches = await storage.getMatchesByTournament(tournamentId);
-      let currentRound;
+      let currentRound: number;
 
       if (regenerate && targetRound) {
-        // Regenerating existing round
+        // Regenerating existing round - clear this round and all future rounds
         currentRound = targetRound;
         console.log(`Regenerating round ${currentRound}`);
-      } else {
-        // Generating next round - check if previous round is complete
-        const maxRound = existingMatches.length > 0 ? 
-          Math.max(...existingMatches.map(match => match.round)) : 0;
         
-        if (maxRound > 0) {
-          const previousRoundMatches = existingMatches.filter(m => m.round === maxRound);
-          const incompleteMatches = previousRoundMatches.filter(m => !m.result || m.result === 'Pending');
+        // Clear this round and all future rounds to ensure clean state
+        const futureRounds = existingMatches
+          .map(m => m.round)
+          .filter(round => round >= currentRound)
+          .filter((round, index, arr) => arr.indexOf(round) === index); // unique rounds
+        
+        console.log(`Clearing current and future rounds for regeneration: ${futureRounds.join(', ')}`);
+        
+        for (const round of futureRounds) {
+          const existingRoundMatches = await storage.getMatchesByRound(tournamentId, round);
+          const existingRoundPairings = await storage.getPairingsByRound(tournamentId, round);
           
-          if (incompleteMatches.length > 0) {
-            return res.status(400).json({ 
-              error: `Cannot generate next round. ${incompleteMatches.length} matches from Round ${maxRound} are still incomplete.`,
-              incompleteCount: incompleteMatches.length,
-              currentRound: maxRound
-            });
+          console.log(`Clearing round ${round}: ${existingRoundMatches.length} matches, ${existingRoundPairings.length} pairings`);
+          
+          const pairingsDeleted = await storage.deletePairingsByRound(tournamentId, round);
+          const matchesDeleted = await storage.deleteMatchesByRound(tournamentId, round);
+          
+          console.log(`Round ${round} deletion results: matches=${matchesDeleted}, pairings=${pairingsDeleted}`);
+        }
+      } else {
+        // Generating next round - find the last completed round
+        let lastCompletedRound = 0;
+        
+        if (existingMatches.length > 0) {
+          // Group matches by round and check completion
+          const roundGroups = existingMatches.reduce((acc, match) => {
+            if (!acc[match.round]) acc[match.round] = [];
+            acc[match.round].push(match);
+            return acc;
+          }, {} as Record<number, typeof existingMatches>);
+          
+          // Find the highest completed round
+          for (const round of Object.keys(roundGroups).map(Number).sort((a, b) => a - b)) {
+            const roundMatches = roundGroups[round];
+            const incompleteMatches = roundMatches.filter(m => !m.result || m.result === 'Pending');
+            
+            if (incompleteMatches.length === 0) {
+              lastCompletedRound = round;
+            } else {
+              // This round is incomplete, so we can't go further
+              break;
+            }
           }
         }
-        currentRound = maxRound + 1;
-      }
-      
-      // Clear existing matches and pairings for this round first (especially important for regeneration)
-      if (regenerate) {
-        const existingMatches = await storage.getMatchesByRound(tournamentId, currentRound);
-        const existingPairings = await storage.getPairingsByRound(tournamentId, currentRound);
         
-        console.log(`Clearing existing data for round ${currentRound}: ${existingMatches.length} matches, ${existingPairings.length} pairings`);
+        currentRound = lastCompletedRound + 1;
+        console.log(`Generating Round ${currentRound} (last completed: ${lastCompletedRound})`);
         
-        // Delete pairings first (no foreign key dependencies)
-        const pairingsDeleted = await storage.deletePairingsByRound(tournamentId, currentRound);
-        console.log(`Pairings deletion result: ${pairingsDeleted}`);
+        // Clear all future rounds (currentRound and higher) to ensure clean state
+        const futureRounds = existingMatches
+          .map(m => m.round)
+          .filter(round => round >= currentRound)
+          .filter((round, index, arr) => arr.indexOf(round) === index); // unique rounds
         
-        // Then delete matches
-        const matchesDeleted = await storage.deleteMatchesByRound(tournamentId, currentRound);
-        console.log(`Matches deletion result: ${matchesDeleted}`);
+        console.log(`Clearing future rounds: ${futureRounds.join(', ')}`);
         
-        // Small delay to ensure database operations complete
-        await new Promise(resolve => setTimeout(resolve, 100));
-        
-        // Verify deletion worked with fresh queries
-        const remainingMatches = await storage.getMatchesByRound(tournamentId, currentRound);
-        const remainingPairings = await storage.getPairingsByRound(tournamentId, currentRound);
-        console.log(`After deletion: ${remainingMatches.length} matches, ${remainingPairings.length} pairings remaining`);
-        
-        if (remainingMatches.length > 0 || remainingPairings.length > 0) {
-          console.error(`ERROR: Failed to delete all data. Remaining: ${remainingMatches.length} matches, ${remainingPairings.length} pairings`);
-          return res.status(500).json({ 
-            error: `Failed to clear existing round data. ${remainingMatches.length} matches and ${remainingPairings.length} pairings could not be deleted.`
-          });
+        for (const round of futureRounds) {
+          console.log(`Clearing round ${round}...`);
+          await storage.deletePairingsByRound(tournamentId, round);
+          await storage.deleteMatchesByRound(tournamentId, round);
         }
       }
       
