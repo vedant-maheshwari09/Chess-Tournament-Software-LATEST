@@ -355,6 +355,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const maxExistingRound = existingMatches.length > 0 ? 
           Math.max(...existingMatches.map(m => m.round)) : 0;
         
+        console.log(`No rounds to regenerate. maxExistingRound: ${maxExistingRound}, fromRound: ${fromRound}`);
+        
         if (fromRound === maxExistingRound + 1) {
           // Generate the next round
           console.log(`No future rounds exist yet, generating Round ${fromRound} as the next round`);
@@ -420,6 +422,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           });
         }
         
+        console.log(`Reached the end of regeneration logic without generating anything`);
         return res.status(200).json({ 
           message: "No future rounds found to regenerate",
           roundsAffected: 0,
