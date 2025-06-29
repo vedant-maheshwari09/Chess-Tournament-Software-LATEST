@@ -320,6 +320,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Regenerate future rounds endpoint
   app.post("/api/tournaments/:tournamentId/regenerate-future-rounds", async (req, res) => {
+    console.log(`=== ENDPOINT HIT: regenerate-future-rounds ===`);
     try {
       const tournamentId = parseInt(req.params.tournamentId);
       const { fromRound } = req.body;
