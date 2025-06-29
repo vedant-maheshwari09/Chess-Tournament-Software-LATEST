@@ -325,6 +325,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { fromRound } = req.body;
       
       console.log(`Regenerating future rounds from Round ${fromRound} for tournament ${tournamentId}`);
+      console.log(`Request body:`, JSON.stringify(req.body));
       
       const tournament = await storage.getTournament(tournamentId);
       if (!tournament) {
@@ -337,6 +338,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const existingMatches = await storage.getMatchesByTournament(tournamentId);
+      console.log(`Found ${existingMatches.length} total matches in tournament:`, existingMatches.map(m => `Round ${m.round} Match ${m.id}`));
       
       // Find all rounds to be regenerated (fromRound and higher)
       const roundsToRegenerate = existingMatches
