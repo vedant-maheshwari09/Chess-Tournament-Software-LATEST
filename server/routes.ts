@@ -174,9 +174,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         pairings.map(pairing => storage.createPairing(pairing))
       );
 
-      // Create matches from pairings
+      // Create matches from Swiss pairings (not from the generic pairings)
+      const swissPairings = generateSwissPairings(players, existingMatches, currentRound);
       const matches = await Promise.all(
-        pairings.filter(p => !p.isBye).map(pairing => storage.createMatch({
+        swissPairings.filter(p => !p.isBye).map(pairing => storage.createMatch({
           tournamentId: tournament.id,
           round: currentRound,
           board: pairing.board,
@@ -328,7 +329,7 @@ function generateSwissPairings(players: any[], matches: any[], round: number) {
     let boardNumber = 1;
     
     while (unpaired.length > 1) {
-      const player1 = unpaired.shift();
+      const player1 = unpaired.shift()!;
       
       // Find best opponent (avoid repeat pairings)
       let opponentIndex = -1;
@@ -340,32 +341,34 @@ function generateSwissPairings(players: any[], matches: any[], round: number) {
         }
       }
       
-      if (opponentIndex === -1) {
+      if (opponentIndex === -1 && unpaired.length > 0) {
         opponentIndex = 0; // No choice but to repeat
       }
       
-      const player2 = unpaired.splice(opponentIndex, 1)[0];
-      
-      // Determine colors based on balance
-      const p1Balance = player1.colorBalance;
-      const p2Balance = player2.colorBalance;
-      
-      let player1IsWhite = true;
-      if (p1Balance < p2Balance) {
-        player1IsWhite = true; // Player 1 needs white more
-      } else if (p2Balance < p1Balance) {
-        player1IsWhite = false; // Player 2 needs white more
-      } else {
-        // Equal balance, use rating
-        player1IsWhite = (player1.player.rating || 0) >= (player2.player.rating || 0);
+      if (opponentIndex >= 0) {
+        const player2 = unpaired.splice(opponentIndex, 1)[0];
+        
+        // Determine colors based on balance
+        const p1Balance = player1.colorBalance;
+        const p2Balance = player2.colorBalance;
+        
+        let player1IsWhite = true;
+        if (p1Balance < p2Balance) {
+          player1IsWhite = true; // Player 1 needs white more
+        } else if (p2Balance < p1Balance) {
+          player1IsWhite = false; // Player 2 needs white more
+        } else {
+          // Equal balance, use rating
+          player1IsWhite = (player1.player.rating || 0) >= (player2.player.rating || 0);
+        }
+        
+        pairings.push({
+          whitePlayerId: player1IsWhite ? player1.player.id : player2.player.id,
+          blackPlayerId: player1IsWhite ? player2.player.id : player1.player.id,
+          board: boardNumber++,
+          isBye: false,
+        });
       }
-      
-      pairings.push({
-        whitePlayerId: player1IsWhite ? player1.player.id : player2.player.id,
-        blackPlayerId: player1IsWhite ? player2.player.id : player1.player.id,
-        board: boardNumber++,
-        isBye: false,
-      });
     }
     
     if (unpaired.length === 1) {
