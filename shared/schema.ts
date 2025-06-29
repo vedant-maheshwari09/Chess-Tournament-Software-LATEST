@@ -11,6 +11,8 @@ export const tournaments = pgTable("tournaments", {
   timeControl: text("time_control"),
   currentRound: integer("current_round").default(0),
   isDoubleRoundRobin: boolean("is_double_round_robin").default(false),
+  playerCount: integer("player_count"), // for quick setup mode
+  useQuickSetup: boolean("use_quick_setup").default(false),
 });
 
 export const players = pgTable("players", {

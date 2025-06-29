@@ -55,7 +55,17 @@ export class MemStorage implements IStorage {
   // Tournament methods
   async createTournament(tournament: InsertTournament): Promise<Tournament> {
     const id = this.currentTournamentId++;
-    const newTournament: Tournament = { ...tournament, id };
+    const newTournament: Tournament = { 
+      ...tournament, 
+      id,
+      status: tournament.status || 'draft',
+      currentRound: tournament.currentRound || 0,
+      isDoubleRoundRobin: tournament.isDoubleRoundRobin || false,
+      useQuickSetup: tournament.useQuickSetup || false,
+      rounds: tournament.rounds || null,
+      timeControl: tournament.timeControl || null,
+      playerCount: tournament.playerCount || null,
+    };
     this.tournaments.set(id, newTournament);
     return newTournament;
   }
@@ -88,7 +98,13 @@ export class MemStorage implements IStorage {
       .filter(p => p.tournamentId === player.tournamentId);
     const seed = playersInTournament.length + 1;
     
-    const newPlayer: Player = { ...player, id, seed };
+    const newPlayer: Player = { 
+      ...player, 
+      id, 
+      seed,
+      rating: player.rating || 1000,
+      federation: player.federation || 'USCF',
+    };
     this.players.set(id, newPlayer);
     return newPlayer;
   }
@@ -119,7 +135,15 @@ export class MemStorage implements IStorage {
   // Match methods
   async createMatch(match: InsertMatch): Promise<Match> {
     const id = this.currentMatchId++;
-    const newMatch: Match = { ...match, id };
+    const newMatch: Match = { 
+      ...match, 
+      id,
+      status: match.status || 'pending',
+      result: match.result || null,
+      board: match.board || null,
+      whitePlayerId: match.whitePlayerId || null,
+      blackPlayerId: match.blackPlayerId || null,
+    };
     this.matches.set(id, newMatch);
     return newMatch;
   }
@@ -151,7 +175,14 @@ export class MemStorage implements IStorage {
   // Pairing methods
   async createPairing(pairing: InsertPairing): Promise<Pairing> {
     const id = this.currentPairingId++;
-    const newPairing: Pairing = { ...pairing, id };
+    const newPairing: Pairing = { 
+      ...pairing, 
+      id,
+      color: pairing.color || null,
+      points: pairing.points || 0,
+      opponentId: pairing.opponentId || null,
+      isBye: pairing.isBye || false,
+    };
     this.pairings.set(id, newPairing);
     return newPairing;
   }

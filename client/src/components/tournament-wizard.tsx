@@ -21,17 +21,39 @@ export default function TournamentWizard({ tournament, onTournamentCreated }: To
   const [rounds, setRounds] = useState(tournament?.rounds || 5);
   const [timeControl, setTimeControl] = useState(tournament?.timeControl || "90 min + 30 sec increment");
   const [isDoubleRoundRobin, setIsDoubleRoundRobin] = useState(tournament?.isDoubleRoundRobin || false);
+  const [useQuickSetup, setUseQuickSetup] = useState(tournament?.useQuickSetup || false);
+  const [playerCount, setPlayerCount] = useState(tournament?.playerCount || 8);
   const { toast } = useToast();
 
   const createTournamentMutation = useMutation({
     mutationFn: async (tournamentData: InsertTournament) => {
       const response = await apiRequest("POST", "/api/tournaments", tournamentData);
-      return response.json();
+      const tournament = await response.json();
+      
+      // If using quick setup, automatically create players
+      if (tournamentData.useQuickSetup && tournamentData.playerCount) {
+        const playerPromises = [];
+        for (let i = 1; i <= tournamentData.playerCount; i++) {
+          playerPromises.push(
+            apiRequest("POST", `/api/tournaments/${tournament.id}/players`, {
+              firstName: `Player`,
+              lastName: `${i}`,
+              rating: 1000,
+              federation: "USCF",
+            })
+          );
+        }
+        await Promise.all(playerPromises);
+      }
+      
+      return tournament;
     },
     onSuccess: (newTournament) => {
       toast({
         title: "Tournament Created",
-        description: "Your tournament has been successfully created.",
+        description: useQuickSetup 
+          ? `Tournament created with ${playerCount} players automatically added.`
+          : "Your tournament has been successfully created.",
       });
       queryClient.invalidateQueries({ queryKey: ["/api/tournaments"] });
       onTournamentCreated(newTournament);
@@ -64,6 +86,8 @@ export default function TournamentWizard({ tournament, onTournamentCreated }: To
       timeControl,
       currentRound: 0,
       isDoubleRoundRobin: format === 'roundrobin' ? isDoubleRoundRobin : false,
+      useQuickSetup,
+      playerCount: useQuickSetup ? playerCount : undefined,
     };
 
     createTournamentMutation.mutate(tournamentData);
@@ -202,6 +226,47 @@ export default function TournamentWizard({ tournament, onTournamentCreated }: To
               </div>
             </div>
           )}
+
+          <div className="bg-blue-50 rounded-lg p-4">
+            <h4 className="font-medium text-gray-900 mb-3">Player Setup</h4>
+            <div className="space-y-4">
+              <div className="flex items-center space-x-2">
+                <input
+                  type="checkbox"
+                  id="useQuickSetup"
+                  checked={useQuickSetup}
+                  onChange={(e) => setUseQuickSetup(e.target.checked)}
+                  className="rounded border-gray-300"
+                />
+                <Label htmlFor="useQuickSetup">Quick Setup - Just specify number of players (Player 1, Player 2, etc.)</Label>
+              </div>
+              
+              {useQuickSetup && (
+                <div>
+                  <Label htmlFor="playerCount">Number of Players</Label>
+                  <Select value={playerCount.toString()} onValueChange={(value) => setPlayerCount(parseInt(value))}>
+                    <SelectTrigger className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {Array.from({ length: 15 }, (_, i) => i + 4).map((num) => (
+                        <SelectItem key={num} value={num.toString()}>{num} players</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-sm text-gray-600 mt-1">
+                    Players will be automatically created as "Player 1", "Player 2", etc.
+                  </p>
+                </div>
+              )}
+              
+              {!useQuickSetup && (
+                <p className="text-sm text-gray-600">
+                  You'll be able to add players manually with names, ratings, and other details after creating the tournament.
+                </p>
+              )}
+            </div>
+          </div>
 
           <div className="flex justify-end space-x-3">
             <Button type="submit" disabled={createTournamentMutation.isPending}>
