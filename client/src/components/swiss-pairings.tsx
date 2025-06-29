@@ -123,23 +123,11 @@ export default function SwissPairings({ tournamentId }: SwissPairingsProps) {
       queryClient.invalidateQueries({ queryKey: [`/api/tournaments/${tournamentId}/pairings`] });
       queryClient.invalidateQueries({ queryKey: [`/api/tournaments/${tournamentId}/players`] });
       
-      // Check if we updated a match in an earlier round - if so, offer to regenerate future rounds
-      if (allMatches) {
-        const maxRound = Math.max(...allMatches.map(m => m.round));
-        const updatedMatchData = allMatches.find(m => m.id === variables.matchId);
-        
-        if (updatedMatchData && updatedMatchData.round < maxRound) {
-          // Automatically regenerate future rounds when changing earlier round results
-          const nextRound = updatedMatchData.round + 1;
-          console.log(`Auto-regenerating from Round ${nextRound} due to Round ${updatedMatchData.round} result change`);
-          regenerateFutureRoundsMutation.mutate({ fromRound: nextRound }, {});
-          
-          toast({
-            title: "Result Updated",
-            description: `Automatically regenerating all rounds from Round ${nextRound} onwards to reflect this change.`,
-          });
-        }
-      }
+      // Just show a toast that the result was updated
+      toast({
+        title: "Result Updated",
+        description: "Match result has been saved. Use 'Restart Tournament from Round 2' to regenerate future rounds if needed.",
+      });
     },
     onError: () => {
       toast({
