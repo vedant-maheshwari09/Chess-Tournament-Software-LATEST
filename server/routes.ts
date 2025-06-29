@@ -235,6 +235,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
         currentRound = lastCompletedRound + 1;
         console.log(`Generating Round ${currentRound} (last completed: ${lastCompletedRound})`);
         
+        // Validate that we can generate this round
+        if (lastCompletedRound === 0 && existingMatches.length > 0) {
+          // There are matches but none are completed
+          const incompleteMatches = existingMatches.filter(m => !m.result || m.result === 'Pending');
+          if (incompleteMatches.length > 0) {
+            return res.status(400).json({ 
+              error: `Cannot generate Round ${currentRound}. Complete all matches in Round ${Math.min(...existingMatches.map(m => m.round))} first.`
+            });
+          }
+        }
+        
         // Clear all future rounds (currentRound and higher) to ensure clean state
         const futureRounds = existingMatches
           .map(m => m.round)
@@ -321,9 +332,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Regenerate future rounds endpoint
   app.post("/api/tournaments/:tournamentId/regenerate-future-rounds", async (req, res) => {
     console.log(`=== ENDPOINT HIT: regenerate-future-rounds ===`);
+    console.log(`Raw request body:`, req.body);
     try {
       const tournamentId = parseInt(req.params.tournamentId);
       const { fromRound } = req.body;
+      
+      if (!fromRound) {
+        console.log(`=== ERROR: fromRound missing ===`);
+        return res.status(400).json({ message: "fromRound parameter required" });
+      }
       
       console.log(`=== REGENERATION START ===`);
       console.log(`Regenerating future rounds from Round ${fromRound} for tournament ${tournamentId}`);
