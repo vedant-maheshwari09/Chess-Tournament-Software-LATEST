@@ -3,6 +3,7 @@ import {
   players, 
   matches, 
   pairings,
+  byeRequests,
   type Tournament, 
   type InsertTournament,
   type Player,
@@ -10,7 +11,9 @@ import {
   type Match,
   type InsertMatch,
   type Pairing,
-  type InsertPairing
+  type InsertPairing,
+  type ByeRequest,
+  type InsertByeRequest
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and } from "drizzle-orm";
@@ -42,6 +45,12 @@ export interface IStorage {
   getPairingsByTournament(tournamentId: number): Promise<Pairing[]>;
   getPairingsByRound(tournamentId: number, round: number): Promise<Pairing[]>;
   updatePairing(id: number, pairing: Partial<Pairing>): Promise<Pairing | undefined>;
+
+  // Bye request methods
+  createByeRequest(byeRequest: InsertByeRequest): Promise<ByeRequest>;
+  getByeRequestsByTournament(tournamentId: number): Promise<ByeRequest[]>;
+  getByeRequestsByRound(tournamentId: number, round: number): Promise<ByeRequest[]>;
+  updateByeRequest(id: number, byeRequest: Partial<ByeRequest>): Promise<ByeRequest | undefined>;
 }
 
 export class DatabaseStorage implements IStorage {

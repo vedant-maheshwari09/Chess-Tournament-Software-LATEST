@@ -23,6 +23,9 @@ export const players = pgTable("players", {
   rating: integer("rating").default(1000),
   federation: text("federation").default('USCF'),
   seed: integer("seed"),
+  halfPointByesUsed: integer("half_point_byes_used").default(0),
+  fullPointByesReceived: integer("full_point_byes_received").default(0),
+  forfeitWinsReceived: integer("forfeit_wins_received").default(0),
 });
 
 export const matches = pgTable("matches", {
@@ -45,6 +48,17 @@ export const pairings = pgTable("pairings", {
   color: text("color"), // 'white', 'black'
   points: integer("points").default(0),
   isBye: boolean("is_bye").default(false),
+  byeType: text("bye_type"), // 'half_point', 'full_point', null
+});
+
+export const byeRequests = pgTable("bye_requests", {
+  id: serial("id").primaryKey(),
+  tournamentId: integer("tournament_id").notNull(),
+  playerId: integer("player_id").notNull(),
+  round: integer("round").notNull(),
+  byeType: text("bye_type").notNull(), // 'half_point', 'full_point'
+  status: text("status").notNull().default('requested'), // 'requested', 'approved', 'cancelled'
+  requestedAt: timestamp("requested_at").defaultNow(),
 });
 
 export const insertTournamentSchema = createInsertSchema(tournaments).omit({
@@ -64,6 +78,11 @@ export const insertPairingSchema = createInsertSchema(pairings).omit({
   id: true,
 });
 
+export const insertByeRequestSchema = createInsertSchema(byeRequests).omit({
+  id: true,
+  requestedAt: true,
+});
+
 export type Tournament = typeof tournaments.$inferSelect;
 export type InsertTournament = z.infer<typeof insertTournamentSchema>;
 export type Player = typeof players.$inferSelect;
@@ -72,3 +91,5 @@ export type Match = typeof matches.$inferSelect;
 export type InsertMatch = z.infer<typeof insertMatchSchema>;
 export type Pairing = typeof pairings.$inferSelect;
 export type InsertPairing = z.infer<typeof insertPairingSchema>;
+export type ByeRequest = typeof byeRequests.$inferSelect;
+export type InsertByeRequest = z.infer<typeof insertByeRequestSchema>;
