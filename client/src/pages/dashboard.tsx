@@ -1,12 +1,13 @@
 import { useQuery } from "@tanstack/react-query";
-import { Link } from "wouter";
+import { Link, useLocation } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Trophy, Users, Calendar, Plus } from "lucide-react";
+import { Trophy, Users, Calendar, Plus, Settings } from "lucide-react";
 import type { Tournament } from "@shared/schema";
 
 export default function Dashboard() {
+  const [location] = useLocation();
   const { data: tournaments, isLoading } = useQuery<Tournament[]>({
     queryKey: ["/api/tournaments"],
   });
@@ -48,10 +49,10 @@ export default function Dashboard() {
               <h1 className="text-xl font-bold text-gray-900">ChessTournament Pro</h1>
             </div>
             <nav className="hidden md:flex space-x-8">
-              <Link href="/" className="text-primary font-medium">Dashboard</Link>
-              <Link href="/tournaments" className="text-gray-600 hover:text-gray-900">Tournaments</Link>
-              <Link href="/players" className="text-gray-600 hover:text-gray-900">Players</Link>
-              <Link href="/settings" className="text-gray-600 hover:text-gray-900">Settings</Link>
+              <Link href="/" className={location === "/" ? "text-primary font-medium" : "text-gray-600 hover:text-gray-900"}>Dashboard</Link>
+              <Link href="/tournaments" className={location === "/tournaments" ? "text-primary font-medium" : "text-gray-600 hover:text-gray-900"}>Tournaments</Link>
+              <Link href="/players" className={location === "/players" ? "text-primary font-medium" : "text-gray-600 hover:text-gray-900"}>Players</Link>
+              <Link href="/settings" className={location === "/settings" ? "text-primary font-medium" : "text-gray-600 hover:text-gray-900"}>Settings</Link>
             </nav>
             <Link href="/tournaments/new">
               <Button className="bg-primary hover:bg-primary/90">
@@ -65,11 +66,55 @@ export default function Dashboard() {
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="mb-8">
-          <h2 className="text-2xl font-bold text-gray-900 mb-2">Tournament Dashboard</h2>
-          <p className="text-gray-600">Manage and track your chess tournaments</p>
+          {location === "/" && (
+            <>
+              <h2 className="text-2xl font-bold text-gray-900 mb-2">Tournament Dashboard</h2>
+              <p className="text-gray-600">Manage and track your chess tournaments</p>
+            </>
+          )}
+          {location === "/tournaments" && (
+            <>
+              <h2 className="text-2xl font-bold text-gray-900 mb-2">All Tournaments</h2>
+              <p className="text-gray-600">View and manage all your chess tournaments</p>
+            </>
+          )}
+          {location === "/players" && (
+            <>
+              <h2 className="text-2xl font-bold text-gray-900 mb-2">Player Management</h2>
+              <p className="text-gray-600">Manage players across all tournaments</p>
+            </>
+          )}
+          {location === "/settings" && (
+            <>
+              <h2 className="text-2xl font-bold text-gray-900 mb-2">Settings</h2>
+              <p className="text-gray-600">Configure your tournament management preferences</p>
+            </>
+          )}
         </div>
 
-        {(!tournaments || tournaments.length === 0) ? (
+        {location === "/players" ? (
+          <Card className="text-center py-12">
+            <CardContent>
+              <Users className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+              <h3 className="text-lg font-medium text-gray-900 mb-2">Player Management</h3>
+              <p className="text-gray-600 mb-6">View and manage all players across your tournaments</p>
+              <Button variant="outline" disabled>
+                Coming Soon - Player Database
+              </Button>
+            </CardContent>
+          </Card>
+        ) : location === "/settings" ? (
+          <Card className="text-center py-12">
+            <CardContent>
+              <Settings className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+              <h3 className="text-lg font-medium text-gray-900 mb-2">Settings</h3>
+              <p className="text-gray-600 mb-6">Configure tournament defaults and application preferences</p>
+              <Button variant="outline" disabled>
+                Coming Soon - Settings Panel
+              </Button>
+            </CardContent>
+          </Card>
+        ) : (!tournaments || tournaments.length === 0) ? (
           <Card className="text-center py-12">
             <CardContent>
               <Trophy className="h-12 w-12 text-gray-400 mx-auto mb-4" />

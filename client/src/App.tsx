@@ -11,6 +11,9 @@ function Router() {
   return (
     <Switch>
       <Route path="/" component={Dashboard} />
+      <Route path="/tournaments" component={Dashboard} />
+      <Route path="/players" component={Dashboard} />
+      <Route path="/settings" component={Dashboard} />
       <Route path="/tournaments/new" component={TournamentCreation} />
       <Route path="/tournaments/:id" component={Dashboard} />
       <Route component={NotFound} />
