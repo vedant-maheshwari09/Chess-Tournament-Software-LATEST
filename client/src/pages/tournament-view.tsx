@@ -1,11 +1,14 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { useRoute, Link } from "wouter";
+import { useQuery, useMutation } from "@tanstack/react-query";
+import { useRoute, Link, useLocation } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Trophy, ArrowLeft } from "lucide-react";
+import { Trophy, ArrowLeft, Trash2 } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
+import { useToast } from "@/hooks/use-toast";
+import { apiRequest, queryClient } from "@/lib/queryClient";
 import TournamentWizard from "@/components/tournament-wizard";
 import PlayerRegistration from "@/components/player-registration";
 import SwissPairings from "@/components/swiss-pairings";
@@ -17,14 +20,41 @@ export default function TournamentView() {
   const [match, params] = useRoute("/tournaments/:id");
   const tournamentId = params?.id ? parseInt(params.id) : null;
   const [activeTab, setActiveTab] = useState("players");
+  const [, setLocation] = useLocation();
+  const { toast } = useToast();
 
   const { data: tournament, isLoading } = useQuery<Tournament>({
     queryKey: [`/api/tournaments/${tournamentId}`],
     enabled: !!tournamentId,
   });
 
+  const deleteTournamentMutation = useMutation({
+    mutationFn: async () => {
+      await apiRequest("DELETE", `/api/tournaments/${tournamentId}`);
+    },
+    onSuccess: () => {
+      toast({
+        title: "Tournament Deleted",
+        description: "The tournament has been successfully deleted.",
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/tournaments"] });
+      setLocation("/");
+    },
+    onError: () => {
+      toast({
+        title: "Error",
+        description: "Failed to delete tournament. Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
+
   const handleTournamentUpdated = (updatedTournament: Tournament) => {
     // Tournament has been updated, could refresh data here
+  };
+
+  const handleDeleteTournament = () => {
+    deleteTournamentMutation.mutate();
   };
 
   if (isLoading) {
@@ -104,6 +134,35 @@ export default function TournamentView() {
                   </span>
                 </div>
               </div>
+            </div>
+            <div className="flex items-center space-x-3">
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button variant="destructive" size="sm">
+                    <Trash2 className="h-4 w-4 mr-2" />
+                    Delete Tournament
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Delete Tournament</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      Are you sure you want to delete "{tournament.name}"? This action cannot be undone. 
+                      All players, matches, and pairings will be permanently removed.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                    <AlertDialogAction 
+                      onClick={handleDeleteTournament}
+                      className="bg-red-600 hover:bg-red-700"
+                      disabled={deleteTournamentMutation.isPending}
+                    >
+                      {deleteTournamentMutation.isPending ? "Deleting..." : "Delete Tournament"}
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
             </div>
           </div>
         </div>

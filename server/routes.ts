@@ -54,6 +54,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Delete tournament
+  app.delete("/api/tournaments/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const deleted = await storage.deleteTournament(id);
+      if (!deleted) {
+        return res.status(404).json({ message: "Tournament not found" });
+      }
+      res.status(200).json({ message: "Tournament deleted successfully" });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to delete tournament" });
+    }
+  });
+
   // Player routes
   app.get("/api/tournaments/:tournamentId/players", async (req, res) => {
     try {
