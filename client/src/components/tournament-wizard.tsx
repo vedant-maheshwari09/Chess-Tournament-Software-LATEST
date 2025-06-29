@@ -19,7 +19,7 @@ export default function TournamentWizard({ tournament, onTournamentCreated }: To
   const [name, setName] = useState(tournament?.name || "");
   const [format, setFormat] = useState<'swiss' | 'roundrobin' | 'knockout'>(tournament?.format as any || 'swiss');
   const [rounds, setRounds] = useState(tournament?.rounds || 5);
-  const [timeControl, setTimeControl] = useState(tournament?.timeControl || "90 min + 30 sec increment");
+
   const [isDoubleRoundRobin, setIsDoubleRoundRobin] = useState(tournament?.isDoubleRoundRobin || false);
   const [tournamentMode, setTournamentMode] = useState<'casual' | 'official'>('casual');
   const [playerCount, setPlayerCount] = useState(tournament?.playerCount || 8);
@@ -85,7 +85,6 @@ export default function TournamentWizard({ tournament, onTournamentCreated }: To
       format,
       status: 'draft',
       rounds: format === 'swiss' ? rounds : undefined,
-      timeControl,
       currentRound: 0,
       isDoubleRoundRobin: format === 'roundrobin' ? isDoubleRoundRobin : false,
       useQuickSetup: tournamentMode === 'casual' && !skipAutoGeneration,
@@ -181,34 +180,18 @@ export default function TournamentWizard({ tournament, onTournamentCreated }: To
           {format === 'swiss' && (
             <div className="bg-gray-50 rounded-lg p-4">
               <h4 className="font-medium text-gray-900 mb-3">Swiss System Configuration</h4>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <Label htmlFor="rounds">Number of Rounds</Label>
-                  <Select value={rounds.toString()} onValueChange={(value) => setRounds(parseInt(value))}>
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {Array.from({ length: 18 }, (_, i) => i + 3).map((num) => (
-                        <SelectItem key={num} value={num.toString()}>{num} rounds</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div>
-                  <Label htmlFor="timeControl">Time Control</Label>
-                  <Select value={timeControl} onValueChange={setTimeControl}>
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="90 min + 30 sec increment">90 min + 30 sec increment</SelectItem>
-                      <SelectItem value="60 min + 15 sec increment">60 min + 15 sec increment</SelectItem>
-                      <SelectItem value="30 min + 10 sec increment">30 min + 10 sec increment</SelectItem>
-                      <SelectItem value="15 min + 5 sec increment">15 min + 5 sec increment</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
+              <div>
+                <Label htmlFor="rounds">Number of Rounds</Label>
+                <Select value={rounds.toString()} onValueChange={(value) => setRounds(parseInt(value))}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {Array.from({ length: 18 }, (_, i) => i + 3).map((num) => (
+                      <SelectItem key={num} value={num.toString()}>{num} rounds</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
             </div>
           )}
