@@ -65,23 +65,32 @@ export default function SwissPairings({ tournamentId }: SwissPairingsProps) {
   });
 
   const generatePairingsMutation = useMutation({
-    mutationFn: async () => {
+    mutationFn: async ({ regenerate = false }: { regenerate?: boolean } = {}) => {
       const response = await apiRequest("POST", `/api/tournaments/${tournamentId}/generate-pairings`, {
-        round: currentRound,
+        regenerate,
+        targetRound: regenerate ? currentRound : undefined,
       });
       return response.json();
     },
-    onSuccess: () => {
+    onSuccess: (data, variables) => {
       toast({
-        title: "Pairings Generated",
-        description: `Round ${currentRound} pairings have been generated.`,
+        title: "Success",
+        description: variables?.regenerate 
+          ? `Round ${currentRound} has been regenerated` 
+          : `Round ${currentRound + 1} pairings generated`,
       });
       queryClient.invalidateQueries({ queryKey: [`/api/tournaments/${tournamentId}/matches`] });
+      queryClient.invalidateQueries({ queryKey: [`/api/tournaments/${tournamentId}/pairings`] });
+      // Update current round if generating next round
+      if (!variables?.regenerate) {
+        setCurrentRound(prev => prev + 1);
+      }
     },
-    onError: () => {
+    onError: (error: any) => {
+      const errorMessage = error?.error || "Failed to generate pairings. Please try again.";
       toast({
-        title: "Error",
-        description: "Failed to generate pairings. Please try again.",
+        title: "Cannot Generate Pairings",
+        description: errorMessage,
         variant: "destructive",
       });
     },
@@ -176,7 +185,7 @@ export default function SwissPairings({ tournamentId }: SwissPairingsProps) {
           </div>
           <div className="flex space-x-3">
             <Button
-              onClick={() => generatePairingsMutation.mutate()}
+              onClick={() => generatePairingsMutation.mutate({ regenerate: false })}
               disabled={generatePairingsMutation.isPending}
               className="bg-green-600 hover:bg-green-700"
             >
@@ -185,11 +194,11 @@ export default function SwissPairings({ tournamentId }: SwissPairingsProps) {
             </Button>
             <Button
               variant="outline"
-              onClick={() => generatePairingsMutation.mutate()}
+              onClick={() => generatePairingsMutation.mutate({ regenerate: true })}
               disabled={generatePairingsMutation.isPending}
             >
               <RefreshCw className="h-4 w-4 mr-2" />
-              Regenerate
+              Regenerate Round {currentRound}
             </Button>
           </div>
         </div>
@@ -206,7 +215,7 @@ export default function SwissPairings({ tournamentId }: SwissPairingsProps) {
         ) : !matches || matches.length === 0 ? (
           <div className="text-center py-8">
             <p className="text-gray-500 mb-4">No pairings generated yet</p>
-            <Button onClick={() => generatePairingsMutation.mutate()}>
+            <Button onClick={() => generatePairingsMutation.mutate({ regenerate: false })}>
               Generate Pairings
             </Button>
           </div>

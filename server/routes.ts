@@ -164,6 +164,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/tournaments/:tournamentId/generate-pairings", async (req, res) => {
     try {
       const tournamentId = parseInt(req.params.tournamentId);
+      const { regenerate = false, targetRound } = req.body;
       
       const tournament = await storage.getTournament(tournamentId);
       if (!tournament) {
@@ -175,10 +176,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "At least 2 players required to generate pairings" });
       }
 
-      // Determine the next round number
       const existingMatches = await storage.getMatchesByTournament(tournamentId);
-      const currentRound = existingMatches.length > 0 ? 
-        Math.max(...existingMatches.map(match => match.round)) + 1 : 1;
+      let currentRound;
+
+      if (regenerate && targetRound) {
+        // Regenerating existing round
+        currentRound = targetRound;
+        console.log(`Regenerating round ${currentRound}`);
+      } else {
+        // Generating next round - check if previous round is complete
+        const maxRound = existingMatches.length > 0 ? 
+          Math.max(...existingMatches.map(match => match.round)) : 0;
+        
+        if (maxRound > 0) {
+          const previousRoundMatches = existingMatches.filter(m => m.round === maxRound);
+          const incompleteMatches = previousRoundMatches.filter(m => !m.result || m.result === 'Pending');
+          
+          if (incompleteMatches.length > 0) {
+            return res.status(400).json({ 
+              error: `Cannot generate next round. ${incompleteMatches.length} matches from Round ${maxRound} are still incomplete.`,
+              incompleteCount: incompleteMatches.length,
+              currentRound: maxRound
+            });
+          }
+        }
+        currentRound = maxRound + 1;
+      }
       
       // Clear existing matches for this round first
       const existingRoundMatches = await storage.getMatchesByRound(tournamentId, currentRound);

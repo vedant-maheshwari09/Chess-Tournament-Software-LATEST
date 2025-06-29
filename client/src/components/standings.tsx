@@ -27,6 +27,17 @@ export default function Standings({ tournamentId }: StandingsProps) {
     queryKey: ["/api/tournaments", tournamentId, "matches"],
   });
 
+  const { data: pairings, isLoading: pairingsLoading } = useQuery({
+    queryKey: ["/api/tournaments", tournamentId, "pairings"],
+    queryFn: async () => {
+      const response = await fetch(`/api/tournaments/${tournamentId}/pairings`, {
+        credentials: "include",
+      });
+      if (!response.ok) throw new Error("Failed to fetch pairings");
+      return response.json();
+    },
+  });
+
   if (playersLoading || matchesLoading) {
     return (
       <Card>
