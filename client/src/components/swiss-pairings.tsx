@@ -94,6 +94,7 @@ export default function SwissPairings({ tournamentId }: SwissPairingsProps) {
       });
       queryClient.invalidateQueries({ queryKey: [`/api/tournaments/${tournamentId}/matches`] });
       queryClient.invalidateQueries({ queryKey: [`/api/tournaments/${tournamentId}/pairings`] });
+      queryClient.invalidateQueries({ queryKey: [`/api/tournaments/${tournamentId}/players`] });
       // Update current round if generating next round
       if (!variables?.regenerate) {
         setCurrentRound(prev => prev + 1);
@@ -119,6 +120,8 @@ export default function SwissPairings({ tournamentId }: SwissPairingsProps) {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [`/api/tournaments/${tournamentId}/matches`] });
+      queryClient.invalidateQueries({ queryKey: [`/api/tournaments/${tournamentId}/pairings`] });
+      queryClient.invalidateQueries({ queryKey: [`/api/tournaments/${tournamentId}/players`] });
     },
     onError: () => {
       toast({
@@ -356,7 +359,7 @@ export default function SwissPairings({ tournamentId }: SwissPairingsProps) {
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="flex items-center">
                           <div className="text-sm font-medium text-gray-900">
-                            {getPlayerName(match.blackPlayerId)}
+                            {getPlayerName(match.blackPlayerId)} [{getPlayerPoints(match.blackPlayerId)}]
                           </div>
                           <div className="text-xs text-gray-500 ml-2">
                             ({getPlayerRating(match.blackPlayerId)})
@@ -396,7 +399,7 @@ export default function SwissPairings({ tournamentId }: SwissPairingsProps) {
                   {pairings.filter((p: any) => p.isBye).map((byePairing: any) => (
                     <div key={byePairing.id} className="flex items-center justify-between text-sm">
                       <span className="text-yellow-700">
-                        {getPlayerName(byePairing.playerId)} ({getPlayerRating(byePairing.playerId)})
+                        {getPlayerName(byePairing.playerId)} [{getPlayerPoints(byePairing.playerId)}] ({getPlayerRating(byePairing.playerId)})
                       </span>
                       <Badge variant="outline" className="text-yellow-700 border-yellow-300">
                         {byePairing.byeType === 'half_point' ? '½ Point Bye' : '1 Point Bye'}
