@@ -375,8 +375,100 @@ async function generatePairings(tournament: any, players: any[], matches: any[],
   return pairings;
 }
 
+// Helper functions for proper Swiss pairing
+function groupPlayersByScore(playerStats: any[]): any[][] {
+  const groups: { [score: string]: any[] } = {};
+  
+  for (const player of playerStats) {
+    const score = player.points.toString();
+    if (!groups[score]) {
+      groups[score] = [];
+    }
+    groups[score].push(player);
+  }
+  
+  // Sort groups by score (highest first) and players within groups by rating (highest first)
+  return Object.keys(groups)
+    .sort((a, b) => parseFloat(b) - parseFloat(a))
+    .map(score => groups[score].sort((a, b) => (b.player.rating || 0) - (a.player.rating || 0)));
+}
+
+function pairUpperVsLowerHalf(scoreGroup: any[], matches: any[], round: number): { paired: any[][], unpaired: any[] } {
+  const paired: any[][] = [];
+  const unpaired: any[] = [];
+  
+  if (scoreGroup.length < 2) {
+    return { paired, unpaired: [...scoreGroup] };
+  }
+
+  // Sort by rating (highest first for proper upper/lower half)
+  const sortedGroup = [...scoreGroup].sort((a, b) => (b.player.rating || 0) - (a.player.rating || 0));
+  const midPoint = Math.floor(sortedGroup.length / 2);
+  
+  const upperHalf = sortedGroup.slice(0, midPoint);
+  const lowerHalf = sortedGroup.slice(midPoint);
+  
+  // Pair upper half with lower half
+  const maxPairs = Math.min(upperHalf.length, lowerHalf.length);
+  
+  for (let i = 0; i < maxPairs; i++) {
+    const upperPlayer = upperHalf[i];
+    let pairedLowerPlayer = null;
+    let pairedIndex = -1;
+    
+    // Rule #1: Find a lower half player they haven't played before
+    for (let j = i; j < lowerHalf.length; j++) {
+      const lowerPlayer = lowerHalf[j];
+      if (!havePlayed(upperPlayer.player.id, lowerPlayer.player.id, matches)) {
+        pairedLowerPlayer = lowerPlayer;
+        pairedIndex = j;
+        break;
+      }
+    }
+    
+    if (pairedLowerPlayer) {
+      paired.push([upperPlayer, pairedLowerPlayer]);
+      // Remove the paired lower player
+      lowerHalf.splice(pairedIndex, 1);
+    } else {
+      // No unplayed opponent available, add to unpaired
+      unpaired.push(upperPlayer);
+    }
+  }
+  
+  // Add any remaining unpaired players
+  unpaired.push(...upperHalf.slice(maxPairs), ...lowerHalf);
+  
+  return { paired, unpaired };
+}
+
+function determineSwissColors(player1: any, player2: any): { whitePlayer: any, blackPlayer: any } {
+  // Rules 4 & 5: Color equalization and alternation
+  const p1Balance = player1.colorBalance || 0; // whiteGames - blackGames
+  const p2Balance = player2.colorBalance || 0;
+  
+  // Strong color preference (2+ game difference)
+  if (p1Balance <= -2) return { whitePlayer: player1.player, blackPlayer: player2.player };
+  if (p1Balance >= 2) return { whitePlayer: player2.player, blackPlayer: player1.player };
+  if (p2Balance <= -2) return { whitePlayer: player2.player, blackPlayer: player1.player };
+  if (p2Balance >= 2) return { whitePlayer: player1.player, blackPlayer: player2.player };
+
+  // Moderate color preference (1 game difference)
+  if (p1Balance === -1 && p2Balance >= 0) return { whitePlayer: player1.player, blackPlayer: player2.player };
+  if (p1Balance === 1 && p2Balance <= 0) return { whitePlayer: player2.player, blackPlayer: player1.player };
+  if (p2Balance === -1 && p1Balance >= 0) return { whitePlayer: player2.player, blackPlayer: player1.player };
+  if (p2Balance === 1 && p1Balance <= 0) return { whitePlayer: player1.player, blackPlayer: player2.player };
+
+  // No strong preference - higher rated player gets white
+  if ((player1.player.rating || 0) > (player2.player.rating || 0)) {
+    return { whitePlayer: player1.player, blackPlayer: player2.player };
+  } else {
+    return { whitePlayer: player2.player, blackPlayer: player1.player };
+  }
+}
+
 function generateSwissPairings(players: any[], matches: any[], round: number) {
-  // Server-side Swiss pairing implementation
+  // Server-side Swiss pairing implementation following USCF rules
   const pairings = [];
   
   if (round === 1) {
@@ -385,16 +477,15 @@ function generateSwissPairings(players: any[], matches: any[], round: number) {
     const n = sortedPlayers.length;
     const isOdd = n % 2 === 1;
     
-    const mid = Math.ceil(n / 2);
+    const mid = Math.floor(n / 2);
     const upperHalf = sortedPlayers.slice(0, mid);
     const lowerHalf = sortedPlayers.slice(mid);
     
     const firstBoardWhiteIsUpper = Math.random() < 0.5;
     let boardNumber = 1;
     
-    const pairsCount = Math.min(upperHalf.length, lowerHalf.length);
-    
-    for (let i = 0; i < pairsCount; i++) {
+    // Pair upper half vs lower half
+    for (let i = 0; i < upperHalf.length && i < lowerHalf.length; i++) {
       const upperPlayer = upperHalf[i];
       const lowerPlayer = lowerHalf[i];
       
@@ -408,78 +499,71 @@ function generateSwissPairings(players: any[], matches: any[], round: number) {
       });
     }
     
+    // Handle odd player (bye)
     if (isOdd) {
       const byePlayer = sortedPlayers[sortedPlayers.length - 1];
-      const actualByePlayer = (byePlayer.rating === null || byePlayer.rating === undefined) && 
-                             sortedPlayers.length > 1 ? 
-                             sortedPlayers[sortedPlayers.length - 2] : byePlayer;
-      
       pairings.push({
-        whitePlayerId: actualByePlayer.id,
+        whitePlayerId: byePlayer.id,
         blackPlayerId: null,
-        board: boardNumber,
+        board: 0, // Bye doesn't get a board
         isBye: true,
       });
     }
   } else {
-    // Subsequent rounds: group by score and pair within groups
+    // Subsequent rounds: Swiss pairing with proper precedence rules
     const playerStats = calculatePlayerStats(players, matches);
-    const sortedPlayers = playerStats.sort((a, b) => {
-      if (b.points !== a.points) return b.points - a.points;
-      return (b.player.rating || 0) - (a.player.rating || 0);
-    });
     
-    const unpaired = [...sortedPlayers];
+    // Group by score (Rule #2: Equal scores)
+    const scoreGroups = groupPlayersByScore(playerStats);
+    const unpaired = [];
     let boardNumber = 1;
     
-    while (unpaired.length > 1) {
-      const player1 = unpaired.shift()!;
+    // Process each score group from highest to lowest
+    for (const scoreGroup of scoreGroups) {
+      // Add any unpaired players from higher score groups
+      const playersToProcess = [...unpaired, ...scoreGroup];
+      unpaired.length = 0; // Clear unpaired array
       
-      // Find best opponent (avoid repeat pairings)
-      let opponentIndex = -1;
-      for (let i = 0; i < unpaired.length; i++) {
-        const candidate = unpaired[i];
-        if (!havePlayed(player1.player.id, candidate.player.id, matches)) {
-          opponentIndex = i;
-          break;
-        }
-      }
+      // Rule #3: Upper-half vs lower-half within score group
+      const pairedInGroup = pairUpperVsLowerHalf(playersToProcess, matches, round);
       
-      if (opponentIndex === -1 && unpaired.length > 0) {
-        opponentIndex = 0; // No choice but to repeat
-      }
-      
-      if (opponentIndex >= 0) {
-        const player2 = unpaired.splice(opponentIndex, 1)[0];
-        
-        // Determine colors based on balance
-        const p1Balance = player1.colorBalance;
-        const p2Balance = player2.colorBalance;
-        
-        let player1IsWhite = true;
-        if (p1Balance < p2Balance) {
-          player1IsWhite = true; // Player 1 needs white more
-        } else if (p2Balance < p1Balance) {
-          player1IsWhite = false; // Player 2 needs white more
-        } else {
-          // Equal balance, use rating
-          player1IsWhite = (player1.player.rating || 0) >= (player2.player.rating || 0);
-        }
+      // Add successful pairings
+      for (const [player1, player2] of pairedInGroup.paired) {
+        const colors = determineSwissColors(player1, player2);
         
         pairings.push({
-          whitePlayerId: player1IsWhite ? player1.player.id : player2.player.id,
-          blackPlayerId: player1IsWhite ? player2.player.id : player1.player.id,
+          whitePlayerId: colors.whitePlayer.id,
+          blackPlayerId: colors.blackPlayer.id,
           board: boardNumber++,
           isBye: false,
         });
       }
+      
+      // Carry over unpaired players to next score group
+      unpaired.push(...pairedInGroup.unpaired);
     }
     
+    // Handle final unpaired players (cross-score-group pairing if needed)
+    while (unpaired.length > 1) {
+      const player1 = unpaired.shift()!;
+      const player2 = unpaired.shift()!;
+      
+      const colors = determineSwissColors(player1, player2);
+      
+      pairings.push({
+        whitePlayerId: colors.whitePlayer.id,
+        blackPlayerId: colors.blackPlayer.id,
+        board: boardNumber++,
+        isBye: false,
+      });
+    }
+    
+    // Handle any remaining player with bye
     if (unpaired.length === 1) {
       pairings.push({
         whitePlayerId: unpaired[0].player.id,
         blackPlayerId: null,
-        board: boardNumber,
+        board: 0,
         isBye: true,
       });
     }
