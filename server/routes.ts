@@ -324,6 +324,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const tournamentId = parseInt(req.params.tournamentId);
       const { fromRound } = req.body;
       
+      console.log(`=== REGENERATION START ===`);
       console.log(`Regenerating future rounds from Round ${fromRound} for tournament ${tournamentId}`);
       console.log(`Request body:`, JSON.stringify(req.body));
       
@@ -422,7 +423,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
           });
         }
         
-        console.log(`Reached the end of regeneration logic without generating anything`);
+        console.log(`=== REGENERATION FAILED - No rounds generated ===`);
+        console.log(`MaxExisting: ${maxExistingRound}, FromRound: ${fromRound}, Condition: ${fromRound} <= ${maxExistingRound + 1} = ${fromRound <= maxExistingRound + 1}`);
         return res.status(200).json({ 
           message: "No future rounds found to regenerate",
           roundsAffected: 0,
