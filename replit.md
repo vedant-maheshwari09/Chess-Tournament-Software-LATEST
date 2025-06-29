@@ -1,0 +1,104 @@
+# ChessTournament Pro - Replit.md
+
+## Overview
+
+ChessTournament Pro is a comprehensive chess tournament management system built with a modern full-stack architecture. The application provides a complete solution for organizing, managing, and tracking chess tournaments with support for multiple tournament formats including Swiss, Round Robin, and Knockout systems.
+
+## System Architecture
+
+### Frontend Architecture
+- **Framework**: React 18 with TypeScript
+- **Styling**: Tailwind CSS with shadcn/ui component library
+- **State Management**: TanStack Query (React Query) for server state management
+- **Routing**: Wouter for lightweight client-side routing
+- **Build Tool**: Vite for fast development and optimized production builds
+- **UI Philosophy**: Modern, responsive design with accessibility-first components
+
+### Backend Architecture
+- **Runtime**: Node.js with Express.js framework
+- **Language**: TypeScript with ES modules
+- **Database**: PostgreSQL with Drizzle ORM
+- **Database Provider**: Neon Database (serverless PostgreSQL)
+- **API Design**: RESTful API with JSON responses
+- **Development Setup**: Hot reload with Vite middleware integration
+
+### Monorepo Structure
+- **Client**: React frontend application (`/client`)
+- **Server**: Express backend API (`/server`)
+- **Shared**: Common TypeScript types and schemas (`/shared`)
+- **Database**: Drizzle schema definitions and migrations
+
+## Key Components
+
+### Database Schema
+- **Tournaments**: Core tournament entity with format, status, and settings
+- **Players**: Tournament participants with ratings and federation info
+- **Matches**: Individual game records with results and board assignments
+- **Pairings**: Round-by-round player pairings with color assignments and bye handling
+
+### Tournament Management
+- **Tournament Creation Wizard**: Step-by-step tournament setup
+- **Player Registration**: Bulk and individual player management
+- **Multiple Formats**: Swiss system, Round Robin, and Knockout tournaments
+- **Pairing Engine**: Automated pairing generation with Swiss system algorithms
+
+### User Interface Components
+- **Dashboard**: Tournament overview and management interface
+- **Swiss Pairings**: Real-time pairing generation and management
+- **Knockout Bracket**: Visual tournament bracket display
+- **Standings**: Live tournament standings with scoring
+- **Player Management**: Registration and player database
+
+## Data Flow
+
+1. **Tournament Creation**: User creates tournament through wizard → Stored in database
+2. **Player Registration**: Players added individually or in bulk → Linked to tournament
+3. **Pairing Generation**: Swiss algorithm generates optimal pairings → Creates matches
+4. **Result Entry**: Match results recorded → Updates player standings
+5. **Real-time Updates**: TanStack Query provides live data synchronization
+
+## External Dependencies
+
+### Core Dependencies
+- **@neondatabase/serverless**: Serverless PostgreSQL connection
+- **drizzle-orm**: Type-safe database ORM
+- **@tanstack/react-query**: Server state management
+- **@radix-ui/***: Accessible UI primitives
+- **wouter**: Lightweight routing library
+
+### Development Tools
+- **Vite**: Build tool and development server
+- **TypeScript**: Type safety and development experience
+- **Tailwind CSS**: Utility-first CSS framework
+- **ESBuild**: Fast JavaScript bundler for production
+
+## Deployment Strategy
+
+### Development Environment
+- **Hot Reload**: Vite middleware integration with Express
+- **Type Checking**: Continuous TypeScript compilation
+- **Database**: Drizzle migrations with push command
+
+### Production Build
+- **Frontend**: Vite builds optimized static assets
+- **Backend**: ESBuild bundles server code for Node.js
+- **Database**: Environment-based PostgreSQL connection
+- **Deployment**: Single-artifact deployment with static file serving
+
+### Environment Configuration
+- **DATABASE_URL**: PostgreSQL connection string (required)
+- **NODE_ENV**: Environment mode (development/production)
+- **Build Targets**: ESM modules for modern Node.js runtime
+
+## Changelog
+
+```
+Changelog:
+- June 29, 2025. Initial setup
+```
+
+## User Preferences
+
+```
+Preferred communication style: Simple, everyday language.
+```
