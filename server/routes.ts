@@ -209,6 +209,56 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Bye request routes
+  app.post("/api/tournaments/:tournamentId/bye-requests", async (req, res) => {
+    try {
+      const tournamentId = parseInt(req.params.tournamentId);
+      const byeRequestData = {
+        ...req.body,
+        tournamentId,
+      };
+      
+      const byeRequest = await storage.createByeRequest(byeRequestData);
+      res.status(201).json(byeRequest);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to create bye request" });
+    }
+  });
+
+  app.get("/api/tournaments/:tournamentId/bye-requests", async (req, res) => {
+    try {
+      const tournamentId = parseInt(req.params.tournamentId);
+      const { round } = req.query;
+      
+      let byeRequests;
+      if (round) {
+        byeRequests = await storage.getByeRequestsByRound(tournamentId, parseInt(round as string));
+      } else {
+        byeRequests = await storage.getByeRequestsByTournament(tournamentId);
+      }
+      
+      res.json(byeRequests);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch bye requests" });
+    }
+  });
+
+  app.put("/api/bye-requests/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const updateData = req.body;
+      
+      const updatedByeRequest = await storage.updateByeRequest(id, updateData);
+      if (!updatedByeRequest) {
+        return res.status(404).json({ message: "Bye request not found" });
+      }
+      
+      res.json(updatedByeRequest);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to update bye request" });
+    }
+  });
+
   const httpServer = createServer(app);
   return httpServer;
 }

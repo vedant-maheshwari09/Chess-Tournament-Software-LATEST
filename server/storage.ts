@@ -199,6 +199,43 @@ export class DatabaseStorage implements IStorage {
       .returning();
     return updated || undefined;
   }
+
+  // Bye request methods
+  async createByeRequest(byeRequest: InsertByeRequest): Promise<ByeRequest> {
+    const [createdByeRequest] = await db
+      .insert(byeRequests)
+      .values(byeRequest)
+      .returning();
+    return createdByeRequest;
+  }
+
+  async getByeRequestsByTournament(tournamentId: number): Promise<ByeRequest[]> {
+    return await db
+      .select()
+      .from(byeRequests)
+      .where(eq(byeRequests.tournamentId, tournamentId));
+  }
+
+  async getByeRequestsByRound(tournamentId: number, round: number): Promise<ByeRequest[]> {
+    return await db
+      .select()
+      .from(byeRequests)
+      .where(
+        and(
+          eq(byeRequests.tournamentId, tournamentId),
+          eq(byeRequests.round, round)
+        )
+      );
+  }
+
+  async updateByeRequest(id: number, byeRequest: Partial<ByeRequest>): Promise<ByeRequest | undefined> {
+    const [updatedByeRequest] = await db
+      .update(byeRequests)
+      .set(byeRequest)
+      .where(eq(byeRequests.id, id))
+      .returning();
+    return updatedByeRequest || undefined;
+  }
 }
 
 export const storage = new DatabaseStorage();

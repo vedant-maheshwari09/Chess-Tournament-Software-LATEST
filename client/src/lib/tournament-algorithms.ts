@@ -5,15 +5,89 @@ export interface PairingResult {
   blackPlayerId: number | null;
   board: number;
   isBye: boolean;
+  byeType?: 'half_point' | 'full_point';
+}
+
+export interface ByeEligibility {
+  playerId: number;
+  canReceiveFullPointBye: boolean;
+  canReceiveHalfPointBye: boolean;
+  halfPointByesUsed: number;
+  fullPointByesReceived: number;
+  hasForfeitWin: boolean;
+  reason?: string;
 }
 
 export class SwissPairingEngine {
   private players: Player[];
   private matches: Match[];
+  private maxRounds: number;
 
-  constructor(players: Player[], matches: Match[]) {
+  constructor(players: Player[], matches: Match[], maxRounds?: number) {
     this.players = players;
     this.matches = matches;
+    this.maxRounds = maxRounds || Math.ceil(Math.log2(players.length)) + 2;
+  }
+
+  // USCF Bye Rules Implementation
+  private checkByeEligibility(playerId: number, round: number): ByeEligibility {
+    const player = this.players.find(p => p.id === playerId)!;
+    const playerMatches = this.matches.filter(m => 
+      m.whitePlayerId === playerId || m.blackPlayerId === playerId
+    );
+
+    const halfPointByesUsed = player.halfPointByesUsed || 0;
+    const fullPointByesReceived = player.fullPointByesReceived || 0;
+    const forfeitWinsReceived = player.forfeitWinsReceived || 0;
+
+    // Rule: No player gets bye more than once (full-point)
+    const canReceiveFullPointBye = fullPointByesReceived === 0 && forfeitWinsReceived === 0;
+
+    // Rule: Half-point bye limits (1 for events up to 5 rounds, 2 for longer)
+    const maxHalfPointByes = this.maxRounds <= 5 ? 1 : 2;
+    const canReceiveHalfPointBye = halfPointByesUsed < maxHalfPointByes;
+
+    return {
+      playerId,
+      canReceiveFullPointBye,
+      canReceiveHalfPointBye,
+      halfPointByesUsed,
+      fullPointByesReceived,
+      hasForfeitWin: forfeitWinsReceived > 0,
+      reason: !canReceiveFullPointBye ? 
+        (fullPointByesReceived > 0 ? 'Already received full-point bye' : 'Has forfeit win') :
+        undefined
+    };
+  }
+
+  private assignFullPointBye(unpaired: any[], round: number): PairingResult | null {
+    // Rule: Only ONE full-point bye per section per round
+    // Rule: Give to rated player, never unrated
+    // Rule: Prefer player who hasn't had bye before
+    
+    const eligiblePlayers = unpaired.filter(player => {
+      const eligibility = this.checkByeEligibility(player.id, round);
+      return eligibility.canReceiveFullPointBye && player.rating > 0; // Rated players only
+    });
+
+    if (eligiblePlayers.length === 0) return null;
+
+    // Choose the lowest-rated eligible player (traditional USCF practice)
+    const selectedPlayer = eligiblePlayers.reduce((lowest, current) => 
+      current.rating < lowest.rating ? current : lowest
+    );
+
+    // Remove from unpaired
+    const index = unpaired.findIndex(p => p.id === selectedPlayer.id);
+    if (index >= 0) unpaired.splice(index, 1);
+
+    return {
+      whitePlayerId: selectedPlayer.id,
+      blackPlayerId: null,
+      board: 0, // Bye doesn't get a board
+      isBye: true,
+      byeType: 'full_point'
+    };
   }
 
   generatePairings(round: number): PairingResult[] {
@@ -81,15 +155,29 @@ export class SwissPairingEngine {
       });
     }
 
-    // Handle bye - avoid giving bye to unrated players or players who already had a bye
-    if (unpaired.length === 1) {
-      const byePlayer = unpaired[0];
-      pairings.push({
-        whitePlayerId: byePlayer.player.id,
-        blackPlayerId: null,
-        board: boardNumber,
-        isBye: true,
-      });
+    // Handle remaining unpaired players with proper USCF bye rules
+    if (unpaired.length > 0) {
+      // Try to assign full-point bye according to USCF rules
+      const byePairing = this.assignFullPointBye(unpaired, round);
+      if (byePairing) {
+        pairings.push(byePairing);
+      }
+
+      // If there are still unpaired players, this indicates a pairing problem
+      if (unpaired.length > 0) {
+        console.warn(`Round ${round}: ${unpaired.length} players could not be paired properly. Consider cross-section pairing or house players.`);
+        
+        // As fallback, give remaining players full-point byes (non-USCF compliant)
+        unpaired.forEach(player => {
+          pairings.push({
+            whitePlayerId: player.player ? player.player.id : player.id,
+            blackPlayerId: null,
+            board: 0,
+            isBye: true,
+            byeType: 'full_point'
+          });
+        });
+      }
     }
 
     return pairings;
