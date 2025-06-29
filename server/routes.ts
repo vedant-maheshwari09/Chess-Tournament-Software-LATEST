@@ -346,9 +346,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .sort((a, b) => a - b);
 
       console.log(`Rounds to regenerate: ${roundsToRegenerate.join(', ')}`);
+      console.log(`All existing rounds: ${existingMatches.map(m => m.round).filter((round, index, arr) => arr.indexOf(round) === index).sort((a, b) => a - b).join(', ')}`);
       
       if (roundsToRegenerate.length === 0) {
-        return res.status(400).json({ message: "No future rounds found to regenerate" });
+        return res.status(200).json({ 
+          message: "No future rounds found to regenerate",
+          roundsAffected: 0,
+          roundsRegenerated: [],
+          matchesCreated: 0,
+          pairingsCreated: 0
+        });
       }
 
       // Clear all future rounds

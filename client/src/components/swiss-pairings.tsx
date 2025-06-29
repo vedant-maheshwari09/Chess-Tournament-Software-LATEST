@@ -118,10 +118,27 @@ export default function SwissPairings({ tournamentId }: SwissPairingsProps) {
       });
       return response.json();
     },
-    onSuccess: () => {
+    onSuccess: (updatedMatch, variables) => {
       queryClient.invalidateQueries({ queryKey: [`/api/tournaments/${tournamentId}/matches`] });
       queryClient.invalidateQueries({ queryKey: [`/api/tournaments/${tournamentId}/pairings`] });
       queryClient.invalidateQueries({ queryKey: [`/api/tournaments/${tournamentId}/players`] });
+      
+      // Check if we updated a match in an earlier round - if so, offer to regenerate future rounds
+      if (allMatches) {
+        const maxRound = Math.max(...allMatches.map(m => m.round));
+        const updatedMatchData = allMatches.find(m => m.id === variables.matchId);
+        
+        if (updatedMatchData && updatedMatchData.round < maxRound) {
+          // Automatically regenerate future rounds when changing earlier round results
+          const nextRound = updatedMatchData.round + 1;
+          regenerateFutureRoundsMutation.mutate({ fromRound: nextRound }, {});
+          
+          toast({
+            title: "Result Updated",
+            description: `Automatically regenerating all rounds from Round ${nextRound} onwards to reflect this change.`,
+          });
+        }
+      }
     },
     onError: () => {
       toast({
@@ -134,9 +151,10 @@ export default function SwissPairings({ tournamentId }: SwissPairingsProps) {
 
   // New mutation for regenerating future rounds after fixing results
   const regenerateFutureRoundsMutation = useMutation({
-    mutationFn: async () => {
+    mutationFn: async (options: { fromRound?: number } = {}) => {
+      const fromRound = options.fromRound || currentRound + 1;
       const response = await apiRequest("POST", `/api/tournaments/${tournamentId}/regenerate-future-rounds`, {
-        fromRound: currentRound + 1
+        fromRound
       });
       return response.json();
     },
@@ -344,7 +362,7 @@ export default function SwissPairings({ tournamentId }: SwissPairingsProps) {
                   <AlertDialogFooter>
                     <AlertDialogCancel>Cancel</AlertDialogCancel>
                     <AlertDialogAction
-                      onClick={() => regenerateFutureRoundsMutation.mutate()}
+                      onClick={() => regenerateFutureRoundsMutation.mutate({})}
                       className="bg-orange-600 hover:bg-orange-700"
                     >
                       Regenerate Future Rounds
