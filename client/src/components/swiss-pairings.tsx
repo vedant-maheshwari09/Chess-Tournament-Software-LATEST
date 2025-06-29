@@ -145,51 +145,54 @@ export default function SwissPairings({ tournamentId }: SwissPairingsProps) {
 
   return (
     <Card>
-      <CardHeader>
-        <div className="flex justify-between items-center">
+      <CardHeader className="space-y-6">
+        {/* Header Row */}
+        <div className="flex justify-between items-start">
           <div>
-            <div className="flex items-center space-x-4">
-              <div>
-                <CardTitle className="flex items-center gap-2">
-                  <Chess className="h-5 w-5" />
-                  Round {currentRound} Pairings
-                </CardTitle>
-                <p className="text-sm text-gray-600 mt-1">Swiss System - USCF Tournament Rules</p>
-              </div>
-              
-              {/* Round Navigation */}
-              {allMatches && allMatches.length > 0 && (
-                <div className="flex items-center space-x-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setCurrentRound(Math.max(1, currentRound - 1))}
-                    disabled={currentRound <= 1}
-                  >
-                    Previous
-                  </Button>
-                  <span className="text-sm text-gray-500">
-                    Round {currentRound} of {Math.max(...allMatches.map(m => m.round))}
-                  </span>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => {
-                      const maxRound = Math.max(...allMatches.map(m => m.round));
-                      setCurrentRound(Math.min(maxRound, currentRound + 1));
-                    }}
-                    disabled={currentRound >= Math.max(...allMatches.map(m => m.round))}
-                  >
-                    Next
-                  </Button>
-                </div>
-              )}
-            </div>
+            <CardTitle className="flex items-center gap-2">
+              <Chess className="h-5 w-5" />
+              Round {currentRound} Pairings
+            </CardTitle>
+            <p className="text-sm text-gray-600 mt-1">Swiss System - USCF Tournament Rules</p>
           </div>
-          <div className="flex items-center space-x-6">
+          
+          {/* Round Navigation */}
+          {allMatches && allMatches.length > 0 && (
+            <div className="flex items-center space-x-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setCurrentRound(Math.max(1, currentRound - 1))}
+                disabled={currentRound <= 1}
+              >
+                <ChevronLeft className="h-4 w-4" />
+                Previous
+              </Button>
+              <span className="text-sm font-medium px-3 py-1 bg-gray-100 rounded">
+                Round {currentRound} of {Math.max(...allMatches.map(m => m.round))}
+              </span>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  const maxRound = Math.max(...allMatches.map(m => m.round));
+                  setCurrentRound(Math.min(maxRound, currentRound + 1));
+                }}
+                disabled={currentRound >= Math.max(...allMatches.map(m => m.round))}
+              >
+                Next
+                <ChevronRight className="h-4 w-4" />
+              </Button>
+            </div>
+          )}
+        </div>
+
+        {/* Controls Row */}
+        <div className="flex items-center justify-between pt-4 border-t">
+          <div className="flex items-center space-x-2">
             {/* Match Status Indicator */}
-            {matches && matches.length > 0 && (
-              <div className="flex items-center space-x-2">
+            {matches && matches.length > 0 ? (
+              <>
                 <div className={`w-3 h-3 rounded-full ${
                   matches.every(m => m.result && m.result !== 'Pending') 
                     ? 'bg-green-500' 
@@ -200,27 +203,29 @@ export default function SwissPairings({ tournamentId }: SwissPairingsProps) {
                 <span className="text-sm font-medium">
                   {matches.filter(m => m.result && m.result !== 'Pending').length} / {matches.length} complete
                 </span>
-              </div>
+              </>
+            ) : (
+              <span className="text-sm text-gray-500">No pairings generated yet</span>
             )}
-            
-            <div className="flex space-x-3">
-              <Button
-                onClick={() => generatePairingsMutation.mutate({ regenerate: false })}
-                disabled={generatePairingsMutation.isPending}
-                className="bg-green-600 hover:bg-green-700"
-              >
-                <Play className="h-4 w-4 mr-2" />
-                {generatePairingsMutation.isPending ? "Generating..." : "Generate Next Round"}
-              </Button>
-              <Button
-                variant="outline"
-                onClick={() => generatePairingsMutation.mutate({ regenerate: true })}
-                disabled={generatePairingsMutation.isPending}
-              >
-                <RefreshCw className="h-4 w-4 mr-2" />
-                Regenerate Round {currentRound}
-              </Button>
-            </div>
+          </div>
+          
+          <div className="flex space-x-3">
+            <Button
+              onClick={() => generatePairingsMutation.mutate({ regenerate: false })}
+              disabled={generatePairingsMutation.isPending}
+              className="bg-green-600 hover:bg-green-700"
+            >
+              <Play className="h-4 w-4 mr-2" />
+              {generatePairingsMutation.isPending ? "Generating..." : "Generate Next Round"}
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => generatePairingsMutation.mutate({ regenerate: true })}
+              disabled={generatePairingsMutation.isPending}
+            >
+              <RefreshCw className="h-4 w-4 mr-2" />
+              Regenerate Round {currentRound}
+            </Button>
           </div>
         </div>
       </CardHeader>
