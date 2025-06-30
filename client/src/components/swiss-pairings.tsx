@@ -218,6 +218,9 @@ export default function SwissPairings({ tournamentId }: SwissPairingsProps) {
     
     let points = 0;
     
+    // Calculate current round from existing matches
+    const currentRound = allMatches.length > 0 ? Math.max(...allMatches.map(m => m.round)) : 0;
+    
     // Calculate points from completed matches across all rounds
     for (const match of allMatches) {
       if (match.whitePlayerId === playerId || match.blackPlayerId === playerId) {
@@ -237,10 +240,12 @@ export default function SwissPairings({ tournamentId }: SwissPairingsProps) {
       }
     }
     
-    // Add points from bye pairings across all rounds (convert from integer mapping)
+    // Add points from bye pairings - ONLY for completed/current rounds (convert from integer mapping)
     if (allTournamentPairings) {
       for (const pairing of allTournamentPairings) {
-        if (pairing.playerId === playerId && pairing.isBye) {
+        if (pairing.playerId === playerId && 
+            pairing.isBye && 
+            pairing.round <= currentRound) {
           // Convert from integer mapping: 0=0pts, 1=0.5pts, 2=1pt
           const byePoints = pairing.points === 1 ? 0.5 : pairing.points === 2 ? 1 : 0;
           points += byePoints;
