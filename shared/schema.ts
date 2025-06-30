@@ -1,6 +1,27 @@
-import { pgTable, text, serial, integer, boolean, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, boolean, timestamp, varchar } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
+
+// User management tables
+export const users = pgTable("users", {
+  id: serial("id").primaryKey(),
+  username: varchar("username", { length: 50 }).notNull().unique(),
+  email: varchar("email", { length: 255 }).notNull().unique(),
+  passwordHash: text("password_hash").notNull(),
+  firstName: text("first_name").notNull(),
+  lastName: text("last_name").notNull(),
+  role: text("role").notNull().default('player'), // 'player', 'tournament_director'  
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const sessions = pgTable("sessions", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull(),
+  token: text("token").notNull().unique(),
+  expiresAt: timestamp("expires_at").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
 
 export const tournaments = pgTable("tournaments", {
   id: serial("id").primaryKey(),
@@ -13,6 +34,9 @@ export const tournaments = pgTable("tournaments", {
   isDoubleRoundRobin: boolean("is_double_round_robin").default(false),
   playerCount: integer("player_count"), // for quick setup mode
   useQuickSetup: boolean("use_quick_setup").default(false),
+  createdBy: integer("created_by").notNull(), // User ID of tournament director
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
 });
 
 export const players = pgTable("players", {
@@ -61,8 +85,31 @@ export const byeRequests = pgTable("bye_requests", {
   requestedAt: timestamp("requested_at").defaultNow(),
 });
 
+// User schemas
+export const insertUserSchema = createInsertSchema(users).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const loginSchema = z.object({
+  username: z.string().min(3).max(50),
+  password: z.string().min(6),
+});
+
+export const registerSchema = z.object({
+  username: z.string().min(3).max(50),
+  email: z.string().email(),
+  password: z.string().min(6),
+  firstName: z.string().min(1),
+  lastName: z.string().min(1),
+  role: z.enum(['player', 'tournament_director']),
+});
+
 export const insertTournamentSchema = createInsertSchema(tournaments).omit({
   id: true,
+  createdAt: true,
+  updatedAt: true,
 });
 
 export const insertPlayerSchema = createInsertSchema(players).omit({
@@ -83,6 +130,14 @@ export const insertByeRequestSchema = createInsertSchema(byeRequests).omit({
   requestedAt: true,
 });
 
+// User types
+export type User = typeof users.$inferSelect;
+export type InsertUser = z.infer<typeof insertUserSchema>;
+export type LoginData = z.infer<typeof loginSchema>;
+export type RegisterData = z.infer<typeof registerSchema>;
+export type Session = typeof sessions.$inferSelect;
+
+// Tournament types
 export type Tournament = typeof tournaments.$inferSelect;
 export type InsertTournament = z.infer<typeof insertTournamentSchema>;
 export type Player = typeof players.$inferSelect;

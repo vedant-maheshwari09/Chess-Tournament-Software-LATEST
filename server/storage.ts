@@ -4,6 +4,8 @@ import {
   matches, 
   pairings,
   byeRequests,
+  users,
+  sessions,
   type Tournament, 
   type InsertTournament,
   type Player,
@@ -13,16 +15,32 @@ import {
   type Pairing,
   type InsertPairing,
   type ByeRequest,
-  type InsertByeRequest
+  type InsertByeRequest,
+  type User,
+  type InsertUser,
+  type Session
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and } from "drizzle-orm";
 
 export interface IStorage {
+  // User methods
+  createUser(user: InsertUser): Promise<User>;
+  getUserById(id: number): Promise<User | undefined>;
+  getUserByUsername(username: string): Promise<User | undefined>;
+  getUserByEmail(email: string): Promise<User | undefined>;
+  updateUser(id: number, user: Partial<User>): Promise<User | undefined>;
+  
+  // Session methods
+  createSession(userId: number, token: string, expiresAt: Date): Promise<Session>;
+  getSessionByToken(token: string): Promise<Session | undefined>;
+  deleteSession(token: string): Promise<boolean>;
+  
   // Tournament methods
   createTournament(tournament: InsertTournament): Promise<Tournament>;
   getTournament(id: number): Promise<Tournament | undefined>;
   getAllTournaments(): Promise<Tournament[]>;
+  getTournamentsByUser(userId: number): Promise<Tournament[]>;
   updateTournament(id: number, tournament: Partial<Tournament>): Promise<Tournament | undefined>;
   deleteTournament(id: number): Promise<boolean>;
 
@@ -58,6 +76,55 @@ export interface IStorage {
 }
 
 export class DatabaseStorage implements IStorage {
+  // User methods
+  async createUser(user: InsertUser): Promise<User> {
+    const [result] = await db.insert(users).values(user).returning();
+    return result;
+  }
+
+  async getUserById(id: number): Promise<User | undefined> {
+    const [user] = await db.select().from(users).where(eq(users.id, id));
+    return user || undefined;
+  }
+
+  async getUserByUsername(username: string): Promise<User | undefined> {
+    const [user] = await db.select().from(users).where(eq(users.username, username));
+    return user || undefined;
+  }
+
+  async getUserByEmail(email: string): Promise<User | undefined> {
+    const [user] = await db.select().from(users).where(eq(users.email, email));
+    return user || undefined;
+  }
+
+  async updateUser(id: number, user: Partial<User>): Promise<User | undefined> {
+    const [updated] = await db
+      .update(users)
+      .set({ ...user, updatedAt: new Date() })
+      .where(eq(users.id, id))
+      .returning();
+    return updated || undefined;
+  }
+
+  // Session methods
+  async createSession(userId: number, token: string, expiresAt: Date): Promise<Session> {
+    const [session] = await db
+      .insert(sessions)
+      .values({ userId, token, expiresAt })
+      .returning();
+    return session;
+  }
+
+  async getSessionByToken(token: string): Promise<Session | undefined> {
+    const [session] = await db.select().from(sessions).where(eq(sessions.token, token));
+    return session || undefined;
+  }
+
+  async deleteSession(token: string): Promise<boolean> {
+    const result = await db.delete(sessions).where(eq(sessions.token, token));
+    return result.count > 0;
+  }
+
   // Tournament methods
   async createTournament(tournament: InsertTournament): Promise<Tournament> {
     const [result] = await db
