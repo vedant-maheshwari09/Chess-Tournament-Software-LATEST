@@ -1294,6 +1294,11 @@ function determineSwissColors(player1: any, player2: any): { whitePlayer: any, b
   const p1Balance = player1.colorBalance || 0; // whiteGames - blackGames
   const p2Balance = player2.colorBalance || 0;
   
+  // Debug logging for color assignment
+  console.log(`Color assignment debug:
+    Player 1: ${player1.player.firstName} ${player1.player.lastName} (${player1.player.rating}) - Balance: ${p1Balance}, Last Color: ${player1.lastColor}
+    Player 2: ${player2.player.firstName} ${player2.player.lastName} (${player2.player.rating}) - Balance: ${p2Balance}, Last Color: ${player2.lastColor}`);
+  
   // Strong color preference (2+ game difference) - Rule #4 priority
   if (p1Balance <= -2) return { whitePlayer: player1.player, blackPlayer: player2.player };
   if (p1Balance >= 2) return { whitePlayer: player2.player, blackPlayer: player1.player };
@@ -1334,18 +1339,27 @@ function determineSwissColors(player1: any, player2: any): { whitePlayer: any, b
     const higherRated = p1Rating >= p2Rating ? player1 : player2;
     const lowerRated = p1Rating >= p2Rating ? player2 : player1;
     
+    console.log(`USCF Same Color Rule Applied:
+      Higher-rated: ${higherRated.player.firstName} ${higherRated.player.lastName} (${higherRated.player.rating})
+      Lower-rated: ${lowerRated.player.firstName} ${lowerRated.player.lastName} (${lowerRated.player.rating})
+      Both had: ${p1LastColor} in previous round`);
+    
     if (p1LastColor === 'white') {
       // Both had white last round: lower-rated gets white again, higher-rated gets black
       if (lowerRated === player1) {
+        console.log(`Result: ${player1.player.firstName} (lower) gets white, ${player2.player.firstName} (higher) gets black`);
         return { whitePlayer: player1.player, blackPlayer: player2.player };
       } else {
+        console.log(`Result: ${player2.player.firstName} (lower) gets white, ${player1.player.firstName} (higher) gets black`);
         return { whitePlayer: player2.player, blackPlayer: player1.player };
       }
     } else {
       // Both had black last round: lower-rated gets black again, higher-rated gets white
       if (lowerRated === player1) {
+        console.log(`Result: ${player2.player.firstName} (higher) gets white, ${player1.player.firstName} (lower) gets black`);
         return { whitePlayer: player2.player, blackPlayer: player1.player };
       } else {
+        console.log(`Result: ${player1.player.firstName} (higher) gets white, ${player2.player.firstName} (lower) gets black`);
         return { whitePlayer: player1.player, blackPlayer: player2.player };
       }
     }
