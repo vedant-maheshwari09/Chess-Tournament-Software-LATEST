@@ -129,6 +129,13 @@ Changelog:
   - Created tabbed interface showing live standings, pairings, and brackets for selected tournaments
   - Added unique username and email validation: no duplicates allowed across accounts
   - Enhanced error messages for registration conflicts with clear guidance for users
+- June 30, 2025. Implemented comprehensive mid-tournament player status management system
+  - Added player withdrawal functionality: players appear in standings but get zero-point byes for future rounds
+  - Implemented player reactivation: withdrawn players can rejoin and return to active status
+  - Created flexible bye request system for specific upcoming rounds with half-point or zero-point options
+  - Enhanced Swiss pairing algorithm to automatically exclude withdrawn players from future pairings
+  - Added intelligent status detection: dialog shows current player status (active vs withdrawn)
+  - Tournament directors can now manage player status changes throughout the tournament lifecycle
 ```
 
 ## User Preferences

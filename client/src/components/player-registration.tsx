@@ -162,9 +162,29 @@ export default function PlayerRegistration({ tournamentId }: PlayerRegistrationP
     deletePlayerMutation.mutate(playerId);
   };
 
-  const handleEditPlayer = (player: Player) => {
+  const handleEditPlayer = async (player: Player) => {
     setEditingPlayer(player);
-    setPlayerStatus("active"); // Default to active
+    
+    // Check if player is currently withdrawn by looking for zero-point byes
+    try {
+      const response = await fetch(`/api/tournaments/${tournamentId}/pairings`);
+      const pairings = await response.json();
+      
+      const playerWithdrawnByes = pairings.filter((pairing: any) => 
+        pairing.playerId === player.id && 
+        pairing.isBye && 
+        pairing.byeType === 'zero_point'
+      );
+      
+      if (playerWithdrawnByes.length > 0) {
+        setPlayerStatus("withdrawn");
+      } else {
+        setPlayerStatus("active");
+      }
+    } catch {
+      setPlayerStatus("active"); // Default to active on error
+    }
+    
     setUpcomingByeRounds("");
   };
 
@@ -194,6 +214,22 @@ export default function PlayerRegistration({ tournamentId }: PlayerRegistrationP
       status: playerStatus,
       byeRounds
     });
+  };
+
+  // Check if a player is withdrawn (has zero-point byes)
+  const isPlayerWithdrawn = async (playerId: number): Promise<boolean> => {
+    try {
+      const response = await fetch(`/api/tournaments/${tournamentId}/pairings`);
+      const pairings = await response.json();
+      
+      return pairings.some((pairing: any) => 
+        pairing.playerId === playerId && 
+        pairing.isBye && 
+        pairing.byeType === 'zero_point'
+      );
+    } catch {
+      return false;
+    }
   };
 
   return (
@@ -338,7 +374,8 @@ export default function PlayerRegistration({ tournamentId }: PlayerRegistrationP
                         <DialogHeader>
                           <DialogTitle>Manage Player Status</DialogTitle>
                           <DialogDescription>
-                            Update {player.firstName} {player.lastName}'s tournament status, request byes, or withdraw from upcoming rounds.
+                            Update {player.firstName} {player.lastName}'s tournament status. 
+                            {playerStatus === "withdrawn" ? " This player can be reactivated to rejoin future rounds." : " Request specific byes or withdraw from all remaining rounds."}
                           </DialogDescription>
                         </DialogHeader>
                         <div className="space-y-4">
@@ -355,7 +392,7 @@ export default function PlayerRegistration({ tournamentId }: PlayerRegistrationP
                             </Select>
                             {playerStatus === "withdrawn" && (
                               <p className="text-xs text-orange-600 mt-1">
-                                Player will appear in standings but won't be paired in future rounds
+                                Player will appear in standings but won't be paired in future rounds. Select "Active" to reactivate.
                               </p>
                             )}
                           </div>

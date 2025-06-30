@@ -548,24 +548,63 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(403).json({ message: "Access denied" });
       }
       
-      // Update player status if needed (could add status field to schema)
-      // For now, we'll handle withdrawal through bye pairings
+      // Get current round to determine future rounds
+      const currentMatches = await storage.getMatchesByTournament(player.tournamentId);
+      const currentRound = currentMatches.length > 0 ? Math.max(...currentMatches.map(m => m.round)) : 0;
       
-      // Create bye pairings for upcoming rounds if specified
-      if (byeRounds && Array.isArray(byeRounds) && byeRounds.length > 0) {
-        for (const byeEntry of byeRounds) {
-          const pointsPerBye = status === "withdrawn" ? 0 : (byeEntry.type === "half_point" ? 0.5 : 0);
-          
-          await storage.createPairing({
-            tournamentId: player.tournamentId,
-            round: byeEntry.round,
-            playerId: playerId,
-            opponentId: null,
-            color: null,
-            points: pointsPerBye,
-            isBye: true,
-            byeType: status === "withdrawn" ? "zero_point" : byeEntry.type
-          });
+      if (status === "withdrawn") {
+        // Withdraw player - create zero-point byes for all future rounds
+        const tournament = await storage.getTournament(player.tournamentId);
+        if (tournament && tournament.rounds) {
+          for (let round = currentRound + 1; round <= tournament.rounds; round++) {
+            // Check if bye already exists for this round
+            const existingByes = await storage.getPairingsByRound(player.tournamentId, round);
+            const existingBye = existingByes.find(p => p.playerId === playerId && p.isBye);
+            
+            if (!existingBye) {
+              await storage.createPairing({
+                tournamentId: player.tournamentId,
+                round: round,
+                playerId: playerId,
+                opponentId: null,
+                color: null,
+                points: 0,
+                isBye: true,
+                byeType: "zero_point"
+              });
+            }
+          }
+        }
+      } else if (status === "active") {
+        // Reactivate player - remove all future zero-point byes
+        const allPairings = await storage.getPairingsByTournament(player.tournamentId);
+        const futureWithdrawnByes = allPairings.filter(p => 
+          p.playerId === playerId && 
+          p.isBye && 
+          p.byeType === "zero_point" && 
+          p.round > currentRound
+        );
+        
+        for (const bye of futureWithdrawnByes) {
+          await storage.deletePairing(bye.id);
+        }
+        
+        // Create specific bye pairings if requested
+        if (byeRounds && Array.isArray(byeRounds) && byeRounds.length > 0) {
+          for (const byeEntry of byeRounds) {
+            const pointsPerBye = byeEntry.type === "half_point" ? 0.5 : 0;
+            
+            await storage.createPairing({
+              tournamentId: player.tournamentId,
+              round: byeEntry.round,
+              playerId: playerId,
+              opponentId: null,
+              color: null,
+              points: pointsPerBye,
+              isBye: true,
+              byeType: byeEntry.type
+            });
+          }
         }
       }
       
