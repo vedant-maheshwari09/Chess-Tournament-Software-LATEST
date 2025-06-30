@@ -20,22 +20,15 @@ interface PlayerStanding {
 
 export default function Standings({ tournamentId }: StandingsProps) {
   const { data: players, isLoading: playersLoading } = useQuery<Player[]>({
-    queryKey: ["/api/tournaments", tournamentId, "players"],
+    queryKey: [`/api/tournaments/${tournamentId}/players`],
   });
 
   const { data: matches, isLoading: matchesLoading } = useQuery<Match[]>({
-    queryKey: ["/api/tournaments", tournamentId, "matches"],
+    queryKey: [`/api/tournaments/${tournamentId}/matches`],
   });
 
   const { data: pairings, isLoading: pairingsLoading } = useQuery({
-    queryKey: ["/api/tournaments", tournamentId, "pairings"],
-    queryFn: async () => {
-      const response = await fetch(`/api/tournaments/${tournamentId}/pairings`, {
-        credentials: "include",
-      });
-      if (!response.ok) throw new Error("Failed to fetch pairings");
-      return response.json();
-    },
+    queryKey: [`/api/tournaments/${tournamentId}/pairings`],
   });
 
   if (playersLoading || matchesLoading || pairingsLoading) {

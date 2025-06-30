@@ -142,10 +142,12 @@ export default function SwissPairings({ tournamentId }: SwissPairingsProps) {
   const regenerateFutureRoundsMutation = useMutation({
     mutationFn: async (options: { fromRound?: number } = {}) => {
       const fromRound = options.fromRound || currentRound + 1;
-      const response = await apiRequest("POST", `/api/tournaments/${tournamentId}/regenerate-future-rounds`, {
-        fromRound
+      return await apiRequest(`/api/tournaments/${tournamentId}/regenerate-future-rounds`, {
+        method: "POST",
+        body: JSON.stringify({
+          fromRound
+        }),
       });
-      return response.json();
     },
     onSuccess: (data) => {
       console.log('Regeneration response:', data);

@@ -80,8 +80,7 @@ export default function AuthForm() {
     setUsernameCheck({ checking: true, available: null, message: 'Checking availability...' });
 
     try {
-      const response = await fetch(`/api/auth/check-username/${encodeURIComponent(username)}`);
-      const data = await response.json();
+      const data = await apiRequest(`/api/auth/check-username/${encodeURIComponent(username)}`);
       
       setUsernameCheck({
         checking: false,
@@ -108,8 +107,7 @@ export default function AuthForm() {
     setEmailCheck({ checking: true, available: null, message: 'Checking availability...' });
 
     try {
-      const response = await fetch(`/api/auth/check-email/${encodeURIComponent(email)}`);
-      const data = await response.json();
+      const data = await apiRequest(`/api/auth/check-email/${encodeURIComponent(email)}`);
       
       setEmailCheck({
         checking: false,
