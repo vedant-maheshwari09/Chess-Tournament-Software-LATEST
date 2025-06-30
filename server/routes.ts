@@ -567,6 +567,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const playerId = parseInt(req.params.id);
       const { status, byeRounds } = req.body;
+      console.log(`Player ${playerId} status update request:`, { status, byeRounds });
       
       // Get player to find tournament ID for access control
       const player = await storage.getPlayer(playerId);
@@ -668,6 +669,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         p.byeType === "zero_point" && !p.isRequested
       );
       const finalStatus = finalWithdrawnByes.length > 0 ? "withdrawn" : "active";
+      
+      console.log(`Player ${playerId} final status calculation:`, {
+        totalByes: finalPlayerByes.length,
+        withdrawnByes: finalWithdrawnByes.length,
+        finalStatus,
+        byeDetails: finalPlayerByes.map(b => ({ round: b.round, type: b.byeType, requested: b.isRequested }))
+      });
       
       res.json({ 
         message: `Player ${finalStatus === "withdrawn" ? "withdrawn" : "status updated"} successfully`,
