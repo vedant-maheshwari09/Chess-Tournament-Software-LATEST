@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Badge } from "@/components/ui/badge";
 import { Plus, Trash2, Upload, Edit, UserX, Clock } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -39,6 +40,31 @@ export default function PlayerRegistration({ tournamentId }: PlayerRegistrationP
   const { data: tournament } = useQuery({
     queryKey: [`/api/tournaments/${tournamentId}`],
   });
+
+  // Fetch pairings to show bye status indicators
+  const { data: allPairings } = useQuery({
+    queryKey: [`/api/tournaments/${tournamentId}/pairings`],
+  });
+
+  // Helper function to get player bye status
+  const getPlayerByeStatus = (playerId: number) => {
+    if (!allPairings || !Array.isArray(allPairings)) return { status: 'active', byes: [] };
+    
+    const playerByes = allPairings.filter((pairing: any) => 
+      pairing.playerId === playerId && pairing.isBye
+    );
+    
+    const withdrawnByes = playerByes.filter((bye: any) => bye.byeType === 'zero_point');
+    const requestedByes = playerByes.filter((bye: any) => bye.byeType === 'half_point');
+    
+    if (withdrawnByes.length > 0) {
+      return { status: 'withdrawn', byes: playerByes };
+    } else if (requestedByes.length > 0) {
+      return { status: 'has_byes', byes: requestedByes };
+    }
+    
+    return { status: 'active', byes: [] };
+  };
 
   const addPlayerMutation = useMutation({
     mutationFn: async (playerData: InsertPlayer & { byeConfiguration?: Array<{round: number, type: string}> }) => {
@@ -384,22 +410,36 @@ export default function PlayerRegistration({ tournamentId }: PlayerRegistrationP
             <div className="text-center py-8">Loading players...</div>
           ) : players && players.length > 0 ? (
             <div className="space-y-2">
-              {players.map((player) => (
-                <div
-                  key={player.id}
-                  className="flex items-center justify-between p-3 bg-white border rounded-lg hover:shadow-sm transition-shadow"
-                >
-                  <div className="flex-1">
-                    <div className="flex items-center space-x-2">
-                      <span className="font-medium">
-                        {player.firstName} {player.lastName}
-                      </span>
-                      <span className="text-sm text-gray-500">
-                        ({player.rating || "Unrated"} - {player.federation})
-                      </span>
+              {players.map((player) => {
+                const byeStatus = getPlayerByeStatus(player.id);
+                return (
+                  <div
+                    key={player.id}
+                    className="flex items-center justify-between p-3 bg-white border rounded-lg hover:shadow-sm transition-shadow"
+                  >
+                    <div className="flex-1">
+                      <div className="flex items-center space-x-2">
+                        <span className="font-medium">
+                          {player.firstName} {player.lastName}
+                        </span>
+                        <span className="text-sm text-gray-500">
+                          ({player.rating || "Unrated"} - {player.federation})
+                        </span>
+                        
+                        {/* Status Indicators */}
+                        {byeStatus.status === 'withdrawn' && (
+                          <Badge variant="destructive" className="text-xs">
+                            Withdrawn
+                          </Badge>
+                        )}
+                        {byeStatus.status === 'has_byes' && (
+                          <Badge variant="secondary" className="text-xs bg-blue-100 text-blue-800">
+                            Bye R{byeStatus.byes.map((bye: any) => bye.round).join(', ')}
+                          </Badge>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                  <div className="flex items-center space-x-2">
+                    <div className="flex items-center space-x-2">
                     <Dialog>
                       <DialogTrigger asChild>
                         <Button
@@ -516,7 +556,8 @@ export default function PlayerRegistration({ tournamentId }: PlayerRegistrationP
                     </Button>
                   </div>
                 </div>
-              ))}
+              );
+              })}
             </div>
           ) : (
             <div className="text-center py-8 text-gray-500">
