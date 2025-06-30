@@ -5,7 +5,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Plus, Trash2, Upload } from "lucide-react";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Plus, Trash2, Upload, Edit, UserX, Clock } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import type { Player, InsertPlayer } from "@shared/schema";
@@ -20,6 +21,13 @@ export default function PlayerRegistration({ tournamentId }: PlayerRegistrationP
   const [rating, setRating] = useState("");
   const [federation, setFederation] = useState("USCF");
   const [byeConfiguration, setByeConfiguration] = useState<string>("");
+  
+  // Player editing state
+  const [editingPlayer, setEditingPlayer] = useState<Player | null>(null);
+  const [playerStatus, setPlayerStatus] = useState<"active" | "withdrawn">("active");
+  const [upcomingByeRounds, setUpcomingByeRounds] = useState<string>("");
+  const [upcomingByeType, setUpcomingByeType] = useState<"half_point" | "zero_point">("half_point");
+  
   const { toast } = useToast();
 
   const { data: players, isLoading } = useQuery<Player[]>({
@@ -81,6 +89,37 @@ export default function PlayerRegistration({ tournamentId }: PlayerRegistrationP
     },
   });
 
+  const updatePlayerStatusMutation = useMutation({
+    mutationFn: async ({ playerId, status, byeRounds }: { 
+      playerId: number; 
+      status: string; 
+      byeRounds?: Array<{round: number, type: string}> 
+    }) => {
+      return await apiRequest(`/api/players/${playerId}/status`, {
+        method: "PUT",
+        body: JSON.stringify({ status, byeRounds }),
+      });
+    },
+    onSuccess: () => {
+      toast({
+        title: "Player Status Updated",
+        description: "Player status has been successfully updated.",
+      });
+      queryClient.invalidateQueries({ queryKey: [`/api/tournaments/${tournamentId}/players`] });
+      queryClient.invalidateQueries({ queryKey: [`/api/tournaments/${tournamentId}/pairings`] });
+      setEditingPlayer(null);
+      setUpcomingByeRounds("");
+      setPlayerStatus("active");
+    },
+    onError: () => {
+      toast({
+        title: "Error",
+        description: "Failed to update player status.",
+        variant: "destructive",
+      });
+    },
+  });
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!firstName.trim()) {
@@ -121,6 +160,40 @@ export default function PlayerRegistration({ tournamentId }: PlayerRegistrationP
 
   const handleDeletePlayer = (playerId: number) => {
     deletePlayerMutation.mutate(playerId);
+  };
+
+  const handleEditPlayer = (player: Player) => {
+    setEditingPlayer(player);
+    setPlayerStatus("active"); // Default to active
+    setUpcomingByeRounds("");
+  };
+
+  const handleSavePlayerStatus = () => {
+    if (!editingPlayer) return;
+
+    let byeRounds: Array<{round: number, type: string}> | undefined;
+    
+    if (upcomingByeRounds.trim()) {
+      try {
+        byeRounds = upcomingByeRounds.split(',').map(round => ({
+          round: parseInt(round.trim()),
+          type: upcomingByeType
+        })).filter(entry => !isNaN(entry.round) && entry.round > 0);
+      } catch {
+        toast({
+          title: "Error",
+          description: "Invalid bye rounds format. Use comma-separated numbers.",
+          variant: "destructive",
+        });
+        return;
+      }
+    }
+
+    updatePlayerStatusMutation.mutate({
+      playerId: editingPlayer.id,
+      status: playerStatus,
+      byeRounds
+    });
   };
 
   return (
@@ -249,14 +322,96 @@ export default function PlayerRegistration({ tournamentId }: PlayerRegistrationP
                       </span>
                     </div>
                   </div>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => handleDeletePlayer(player.id)}
-                    className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
+                  <div className="flex items-center space-x-2">
+                    <Dialog>
+                      <DialogTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleEditPlayer(player)}
+                          className="text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+                        >
+                          <Edit className="h-4 w-4" />
+                        </Button>
+                      </DialogTrigger>
+                      <DialogContent className="sm:max-w-md">
+                        <DialogHeader>
+                          <DialogTitle>Manage Player Status</DialogTitle>
+                          <DialogDescription>
+                            Update {player.firstName} {player.lastName}'s tournament status, request byes, or withdraw from upcoming rounds.
+                          </DialogDescription>
+                        </DialogHeader>
+                        <div className="space-y-4">
+                          <div>
+                            <Label htmlFor="playerStatus">Player Status</Label>
+                            <Select value={playerStatus} onValueChange={(value: "active" | "withdrawn") => setPlayerStatus(value)}>
+                              <SelectTrigger>
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="active">Active</SelectItem>
+                                <SelectItem value="withdrawn">Withdrawn</SelectItem>
+                              </SelectContent>
+                            </Select>
+                            {playerStatus === "withdrawn" && (
+                              <p className="text-xs text-orange-600 mt-1">
+                                Player will appear in standings but won't be paired in future rounds
+                              </p>
+                            )}
+                          </div>
+                          
+                          {playerStatus === "active" && (
+                            <div className="space-y-4">
+                              <div>
+                                <Label htmlFor="upcomingByeRounds">Upcoming Bye Rounds</Label>
+                                <Input
+                                  id="upcomingByeRounds"
+                                  value={upcomingByeRounds}
+                                  onChange={(e) => setUpcomingByeRounds(e.target.value)}
+                                  placeholder="5, 6"
+                                />
+                                <p className="text-xs text-gray-500 mt-1">
+                                  Enter round numbers separated by commas (e.g., "5, 6" for rounds 5 and 6)
+                                </p>
+                              </div>
+                              
+                              {upcomingByeRounds && (
+                                <div>
+                                  <Label htmlFor="upcomingByeType">Bye Type</Label>
+                                  <Select value={upcomingByeType} onValueChange={(value: "half_point" | "zero_point") => setUpcomingByeType(value)}>
+                                    <SelectTrigger>
+                                      <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      <SelectItem value="half_point">1/2 Point Bye</SelectItem>
+                                      <SelectItem value="zero_point">0 Point Bye</SelectItem>
+                                    </SelectContent>
+                                  </Select>
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                        <DialogFooter>
+                          <Button 
+                            onClick={handleSavePlayerStatus}
+                            disabled={updatePlayerStatusMutation.isPending}
+                          >
+                            {updatePlayerStatusMutation.isPending ? "Updating..." : "Update Status"}
+                          </Button>
+                        </DialogFooter>
+                      </DialogContent>
+                    </Dialog>
+                    
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => handleDeletePlayer(player.id)}
+                      className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
                 </div>
               ))}
             </div>

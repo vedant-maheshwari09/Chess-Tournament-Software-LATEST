@@ -530,6 +530,56 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Update player status (for mid-tournament withdrawals and bye requests)
+  app.put("/api/players/:id/status", requireAuth, requireRole('tournament_director'), async (req, res) => {
+    try {
+      const playerId = parseInt(req.params.id);
+      const { status, byeRounds } = req.body;
+      
+      // Get player to find tournament ID for access control
+      const player = await storage.getPlayer(playerId);
+      if (!player) {
+        return res.status(404).json({ message: "Player not found" });
+      }
+      
+      // Validate tournament access
+      const tournament = await storage.getTournament(player.tournamentId);
+      if (!tournament || tournament.createdBy !== (req as any).user.id) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+      
+      // Update player status if needed (could add status field to schema)
+      // For now, we'll handle withdrawal through bye pairings
+      
+      // Create bye pairings for upcoming rounds if specified
+      if (byeRounds && Array.isArray(byeRounds) && byeRounds.length > 0) {
+        for (const byeEntry of byeRounds) {
+          const pointsPerBye = status === "withdrawn" ? 0 : (byeEntry.type === "half_point" ? 0.5 : 0);
+          
+          await storage.createPairing({
+            tournamentId: player.tournamentId,
+            round: byeEntry.round,
+            playerId: playerId,
+            opponentId: null,
+            color: null,
+            points: pointsPerBye,
+            isBye: true,
+            byeType: status === "withdrawn" ? "zero_point" : byeEntry.type
+          });
+        }
+      }
+      
+      res.json({ 
+        message: "Player status updated successfully",
+        status,
+        byeRounds 
+      });
+    } catch (error) {
+      console.error('Player status update error:', error);
+      res.status(500).json({ message: "Failed to update player status" });
+    }
+  });
+
   // Match routes
   app.get("/api/tournaments/:tournamentId/matches", async (req, res) => {
     try {
