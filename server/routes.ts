@@ -1208,28 +1208,70 @@ function generateSwissPairings(players: any[], matches: any[], round: number) {
     let boardNumber = 1;
     
     // Process each score group from highest to lowest
-    for (const scoreGroup of scoreGroups) {
+    for (let groupIndex = 0; groupIndex < scoreGroups.length; groupIndex++) {
+      const scoreGroup = scoreGroups[groupIndex];
+      
       // Add any unpaired players from higher score groups
       const playersToProcess = [...unpaired, ...scoreGroup];
       unpaired.length = 0; // Clear unpaired array
       
-      // Rule #3: Upper-half vs lower-half within score group
-      const pairedInGroup = pairUpperVsLowerHalf(playersToProcess, matches, round);
-      
-      // Add successful pairings
-      for (const [player1, player2] of pairedInGroup.paired) {
-        const colors = determineSwissColors(player1, player2);
+      // Special case: If we have exactly one player from higher group and current group has players
+      // Pair the higher-scored player with highest-rated player from current group
+      if (playersToProcess.length > scoreGroup.length && 
+          playersToProcess.length - scoreGroup.length === 1 && 
+          scoreGroup.length > 0) {
         
+        const higherScoredPlayer = playersToProcess[0]; // First player is from higher group
+        const currentGroupSorted = scoreGroup.sort((a, b) => (b.player.rating || 0) - (a.player.rating || 0));
+        const highestRatedInGroup = currentGroupSorted[0];
+        
+        // Pair them together
+        const colors = determineSwissColors(higherScoredPlayer, highestRatedInGroup);
         pairings.push({
           whitePlayerId: colors.whitePlayer.id,
           blackPlayerId: colors.blackPlayer.id,
           board: boardNumber++,
           isBye: false,
         });
+        
+        // Remove the paired players and continue with remaining players
+        const remainingPlayers = currentGroupSorted.slice(1);
+        const pairedInGroup = pairUpperVsLowerHalf(remainingPlayers, matches, round);
+        
+        // Add remaining successful pairings
+        for (const [player1, player2] of pairedInGroup.paired) {
+          const colors = determineSwissColors(player1, player2);
+          
+          pairings.push({
+            whitePlayerId: colors.whitePlayer.id,
+            blackPlayerId: colors.blackPlayer.id,
+            board: boardNumber++,
+            isBye: false,
+          });
+        }
+        
+        // Carry over any remaining unpaired players
+        unpaired.push(...pairedInGroup.unpaired);
+        
+      } else {
+        // Normal within-group pairing
+        const pairedInGroup = pairUpperVsLowerHalf(playersToProcess, matches, round);
+        
+        // Add successful pairings
+        for (const [player1, player2] of pairedInGroup.paired) {
+          const colors = determineSwissColors(player1, player2);
+          
+          pairings.push({
+            whitePlayerId: colors.whitePlayer.id,
+            blackPlayerId: colors.blackPlayer.id,
+            board: boardNumber++,
+            isBye: false,
+          });
+        }
+        
+        // Carry over unpaired players to next score group
+        unpaired.push(...pairedInGroup.unpaired);
       }
-      
-      // Carry over unpaired players to next score group
-      unpaired.push(...pairedInGroup.unpaired);
     }
     
     // Handle final unpaired players (cross-score-group pairing if needed)
