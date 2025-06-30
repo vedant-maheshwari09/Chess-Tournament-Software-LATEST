@@ -487,25 +487,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/tournaments/:tournamentId/players", async (req, res) => {
     try {
       const tournamentId = parseInt(req.params.tournamentId);
-      const { byeType, byeRounds, ...playerFields } = req.body;
+      const { byeConfiguration, ...playerFields } = req.body;
       const playerData = { ...playerFields, tournamentId };
       const player = insertPlayerSchema.parse(playerData);
       const newPlayer = await storage.createPlayer(player);
       
       // Create bye pairings if specified
-      if (byeType && byeType !== "none" && byeRounds && Array.isArray(byeRounds) && byeRounds.length > 0) {
-        const pointsPerBye = byeType === "half_point" ? 0.5 : 0;
-        
-        for (const round of byeRounds) {
+      if (byeConfiguration && Array.isArray(byeConfiguration) && byeConfiguration.length > 0) {
+        for (const byeEntry of byeConfiguration) {
+          const pointsPerBye = byeEntry.type === "half_point" ? 0.5 : 0;
+          
           await storage.createPairing({
             tournamentId,
-            round,
+            round: byeEntry.round,
             playerId: newPlayer.id,
             opponentId: null,
             color: null,
             points: pointsPerBye,
             isBye: true,
-            byeType: byeType
+            byeType: byeEntry.type
           });
         }
       }

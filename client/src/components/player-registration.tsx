@@ -19,8 +19,7 @@ export default function PlayerRegistration({ tournamentId }: PlayerRegistrationP
   const [lastName, setLastName] = useState("");
   const [rating, setRating] = useState("");
   const [federation, setFederation] = useState("USCF");
-  const [byeType, setByeType] = useState<"none" | "half_point" | "zero_point">("none");
-  const [byeRoundsText, setByeRoundsText] = useState<string>("");
+  const [byeConfiguration, setByeConfiguration] = useState<string>("");
   const { toast } = useToast();
 
   const { data: players, isLoading } = useQuery<Player[]>({
@@ -33,7 +32,7 @@ export default function PlayerRegistration({ tournamentId }: PlayerRegistrationP
   });
 
   const addPlayerMutation = useMutation({
-    mutationFn: async (playerData: InsertPlayer) => {
+    mutationFn: async (playerData: InsertPlayer & { byeConfiguration?: Array<{round: number, type: string}> }) => {
       return await apiRequest(`/api/tournaments/${tournamentId}/players`, {
         method: "POST",
         body: JSON.stringify(playerData),
@@ -49,8 +48,7 @@ export default function PlayerRegistration({ tournamentId }: PlayerRegistrationP
       setLastName("");
       setRating("");
       setFederation("USCF");
-      setByeType("none");
-      setByeRoundsText("");
+      setByeConfiguration("");
     },
     onError: () => {
       toast({
@@ -63,7 +61,7 @@ export default function PlayerRegistration({ tournamentId }: PlayerRegistrationP
 
   const deletePlayerMutation = useMutation({
     mutationFn: async (playerId: number) => {
-      await apiRequest(`/api/players/${playerId}`, {
+      return await apiRequest(`/api/players/${playerId}`, {
         method: "DELETE",
       });
     },
@@ -94,20 +92,28 @@ export default function PlayerRegistration({ tournamentId }: PlayerRegistrationP
       return;
     }
 
-    // Parse round numbers from text input (e.g., "1, 3, 5")
-    const parseByeRounds = (text: string): number[] => {
+    // Parse bye configuration (e.g., "1:half,4:zero" for round 1 half-point bye and round 4 zero-point bye)
+    const parseByeConfiguration = (text: string): Array<{round: number, type: string}> => {
       if (!text.trim()) return [];
-      return text.split(',').map(r => parseInt(r.trim())).filter(n => !isNaN(n) && n > 0);
+      try {
+        return text.split(',').map(entry => {
+          const [round, type] = entry.trim().split(':');
+          const roundNum = parseInt(round);
+          const byeType = type === 'half' ? 'half_point' : type === 'zero' ? 'zero_point' : 'half_point';
+          return { round: roundNum, type: byeType };
+        }).filter(entry => !isNaN(entry.round) && entry.round > 0);
+      } catch {
+        return [];
+      }
     };
 
-    const playerData: InsertPlayer & { byeType?: string; byeRounds?: number[] } = {
+    const playerData: InsertPlayer & { byeConfiguration?: Array<{round: number, type: string}> } = {
       tournamentId,
       firstName: firstName.trim(),
       lastName: lastName.trim() || "",
       rating: rating ? parseInt(rating) : undefined,
       federation: federation || "USCF",
-      byeType: byeType !== "none" ? byeType : undefined,
-      byeRounds: byeType !== "none" ? parseByeRounds(byeRoundsText) : undefined,
+      byeConfiguration: byeConfiguration ? parseByeConfiguration(byeConfiguration) : undefined,
     };
 
     addPlayerMutation.mutate(playerData);
@@ -175,40 +181,34 @@ export default function PlayerRegistration({ tournamentId }: PlayerRegistrationP
             {/* Bye Assignment Section */}
             <div className="space-y-4 p-4 bg-gray-50 rounded-lg">
               <Label className="text-sm font-medium text-gray-700">Bye Assignment (for late-joining players)</Label>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <Label htmlFor="byeType">Bye Type</Label>
-                  <Select value={byeType} onValueChange={(value: "none" | "half_point" | "zero_point") => setByeType(value)}>
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="none">No Bye</SelectItem>
-                      <SelectItem value="half_point">1/2 Point Bye</SelectItem>
-                      <SelectItem value="zero_point">0 Point Bye</SelectItem>
-                    </SelectContent>
-                  </Select>
+              <div>
+                <Label htmlFor="byeConfiguration">Bye Configuration</Label>
+                <Input
+                  id="byeConfiguration"
+                  type="text"
+                  value={byeConfiguration}
+                  onChange={(e) => setByeConfiguration(e.target.value)}
+                  placeholder="1:half,4:zero"
+                />
+                <div className="text-xs text-gray-500 mt-1 space-y-1">
+                  <p>Format: round:type,round:type</p>
+                  <p>Examples:</p>
+                  <p>• "1:half" = Round 1 gets 1/2 point bye</p>
+                  <p>• "4:zero" = Round 4 gets 0 point bye</p>
+                  <p>• "1:half,4:zero" = Round 1 gets 1/2 point, Round 4 gets 0 points</p>
                 </div>
-                {byeType !== "none" && (
-                  <div>
-                    <Label htmlFor="byeRounds">Specific Bye Rounds</Label>
-                    <Input
-                      id="byeRounds"
-                      type="text"
-                      value={byeRoundsText}
-                      onChange={(e) => setByeRoundsText(e.target.value)}
-                      placeholder="1, 3, 5"
-                    />
-                    <p className="text-xs text-gray-500 mt-1">
-                      Enter round numbers separated by commas (e.g., "1, 3" for rounds 1 and 3)
-                    </p>
-                  </div>
-                )}
               </div>
-              {byeType !== "none" && byeRoundsText && (
-                <p className="text-sm text-blue-600">
-                  Player will receive {byeType === "half_point" ? "0.5" : "0"} points for rounds: {byeRoundsText}
-                </p>
+              {byeConfiguration && (
+                <div className="text-sm text-blue-600">
+                  <p className="font-medium">Bye Configuration Preview:</p>
+                  {byeConfiguration.split(',').map((entry, index) => {
+                    const [round, type] = entry.trim().split(':');
+                    const points = type === 'half' ? '0.5' : '0';
+                    return (
+                      <p key={index}>• Round {round}: {points} points</p>
+                    );
+                  })}
+                </div>
               )}
             </div>
 
@@ -228,50 +228,41 @@ export default function PlayerRegistration({ tournamentId }: PlayerRegistrationP
               {players?.length || 0} players registered
             </p>
           </div>
-          <Button variant="outline" size="sm">
-            <Upload className="h-4 w-4 mr-1" />
-            Import CSV
-          </Button>
         </CardHeader>
         <CardContent>
           {isLoading ? (
-            <div className="space-y-3">
-              {[1, 2, 3].map((i) => (
-                <div key={i} className="animate-pulse">
-                  <div className="h-16 bg-gray-200 rounded-lg"></div>
-                </div>
-              ))}
-            </div>
-          ) : !players || players.length === 0 ? (
-            <div className="text-center py-8">
-              <p className="text-gray-500">No players registered yet</p>
-            </div>
-          ) : (
-            <div className="space-y-3 max-h-80 overflow-y-auto">
+            <div className="text-center py-8">Loading players...</div>
+          ) : players && players.length > 0 ? (
+            <div className="space-y-2">
               {players.map((player) => (
-                <div key={player.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                  <div className="flex items-center">
-                    <div className="w-8 h-8 bg-primary/10 rounded-full flex items-center justify-center mr-3">
-                      <span className="text-primary font-medium text-sm">{player.seed}</span>
-                    </div>
-                    <div>
-                      <div className="font-medium text-gray-900">
+                <div
+                  key={player.id}
+                  className="flex items-center justify-between p-3 bg-white border rounded-lg hover:shadow-sm transition-shadow"
+                >
+                  <div className="flex-1">
+                    <div className="flex items-center space-x-2">
+                      <span className="font-medium">
                         {player.firstName} {player.lastName}
-                      </div>
-                      <div className="text-sm text-gray-600">Rating: {player.rating}</div>
+                      </span>
+                      <span className="text-sm text-gray-500">
+                        ({player.rating || "Unrated"} - {player.federation})
+                      </span>
                     </div>
                   </div>
                   <Button
                     variant="ghost"
                     size="sm"
                     onClick={() => handleDeletePlayer(player.id)}
-                    className="text-red-600 hover:text-red-800"
-                    disabled={deletePlayerMutation.isPending}
+                    className="text-red-600 hover:text-red-700 hover:bg-red-50"
                   >
                     <Trash2 className="h-4 w-4" />
                   </Button>
                 </div>
               ))}
+            </div>
+          ) : (
+            <div className="text-center py-8 text-gray-500">
+              No players registered yet. Add some players to get started.
             </div>
           )}
         </CardContent>
