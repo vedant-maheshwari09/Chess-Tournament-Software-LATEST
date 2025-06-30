@@ -296,19 +296,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/tournaments", requireAuth, requireRole('tournament_director'), async (req, res) => {
     try {
       const user = (req as any).user;
+      console.log('Creating tournament - user:', user.id);
+      console.log('Tournament data received:', req.body);
+      
       const tournamentData = insertTournamentSchema.parse(req.body);
+      console.log('Parsed tournament data:', tournamentData);
       
       // Add the creator's user ID
       const tournamentWithCreator = {
         ...tournamentData,
         createdBy: user.id,
       };
+      console.log('Tournament with creator:', tournamentWithCreator);
       
       const newTournament = await storage.createTournament(tournamentWithCreator);
+      console.log('Created tournament:', newTournament);
       res.status(201).json(newTournament);
     } catch (error) {
       console.error('Tournament creation error:', error);
-      res.status(400).json({ message: "Invalid tournament data" });
+      if (error instanceof Error) {
+        console.error('Error message:', error.message);
+        console.error('Error stack:', error.stack);
+      }
+      res.status(400).json({ 
+        message: "Failed to create tournament. Please try again.",
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
     }
   });
 

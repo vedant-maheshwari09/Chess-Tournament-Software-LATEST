@@ -29,7 +29,10 @@ export default function TournamentWizard({ tournament, onTournamentCreated }: To
 
   const createTournamentMutation = useMutation({
     mutationFn: async (tournamentData: InsertTournament) => {
-      const response = await apiRequest("POST", "/api/tournaments", tournamentData);
+      const response = await apiRequest("/api/tournaments", {
+        method: "POST",
+        body: JSON.stringify(tournamentData),
+      });
       const tournament = await response.json();
       
       // If using casual mode and not skipping auto-generation, automatically create players
@@ -37,11 +40,14 @@ export default function TournamentWizard({ tournament, onTournamentCreated }: To
         const playerPromises = [];
         for (let i = 1; i <= tournamentData.playerCount; i++) {
           playerPromises.push(
-            apiRequest("POST", `/api/tournaments/${tournament.id}/players`, {
-              firstName: `Player`,
-              lastName: `${i}`,
-              rating: 1000,
-              federation: "USCF",
+            apiRequest(`/api/tournaments/${tournament.id}/players`, {
+              method: "POST",
+              body: JSON.stringify({
+                firstName: `Player`,
+                lastName: `${i}`,
+                rating: 1000,
+                federation: "USCF",
+              }),
             })
           );
         }
@@ -257,7 +263,7 @@ export default function TournamentWizard({ tournament, onTournamentCreated }: To
                       onChange={() => setTournamentMode('official')}
                       className="text-blue-600"
                     />
-                    <Label htmlFor="official" className="font-medium">USCF Official Mode</Label>
+                    <Label htmlFor="official" className="font-medium">Standard Mode</Label>
                   </div>
                   <p className="text-sm text-gray-600">
                     Full player registration with real names, ratings, and federation details for official tournaments.

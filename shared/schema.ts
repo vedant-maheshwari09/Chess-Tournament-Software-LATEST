@@ -130,6 +130,7 @@ export const resetPasswordSchema = z.object({
 
 export const insertTournamentSchema = createInsertSchema(tournaments).omit({
   id: true,
+  createdBy: true, // This will be set on the backend
   createdAt: true,
   updatedAt: true,
 });
