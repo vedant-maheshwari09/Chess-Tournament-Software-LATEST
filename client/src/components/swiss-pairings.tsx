@@ -586,7 +586,8 @@ export default function SwissPairings({ tournamentId }: SwissPairingsProps) {
                         {getPlayerName(byePairing.playerId)} [{getPlayerPoints(byePairing.playerId)}] ({getPlayerRating(byePairing.playerId)})
                       </span>
                       <Badge variant="outline" className="text-yellow-700 border-yellow-300">
-                        {byePairing.byeType === 'half_point' ? '½ Point Bye' : '1 Point Bye'}
+                        {byePairing.byeType === 'half_point' ? '½ Point Bye' : 
+                         byePairing.byeType === 'zero_point' ? '0 Point Bye' : '1 Point Bye'}
                       </Badge>
                     </div>
                   ))}
