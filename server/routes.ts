@@ -826,8 +826,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
         
         for (const round of futureRounds) {
           console.log(`Clearing round ${round}...`);
-          await storage.deletePairingsByRound(tournamentId, round);
+          
+          // Preserve explicit bye requests (manual bye requests should not be deleted)
+          // Only delete automatic pairings and matches
+          const roundPairings = await storage.getPairingsByRound(tournamentId, round);
+          const explicitByes = roundPairings.filter(p => 
+            p.isBye && 
+            (p.byeType === 'half_point' || p.byeType === 'zero_point') &&
+            // Exclude automatic byes that were system-generated (these will be regenerated)
+            p.opponentId === null
+          );
+          
+          // Delete all pairings except explicit bye requests
+          for (const pairing of roundPairings) {
+            const isExplicitBye = explicitByes.some(bye => bye.id === pairing.id);
+            if (!isExplicitBye) {
+              await storage.deletePairing(pairing.id);
+            }
+          }
+          
+          // Delete all matches (they will be regenerated)
           await storage.deleteMatchesByRound(tournamentId, round);
+          
+          console.log(`Preserved ${explicitByes.length} explicit bye requests for round ${round}`);
         }
       }
       
@@ -1422,8 +1443,10 @@ async function generateSwissPairings(players: any[], matches: any[], round: numb
     );
     
     // Filter to active players only (not withdrawn and no existing bye for this round)
-    const excludedPlayerIds = new Set([...Array.from(withdrawnPlayerIds), ...Array.from(roundByePlayerIds)]);
-    players = players.filter(p => !excludedPlayerIds.has(p.id));
+    const withdrawnIds = Array.from(withdrawnPlayerIds);
+    const roundByeIds = Array.from(roundByePlayerIds);
+    const excludedIds = [...withdrawnIds, ...roundByeIds];
+    players = players.filter(p => !excludedIds.includes(p.id));
     
     console.log(`Active players for round ${round}: ${players.length} (${withdrawnPlayerIds.size} withdrawn, ${roundByePlayerIds.size} with round byes)`);
   }
