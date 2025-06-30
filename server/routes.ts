@@ -584,49 +584,64 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const currentMatches = await storage.getMatchesByTournament(player.tournamentId);
       const currentRound = currentMatches.length > 0 ? Math.max(...currentMatches.map(m => m.round)) : 0;
       
-      if (status === "withdrawn") {
-        // Withdraw player - create zero-point byes for all future rounds
-        const tournament = await storage.getTournament(player.tournamentId);
-        if (tournament && tournament.rounds) {
-          for (let round = currentRound + 1; round <= tournament.rounds; round++) {
-            // Check if bye already exists for this round
-            const existingByes = await storage.getPairingsByRound(player.tournamentId, round);
-            const existingBye = existingByes.find(p => p.playerId === playerId && p.isBye);
-            
-            if (!existingBye) {
-              await storage.createPairing({
-                tournamentId: player.tournamentId,
-                round: round,
-                playerId: playerId,
-                opponentId: null,
-                color: null,
-                points: 0,
-                isBye: true,
-                byeType: "zero_point"
-              });
+      // Get current player status from existing byes
+      const allPairings = await storage.getPairingsByTournament(player.tournamentId);
+      const currentPlayerByes = allPairings.filter(p => p.playerId === playerId && p.isBye);
+      const currentWithdrawnByes = currentPlayerByes.filter(p => p.byeType === "zero_point");
+      const currentPlayerStatus = currentWithdrawnByes.length > 0 ? "withdrawn" : "active";
+      
+      // Handle status changes (withdrawal/reactivation)
+      if (status !== currentPlayerStatus) {
+        if (status === "withdrawn") {
+          // Withdraw player - create zero-point byes for all future rounds
+          const tournament = await storage.getTournament(player.tournamentId);
+          if (tournament && tournament.rounds) {
+            for (let round = currentRound + 1; round <= tournament.rounds; round++) {
+              // Check if bye already exists for this round
+              const existingByes = await storage.getPairingsByRound(player.tournamentId, round);
+              const existingBye = existingByes.find(p => p.playerId === playerId && p.isBye);
+              
+              if (!existingBye) {
+                await storage.createPairing({
+                  tournamentId: player.tournamentId,
+                  round: round,
+                  playerId: playerId,
+                  opponentId: null,
+                  color: null,
+                  points: 0,
+                  isBye: true,
+                  byeType: "zero_point"
+                });
+              }
             }
           }
+        } else if (status === "active") {
+          // Reactivate player - remove all future zero-point byes
+          const futureWithdrawnByes = allPairings.filter(p => 
+            p.playerId === playerId && 
+            p.isBye && 
+            p.byeType === "zero_point" && 
+            p.round > currentRound
+          );
+          
+          for (const bye of futureWithdrawnByes) {
+            await storage.deletePairing(bye.id);
+          }
         }
-      } else if (status === "active") {
-        // Reactivate player - remove all future zero-point byes
-        const allPairings = await storage.getPairingsByTournament(player.tournamentId);
-        const futureWithdrawnByes = allPairings.filter(p => 
-          p.playerId === playerId && 
-          p.isBye && 
-          p.byeType === "zero_point" && 
-          p.round > currentRound
-        );
-        
-        for (const bye of futureWithdrawnByes) {
-          await storage.deletePairing(bye.id);
-        }
-        
-        // Create specific bye pairings if requested
-        if (byeRounds && Array.isArray(byeRounds) && byeRounds.length > 0) {
-          for (const byeEntry of byeRounds) {
-            // Store points as integer: 0 = 0 points, 1 = 0.5 points, 2 = 1 point
-            const pointsPerBye = byeEntry.type === "half_point" ? 1 : 0;
-            
+      }
+      
+      // Handle individual bye requests (independent of status)
+      if (byeRounds && Array.isArray(byeRounds) && byeRounds.length > 0) {
+        for (const byeEntry of byeRounds) {
+          // Store points as integer: 0 = 0 points, 1 = 0.5 points, 2 = 1 point
+          const pointsPerBye = byeEntry.type === "half_point" ? 1 : 
+                              byeEntry.type === "zero_point" ? 0 : 2;
+          
+          // Check if bye already exists for this round
+          const existingByes = await storage.getPairingsByRound(player.tournamentId, byeEntry.round);
+          const existingBye = existingByes.find(p => p.playerId === playerId && p.isBye);
+          
+          if (!existingBye) {
             await storage.createPairing({
               tournamentId: player.tournamentId,
               round: byeEntry.round,
@@ -641,10 +656,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
       
+      // Return current status after operations
+      const finalPairings = await storage.getPairingsByTournament(player.tournamentId);
+      const finalPlayerByes = finalPairings.filter(p => p.playerId === playerId && p.isBye);
+      const finalWithdrawnByes = finalPlayerByes.filter(p => p.byeType === "zero_point");
+      const finalStatus = finalWithdrawnByes.length > 0 ? "withdrawn" : "active";
+      
       res.json({ 
-        message: "Player status updated successfully",
-        status,
-        byeRounds 
+        message: `Player ${finalStatus === "withdrawn" ? "withdrawn" : "status updated"} successfully`,
+        status: finalStatus,
+        byeRounds,
+        addedByes: byeRounds?.length || 0
       });
     } catch (error) {
       console.error('Player status update error:', error);

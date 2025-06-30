@@ -148,6 +148,12 @@ Changelog:
   - Enhanced pairings display to show points before each round (Round 1 shows [0], etc.)
   - Fixed automatic bye assignment to include existing bye points in player scoring
   - Clarified bye types: 1/2 Point Bye (temporary skip) vs 0 Point Bye (withdrawal)
+- June 30, 2025. Separated player withdrawal from individual bye requests
+  - Fixed critical bug where adding 0-point bye incorrectly withdrew players
+  - Implemented proper separation: player status (active/withdrawn) vs individual bye requests
+  - Enhanced bye display logic to show "½ Point Bye", "0 Point Bye", and "1 Point Bye" correctly
+  - Tournament directors can now add specific round byes without changing player status
+  - Withdrawal remains separate action requiring explicit status change from active to withdrawn
 ```
 
 ## User Preferences
