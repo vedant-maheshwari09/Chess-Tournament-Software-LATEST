@@ -27,14 +27,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const userData = registerSchema.parse(req.body);
       
-      // Check if username or email already exists
-      const existingUser = await storage.getUserByUsername(userData.username) || 
-                           await storage.getUserByEmail(userData.email);
-      
-      if (existingUser) {
+      // Check if username already exists
+      const existingUsername = await storage.getUserByUsername(userData.username);
+      if (existingUsername) {
         return res.status(400).json({ 
-          message: existingUser.username === userData.username ? 
-            "Username already exists" : "Email already exists" 
+          message: "This username is already taken. Please choose a different username." 
+        });
+      }
+      
+      // Check if email already exists
+      const existingEmail = await storage.getUserByEmail(userData.email);
+      if (existingEmail) {
+        return res.status(400).json({ 
+          message: "An account with this email already exists. Please use a different email or try logging in." 
         });
       }
       
@@ -56,6 +61,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
     } catch (error) {
       console.error('Registration error:', error);
+      
+      // Handle database constraint violations
+      if (error instanceof Error && error.message.includes('unique constraint')) {
+        if (error.message.includes('username')) {
+          return res.status(400).json({ 
+            message: "This username is already taken. Please choose a different username." 
+          });
+        } else if (error.message.includes('email')) {
+          return res.status(400).json({ 
+            message: "An account with this email already exists. Please use a different email or try logging in." 
+          });
+        }
+      }
+      
       res.status(400).json({ message: "Invalid registration data" });
     }
   });

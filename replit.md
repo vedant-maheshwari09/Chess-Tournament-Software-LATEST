@@ -123,6 +123,12 @@ Changelog:
   - Players: can view live tournaments, standings, and pairings (read-only access)
   - Enhanced API security with protected routes and ownership validation
   - Rebuilt application architecture around authentication-first user experience
+- June 30, 2025. Enhanced player dashboard with live tournament selection and unique account validation
+  - Added live tournament list view for players to browse available events
+  - Implemented tournament selection system: players click to view specific tournament details
+  - Created tabbed interface showing live standings, pairings, and brackets for selected tournaments
+  - Added unique username and email validation: no duplicates allowed across accounts
+  - Enhanced error messages for registration conflicts with clear guidance for users
 ```
 
 ## User Preferences
