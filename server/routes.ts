@@ -115,6 +115,93 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Forgot password routes
+  app.post("/api/auth/forgot-password", async (req, res) => {
+    try {
+      const { email } = forgotPasswordSchema.parse(req.body);
+      
+      // Find user by email
+      const user = await storage.getUserByEmail(email);
+      
+      if (!user) {
+        // Don't reveal if email exists for security
+        return res.json({ message: "If the email exists, a reset link will be sent." });
+      }
+      
+      // Generate reset token (expires in 1 hour)
+      const resetToken = generateSessionToken();
+      const expiresAt = new Date();
+      expiresAt.setHours(expiresAt.getHours() + 1);
+      
+      await storage.createPasswordReset(user.id, resetToken, expiresAt);
+      
+      // In a real app, you'd send an email here
+      // For now, we'll return the token (in production, never do this!)
+      console.log(`Password reset token for ${email}: ${resetToken}`);
+      
+      res.json({ 
+        message: "If the email exists, a reset link will be sent.",
+        // Remove this in production - only for demo
+        resetToken: resetToken
+      });
+    } catch (error) {
+      console.error('Forgot password error:', error);
+      res.status(400).json({ message: "Invalid request" });
+    }
+  });
+
+  app.post("/api/auth/forgot-username", async (req, res) => {
+    try {
+      const { email } = forgotUsernameSchema.parse(req.body);
+      
+      // Find user by email
+      const user = await storage.getUserByEmail(email);
+      
+      if (!user) {
+        // Don't reveal if email exists for security
+        return res.json({ message: "If the email exists, the username will be sent." });
+      }
+      
+      // In a real app, you'd send an email here
+      // For now, we'll return the username (in production, never do this!)
+      console.log(`Username for ${email}: ${user.username}`);
+      
+      res.json({ 
+        message: "If the email exists, the username will be sent.",
+        // Remove this in production - only for demo
+        username: user.username
+      });
+    } catch (error) {
+      console.error('Forgot username error:', error);
+      res.status(400).json({ message: "Invalid request" });
+    }
+  });
+
+  app.post("/api/auth/reset-password", async (req, res) => {
+    try {
+      const { token, newPassword } = resetPasswordSchema.parse(req.body);
+      
+      // Find password reset record
+      const passwordReset = await storage.getPasswordResetByToken(token);
+      
+      if (!passwordReset || passwordReset.used || new Date() > passwordReset.expiresAt) {
+        return res.status(400).json({ message: "Invalid or expired reset token" });
+      }
+      
+      // Hash new password and update user
+      const passwordHash = await hashPassword(newPassword);
+      await storage.updateUser(passwordReset.userId, { passwordHash });
+      
+      // Mark reset token as used
+      await storage.usePasswordReset(token);
+      
+      res.json({ message: "Password reset successfully" });
+    } catch (error) {
+      console.error('Reset password error:', error);
+      res.status(400).json({ message: "Invalid request" });
+    }
+  });
+
   // Tournament routes (role-specific access)
   
   // Get all live tournaments (for players to view)
