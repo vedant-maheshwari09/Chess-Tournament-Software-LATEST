@@ -737,9 +737,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
       
+      // Filter out withdrawn players who have future zero-point byes
+      const allPairings = await storage.getPairingsByTournament(tournamentId);
+      const withdrawnPlayerIds = new Set();
+      
+      // Identify withdrawn players (those with zero-point byes for future rounds)
+      for (const pairing of allPairings) {
+        if (pairing.isBye && pairing.byeType === 'zero_point' && pairing.round >= currentRound) {
+          withdrawnPlayerIds.add(pairing.playerId);
+        }
+      }
+      
+      // Filter out withdrawn players from active player list
+      const activePlayers = players.filter(player => !withdrawnPlayerIds.has(player.id));
+      console.log(`Active players for round ${currentRound}: ${activePlayers.length} (${withdrawnPlayerIds.size} withdrawn)`);
+
       // Generate Swiss pairings directly (excluding matches from the round being regenerated)
       const matchesForPairing = existingMatches.filter(m => m.round !== currentRound);
-      const swissPairings = generateSwissPairings(players, matchesForPairing, currentRound);
+      const swissPairings = generateSwissPairings(activePlayers, matchesForPairing, currentRound);
       
       // Create both pairings and matches from the Swiss algorithm
       const savedPairings = [];

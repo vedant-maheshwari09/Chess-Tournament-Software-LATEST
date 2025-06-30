@@ -57,9 +57,9 @@ export default function Standings({ tournamentId }: StandingsProps) {
       );
 
       // Get bye pairings for this player
-      const playerByes = pairings.filter((pairing: any) => 
+      const playerByes = Array.isArray(pairings) ? pairings.filter((pairing: any) => 
         pairing.playerId === player.id && pairing.isBye && pairing.points !== null
-      );
+      ) : [];
 
       let points = 0;
       let wins = 0;
