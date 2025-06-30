@@ -93,11 +93,13 @@ export default function SwissPairings({ tournamentId }: SwissPairingsProps) {
 
   const updateMatchMutation = useMutation({
     mutationFn: async ({ matchId, result }: { matchId: number; result: string }) => {
-      const response = await apiRequest("PUT", `/api/matches/${matchId}`, {
-        result,
-        status: result === "Pending" ? "pending" : "completed",
+      return await apiRequest(`/api/matches/${matchId}`, {
+        method: "PUT",
+        body: JSON.stringify({
+          result,
+          status: result === "Pending" ? "pending" : "completed",
+        }),
       });
-      return response.json();
     },
     onSuccess: (updatedMatch, variables) => {
       queryClient.invalidateQueries({ queryKey: [`/api/tournaments/${tournamentId}/matches`] });
