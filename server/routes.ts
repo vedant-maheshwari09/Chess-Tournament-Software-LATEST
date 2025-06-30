@@ -1523,12 +1523,12 @@ function generateSwissPairings(players: any[], matches: any[], round: number, ex
   }
   
   // Sort pairings by board order - highest point totals on top boards
-  return sortPairingsByPointTotal(pairings, players, matches);
+  return sortPairingsByPointTotal(pairings, players, matches, existingPairings);
 }
 
-function sortPairingsByPointTotal(pairings: any[], players: any[], matches: any[]): any[] {
+function sortPairingsByPointTotal(pairings: any[], players: any[], matches: any[], existingPairings: any[] = []): any[] {
   // Create a map for quick player stats lookup
-  const playerStats = calculatePlayerStats(players, matches);
+  const playerStats = calculatePlayerStats(players, matches, existingPairings);
   const statsMap = new Map();
   playerStats.forEach((stat: any) => {
     statsMap.set(stat.player.id, {
