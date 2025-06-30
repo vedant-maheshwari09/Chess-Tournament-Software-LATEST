@@ -325,7 +325,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json({ pairings: savedPairings, matches, round: currentRound });
     } catch (error) {
       console.error('Pairing generation error:', error);
-      res.status(500).json({ message: "Failed to generate pairings", error: error.message });
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ message: "Failed to generate pairings", error: errorMessage });
     }
   });
 
@@ -529,7 +530,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
     } catch (error) {
       console.error('Future rounds regeneration error:', error);
-      res.status(500).json({ message: "Failed to regenerate future rounds", error: error.message });
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ message: "Failed to regenerate future rounds", error: errorMessage });
     }
   });
 
@@ -860,18 +862,33 @@ function generateSwissPairings(players: any[], matches: any[], round: number) {
 }
 
 function sortPairingsByPointTotal(pairings: any[], players: any[], matches: any[]): any[] {
-  // Create a map for quick player points lookup
+  // Create a map for quick player stats lookup
   const playerStats = calculatePlayerStats(players, matches);
-  const pointsMap = new Map();
+  const statsMap = new Map();
   playerStats.forEach((stat: any) => {
-    pointsMap.set(stat.player.id, stat.points);
+    statsMap.set(stat.player.id, {
+      points: stat.points,
+      rating: stat.player.rating || 0,
+      tiebreak: stat.points * 1000 + (stat.player.rating || 0) // Points weighted heavily + rating
+    });
   });
 
-  // Sort pairings by total points of both players (highest first)
+  // Sort pairings by HIGHEST individual player tiebreak (USCF Board 1 rule)
+  // Board 1 gets the player with highest tiebreak paired with appropriate opponent
   const sortedPairings = pairings.filter(p => !p.isBye).sort((a, b) => {
-    const aTotal = (pointsMap.get(a.whitePlayerId) || 0) + (pointsMap.get(a.blackPlayerId) || 0);
-    const bTotal = (pointsMap.get(b.whitePlayerId) || 0) + (pointsMap.get(b.blackPlayerId) || 0);
-    return bTotal - aTotal; // Descending order
+    const aWhiteStats = statsMap.get(a.whitePlayerId);
+    const aBlackStats = statsMap.get(a.blackPlayerId);
+    const bWhiteStats = statsMap.get(b.whitePlayerId);
+    const bBlackStats = statsMap.get(b.blackPlayerId);
+
+    if (!aWhiteStats || !aBlackStats || !bWhiteStats || !bBlackStats) return 0;
+
+    // Get the HIGHEST tiebreak player on each board (this determines board order)
+    const aHighestTiebreak = Math.max(aWhiteStats.tiebreak, aBlackStats.tiebreak);
+    const bHighestTiebreak = Math.max(bWhiteStats.tiebreak, bBlackStats.tiebreak);
+
+    // Board with highest individual tiebreak goes first (Board 1)
+    return bHighestTiebreak - aHighestTiebreak;
   });
 
   // Add bye pairings at the end
