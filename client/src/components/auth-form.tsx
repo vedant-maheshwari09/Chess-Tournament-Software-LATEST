@@ -151,9 +151,11 @@ export default function AuthForm() {
 
   const handleRegister = async (data: RegisterData) => {
     try {
+      console.log("Registration data:", data);
       await register(data);
       toast({ title: "Welcome to ChessTournament Pro!", description: "Your account has been created successfully." });
     } catch (error) {
+      console.error("Registration error:", error);
       toast({
         title: "Registration failed",
         description: error instanceof Error ? error.message : "Failed to create account",
@@ -241,7 +243,14 @@ export default function AuthForm() {
       case 'register':
         return (
           <Form {...registerForm}>
-            <form onSubmit={registerForm.handleSubmit(handleRegister)} className="space-y-4">
+            <form onSubmit={registerForm.handleSubmit(handleRegister, (errors) => {
+              console.log("Form validation errors:", errors);
+              toast({
+                title: "Form validation failed",
+                description: "Please check all required fields",
+                variant: "destructive",
+              });
+            })} className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <FormField
                   control={registerForm.control}
@@ -277,7 +286,7 @@ export default function AuthForm() {
                   <FormItem>
                     <FormLabel>Username</FormLabel>
                     <FormControl>
-                      <Input placeholder="johndoe" {...field} />
+                      <Input placeholder="Enter your username" {...field} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
