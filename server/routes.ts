@@ -826,7 +826,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Generate Swiss pairings directly (excluding matches from the round being regenerated)
       const matchesForPairing = existingMatches.filter(m => m.round !== currentRound);
-      const swissPairings = generateSwissPairings(activePlayers, matchesForPairing, currentRound);
+      const pairingsForStats = allPairings.filter(p => p.round < currentRound);
+      const swissPairings = generateSwissPairings(activePlayers, matchesForPairing, currentRound, pairingsForStats);
       
       // Create both pairings and matches from the Swiss algorithm
       const savedPairings = [];
@@ -1375,7 +1376,7 @@ function determineSwissColors(player1: any, player2: any): { whitePlayer: any, b
   }
 }
 
-function generateSwissPairings(players: any[], matches: any[], round: number) {
+function generateSwissPairings(players: any[], matches: any[], round: number, existingPairings: any[] = []) {
   // Server-side Swiss pairing implementation following USCF rules
   const pairings = [];
   
@@ -1420,7 +1421,7 @@ function generateSwissPairings(players: any[], matches: any[], round: number) {
     }
   } else {
     // Subsequent rounds: Swiss pairing with proper precedence rules
-    const playerStats = calculatePlayerStats(players, matches);
+    const playerStats = calculatePlayerStats(players, matches, existingPairings);
     
     // Group by score (Rule #2: Equal scores)
     const scoreGroups = groupPlayersByScore(playerStats);
@@ -1587,7 +1588,7 @@ function sortPairingsByPointTotal(pairings: any[], players: any[], matches: any[
   return result;
 }
 
-function calculatePlayerStats(players: any[], matches: any[]) {
+function calculatePlayerStats(players: any[], matches: any[], pairings: any[] = []) {
   return players.map(player => {
     const playerMatches = matches.filter(
       match => match.whitePlayerId === player.id || match.blackPlayerId === player.id
@@ -1621,6 +1622,18 @@ function calculatePlayerStats(players: any[], matches: any[]) {
         points += 0.5;
       }
     });
+
+    // Add points from bye pairings (convert from integer mapping: 0=0pts, 1=0.5pts, 2=1pt)
+    if (pairings && Array.isArray(pairings)) {
+      const playerByes = pairings.filter(pairing => 
+        pairing.playerId === player.id && pairing.isBye && pairing.points !== null
+      );
+      
+      playerByes.forEach(bye => {
+        const byePoints = bye.points === 1 ? 0.5 : bye.points === 2 ? 1 : 0;
+        points += byePoints;
+      });
+    }
 
     return {
       player,
