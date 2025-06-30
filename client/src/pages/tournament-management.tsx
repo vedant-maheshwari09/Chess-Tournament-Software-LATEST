@@ -24,21 +24,13 @@ export default function TournamentManagement({ tournamentId }: TournamentManagem
   const { toast } = useToast();
 
   // Fetch tournament details
-  const { data: tournament, isLoading: tournamentLoading } = useQuery({
-    queryKey: ["/api/tournaments", tournamentId],
-    queryFn: async () => {
-      const response = await apiRequest(`/api/tournaments/${tournamentId}`);
-      return await response.json() as Tournament;
-    },
+  const { data: tournament, isLoading: tournamentLoading } = useQuery<Tournament>({
+    queryKey: [`/api/tournaments/${tournamentId}`],
   });
 
   // Fetch players
-  const { data: players = [], isLoading: playersLoading } = useQuery({
-    queryKey: ["/api/tournaments", tournamentId, "players"],
-    queryFn: async () => {
-      const response = await apiRequest(`/api/tournaments/${tournamentId}/players`);
-      return await response.json() as Player[];
-    },
+  const { data: players = [], isLoading: playersLoading } = useQuery<Player[]>({
+    queryKey: [`/api/tournaments/${tournamentId}/players`],
   });
 
   // Start tournament mutation
@@ -53,7 +45,8 @@ export default function TournamentManagement({ tournamentId }: TournamentManagem
         title: "Tournament Started",
         description: "Round 1 pairings have been generated!",
       });
-      queryClient.invalidateQueries({ queryKey: ["/api/tournaments", tournamentId] });
+      queryClient.invalidateQueries({ queryKey: [`/api/tournaments/${tournamentId}`] });
+      queryClient.invalidateQueries({ queryKey: [`/api/tournaments/${tournamentId}/players`] });
       setActiveTab("pairings");
     },
     onError: () => {
