@@ -115,6 +115,14 @@ Changelog:
   - Added player points display in brackets next to names in pairings
   - Enhanced cache invalidation for real-time tournament data updates
   - Improved tournament creation: rounds selection from 3-20, removed time control field
+- June 30, 2025. Implemented comprehensive user authentication and role-based access system
+  - Added user registration/login with username, email, password, and role selection
+  - Implemented secure session management with JWT-like tokens and password hashing
+  - Created role-based access: Tournament Directors vs Players with different dashboards
+  - Tournament Directors: can create/manage their own tournaments with full access
+  - Players: can view live tournaments, standings, and pairings (read-only access)
+  - Enhanced API security with protected routes and ownership validation
+  - Rebuilt application architecture around authentication-first user experience
 ```
 
 ## User Preferences
