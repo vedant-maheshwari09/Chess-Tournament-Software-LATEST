@@ -849,7 +849,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Generate Swiss pairings directly (excluding matches from the round being regenerated)
       const matchesForPairing = existingMatches.filter(m => m.round !== currentRound);
       const pairingsForStats = allPairings.filter(p => p.round < currentRound);
-      const swissPairings = generateSwissPairings(activePlayers, matchesForPairing, currentRound, pairingsForStats);
+      const swissPairings = await generateSwissPairings(activePlayers, matchesForPairing, currentRound, pairingsForStats);
       
       // Create both pairings and matches from the Swiss algorithm
       const savedPairings = [];
@@ -1180,7 +1180,7 @@ async function generatePairings(tournament: any, players: any[], matches: any[],
   
   if (tournament.format === 'swiss') {
     // Use proper Swiss pairing algorithm
-    const swissPairings = generateSwissPairings(players, matches, round);
+    const swissPairings = await generateSwissPairings(players, matches, round);
     
     // Convert to our pairing format
     for (const pairing of swissPairings) {
@@ -1402,19 +1402,30 @@ async function generateSwissPairings(players: any[], matches: any[], round: numb
   // Server-side Swiss pairing implementation following USCF rules
   const pairings = [];
   
-  // Filter out withdrawn players (those with zero-point byes)
+  // Filter out withdrawn players and players with existing byes for this round
   const tournamentId = players[0]?.tournamentId;
   if (tournamentId) {
     const allPairings = await storage.getPairingsByTournament(tournamentId);
+    
+    // Get withdrawn players (those with zero-point byes)
     const withdrawnPlayerIds = new Set(
       allPairings
         .filter(p => p.isBye && p.byeType === 'zero_point')
         .map(p => p.playerId)
     );
     
-    // Filter to active players only
-    players = players.filter(p => !withdrawnPlayerIds.has(p.id));
-    console.log(`Active players for round ${round}: ${players.length} (${withdrawnPlayerIds.size} withdrawn)`);
+    // Get players with specific bye requests for this round
+    const roundByePlayerIds = new Set(
+      allPairings
+        .filter(p => p.round === round && p.isBye)
+        .map(p => p.playerId)
+    );
+    
+    // Filter to active players only (not withdrawn and no existing bye for this round)
+    const excludedPlayerIds = new Set([...Array.from(withdrawnPlayerIds), ...Array.from(roundByePlayerIds)]);
+    players = players.filter(p => !excludedPlayerIds.has(p.id));
+    
+    console.log(`Active players for round ${round}: ${players.length} (${withdrawnPlayerIds.size} withdrawn, ${roundByePlayerIds.size} with round byes)`);
   }
   
   if (round === 1) {
@@ -1547,14 +1558,29 @@ async function generateSwissPairings(players: any[], matches: any[], round: numb
       });
     }
     
-    // Handle any remaining player with half-point bye (lowest rated gets bye)
+    // Handle any remaining player with automatic bye
     if (unpaired.length === 1) {
+      const byePlayer = unpaired[0];
+      
+      // Check if this player already has a full-point bye (USCF rule: max one full-point bye per player)
+      const allPairings = await storage.getPairingsByTournament(tournamentId);
+      const playerFullPointByes = allPairings.filter((p: any) => 
+        p.playerId === byePlayer.player.id && 
+        p.isBye && 
+        p.byeType === 'full_point'
+      ).length;
+      
+      const byeType = playerFullPointByes > 0 ? 'half_point' : 'full_point';
+      const byeDescription = byeType === 'full_point' ? '1-point' : '½-point';
+      
+      console.log(`Automatic ${byeDescription} bye assigned to: ${byePlayer.player.firstName} ${byePlayer.player.lastName} (${byePlayer.player.rating}) - Full byes: ${playerFullPointByes}`);
+      
       pairings.push({
-        whitePlayerId: unpaired[0].player.id,
+        whitePlayerId: byePlayer.player.id,
         blackPlayerId: null,
         board: 0,
         isBye: true,
-        byeType: 'half_point', // Half-point bye for odd number
+        byeType: byeType,
       });
     }
   }
