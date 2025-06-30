@@ -584,10 +584,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const currentMatches = await storage.getMatchesByTournament(player.tournamentId);
       const currentRound = currentMatches.length > 0 ? Math.max(...currentMatches.map(m => m.round)) : 0;
       
-      // Get current player status from existing byes
+      // Get current player status from existing byes (only system-assigned withdrawal byes)
       const allPairings = await storage.getPairingsByTournament(player.tournamentId);
       const currentPlayerByes = allPairings.filter(p => p.playerId === playerId && p.isBye);
-      const currentWithdrawnByes = currentPlayerByes.filter(p => p.byeType === "zero_point");
+      const currentWithdrawnByes = currentPlayerByes.filter(p => 
+        p.byeType === "zero_point" && !p.isRequested
+      );
       const currentPlayerStatus = currentWithdrawnByes.length > 0 ? "withdrawn" : "active";
       
       // Handle status changes (withdrawal/reactivation)
@@ -610,18 +612,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
                   color: null,
                   points: 0,
                   isBye: true,
-                  byeType: "zero_point"
+                  byeType: "zero_point",
+                  isRequested: false // System-assigned withdrawal bye
                 });
               }
             }
           }
         } else if (status === "active") {
-          // Reactivate player - remove all future zero-point byes
+          // Reactivate player - remove only system-assigned future zero-point byes
           const futureWithdrawnByes = allPairings.filter(p => 
             p.playerId === playerId && 
             p.isBye && 
             p.byeType === "zero_point" && 
-            p.round > currentRound
+            p.round > currentRound &&
+            !p.isRequested // Only remove system-assigned withdrawal byes
           );
           
           for (const bye of futureWithdrawnByes) {
@@ -657,10 +661,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
       
-      // Return current status after operations
+      // Return current status after operations (only based on system-assigned withdrawal byes)
       const finalPairings = await storage.getPairingsByTournament(player.tournamentId);
       const finalPlayerByes = finalPairings.filter(p => p.playerId === playerId && p.isBye);
-      const finalWithdrawnByes = finalPlayerByes.filter(p => p.byeType === "zero_point");
+      const finalWithdrawnByes = finalPlayerByes.filter(p => 
+        p.byeType === "zero_point" && !p.isRequested
+      );
       const finalStatus = finalWithdrawnByes.length > 0 ? "withdrawn" : "active";
       
       res.json({ 
