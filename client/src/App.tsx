@@ -11,6 +11,7 @@ import TournamentDirectorDashboard from "@/pages/tournament-director-dashboard";
 import PlayerDashboard from "@/pages/player-dashboard";
 import TournamentCreation from "@/pages/tournament-creation";
 import TournamentView from "@/pages/tournament-view";
+import TournamentManagement from "@/pages/tournament-management";
 import NotFound from "@/pages/not-found";
 
 function AuthenticatedApp() {
@@ -52,6 +53,9 @@ function AuthenticatedApp() {
           <>
             <Route path="/" component={TournamentDirectorDashboard} />
             <Route path="/tournaments/new" component={TournamentCreation} />
+            <Route path="/tournaments/:id/manage">
+              {(params) => <TournamentManagement tournamentId={parseInt(params.id)} />}
+            </Route>
             <Route path="/tournaments/:id" component={TournamentView} />
             <Route component={NotFound} />
           </>

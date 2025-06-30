@@ -156,14 +156,10 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Tournament methods
-  async createTournament(tournament: InsertTournament): Promise<Tournament> {
+  async createTournament(tournament: InsertTournament & { createdBy: number }): Promise<Tournament> {
     const [result] = await db
       .insert(tournaments)
-      .values({
-        ...tournament,
-        status: tournament.status || 'draft',
-        currentRound: tournament.currentRound || 0,
-      })
+      .values(tournament)
       .returning();
     return result;
   }
