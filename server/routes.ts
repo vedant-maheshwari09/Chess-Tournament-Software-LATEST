@@ -495,7 +495,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Create bye pairings if specified
       if (byeConfiguration && Array.isArray(byeConfiguration) && byeConfiguration.length > 0) {
         for (const byeEntry of byeConfiguration) {
-          const pointsPerBye = byeEntry.type === "half_point" ? 0.5 : 0;
+          // Store points as integer: 0 = 0 points, 1 = 0.5 points, 2 = 1 point
+          const pointsPerBye = byeEntry.type === "half_point" ? 1 : 0;
           
           await storage.createPairing({
             tournamentId,
