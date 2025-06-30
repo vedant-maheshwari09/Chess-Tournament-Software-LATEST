@@ -530,6 +530,37 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Delete individual pairing (for removing specific bye requests)
+  app.delete("/api/pairings/:id", requireAuth, requireRole('tournament_director'), async (req, res) => {
+    try {
+      const pairingId = parseInt(req.params.id);
+      
+      // Find the pairing across all user's tournaments to verify ownership
+      const tournaments = await storage.getTournamentsByUser((req as any).user.id);
+      let targetPairing = null;
+      
+      for (const tournament of tournaments) {
+        const tournamentPairings = await storage.getPairingsByTournament(tournament.id);
+        targetPairing = tournamentPairings.find(p => p.id === pairingId);
+        if (targetPairing) break;
+      }
+      
+      if (!targetPairing) {
+        return res.status(404).json({ message: "Pairing not found or access denied" });
+      }
+      
+      const deleted = await storage.deletePairing(pairingId);
+      if (!deleted) {
+        return res.status(404).json({ message: "Failed to delete pairing" });
+      }
+      
+      res.json({ message: "Bye request removed successfully" });
+    } catch (error) {
+      console.error('Pairing deletion error:', error);
+      res.status(500).json({ message: "Failed to remove bye request" });
+    }
+  });
+
   // Update player status (for mid-tournament withdrawals and bye requests)
   app.put("/api/players/:id/status", requireAuth, requireRole('tournament_director'), async (req, res) => {
     try {

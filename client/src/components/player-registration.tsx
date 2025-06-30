@@ -27,6 +27,7 @@ export default function PlayerRegistration({ tournamentId }: PlayerRegistrationP
   const [playerStatus, setPlayerStatus] = useState<"active" | "withdrawn">("active");
   const [upcomingByeRounds, setUpcomingByeRounds] = useState<string>("");
   const [upcomingByeType, setUpcomingByeType] = useState<"half_point" | "zero_point">("half_point");
+  const [existingByes, setExistingByes] = useState<Array<{round: number, type: string, id: number}>>([]);
   
   const { toast } = useToast();
 
@@ -110,11 +111,38 @@ export default function PlayerRegistration({ tournamentId }: PlayerRegistrationP
       setEditingPlayer(null);
       setUpcomingByeRounds("");
       setPlayerStatus("active");
+      setExistingByes([]);
     },
     onError: () => {
       toast({
         title: "Error",
         description: "Failed to update player status.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const removePairingMutation = useMutation({
+    mutationFn: async (pairingId: number) => {
+      return await apiRequest(`/api/pairings/${pairingId}`, {
+        method: "DELETE",
+      });
+    },
+    onSuccess: () => {
+      toast({
+        title: "Bye Removed",
+        description: "Bye request has been successfully removed.",
+      });
+      queryClient.invalidateQueries({ queryKey: [`/api/tournaments/${tournamentId}/pairings`] });
+      // Refresh the dialog data
+      if (editingPlayer) {
+        handleEditPlayer(editingPlayer);
+      }
+    },
+    onError: () => {
+      toast({
+        title: "Error",
+        description: "Failed to remove bye request.",
         variant: "destructive",
       });
     },
@@ -165,24 +193,37 @@ export default function PlayerRegistration({ tournamentId }: PlayerRegistrationP
   const handleEditPlayer = async (player: Player) => {
     setEditingPlayer(player);
     
-    // Check if player is currently withdrawn by looking for zero-point byes
+    // Load player's existing byes and determine status
     try {
       const response = await fetch(`/api/tournaments/${tournamentId}/pairings`);
       const pairings = await response.json();
       
-      const playerWithdrawnByes = pairings.filter((pairing: any) => 
-        pairing.playerId === player.id && 
-        pairing.isBye && 
-        pairing.byeType === 'zero_point'
+      const playerByes = pairings.filter((pairing: any) => 
+        pairing.playerId === player.id && pairing.isBye
       );
       
-      if (playerWithdrawnByes.length > 0) {
+      // Separate withdrawal byes from requested byes
+      const withdrawnByes = playerByes.filter((bye: any) => bye.byeType === 'zero_point');
+      const requestedByes = playerByes.filter((bye: any) => bye.byeType === 'half_point');
+      
+      // Set player status
+      if (withdrawnByes.length > 0) {
         setPlayerStatus("withdrawn");
       } else {
         setPlayerStatus("active");
       }
+      
+      // Load existing bye requests (excluding withdrawal byes)
+      const existingByeData = requestedByes.map((bye: any) => ({
+        round: bye.round,
+        type: bye.byeType,
+        id: bye.id
+      }));
+      setExistingByes(existingByeData);
+      
     } catch {
-      setPlayerStatus("active"); // Default to active on error
+      setPlayerStatus("active");
+      setExistingByes([]);
     }
     
     setUpcomingByeRounds("");
@@ -399,8 +440,33 @@ export default function PlayerRegistration({ tournamentId }: PlayerRegistrationP
                           
                           {playerStatus === "active" && (
                             <div className="space-y-4">
+                              {/* Show existing bye requests */}
+                              {existingByes.length > 0 && (
+                                <div>
+                                  <Label>Current Bye Requests</Label>
+                                  <div className="space-y-2 mt-2">
+                                    {existingByes.map((bye) => (
+                                      <div key={bye.id} className="flex items-center justify-between p-2 bg-gray-50 rounded border">
+                                        <span className="text-sm">
+                                          Round {bye.round}: {bye.type === 'half_point' ? '1/2' : '0'} point bye
+                                        </span>
+                                        <Button
+                                          variant="ghost"
+                                          size="sm"
+                                          onClick={() => removePairingMutation.mutate(bye.id)}
+                                          className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                                          disabled={removePairingMutation.isPending}
+                                        >
+                                          <Trash2 className="h-3 w-3" />
+                                        </Button>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+                              
                               <div>
-                                <Label htmlFor="upcomingByeRounds">Upcoming Bye Rounds</Label>
+                                <Label htmlFor="upcomingByeRounds">Add New Bye Rounds</Label>
                                 <Input
                                   id="upcomingByeRounds"
                                   value={upcomingByeRounds}
