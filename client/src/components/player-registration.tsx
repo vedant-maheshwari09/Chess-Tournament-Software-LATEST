@@ -42,7 +42,7 @@ export default function PlayerRegistration({ tournamentId }: PlayerRegistrationP
   });
 
   // Fetch pairings to show bye status indicators
-  const { data: allPairings } = useQuery({
+  const { data: allPairings } = useQuery<any[]>({
     queryKey: [`/api/tournaments/${tournamentId}/pairings`],
   });
 
@@ -546,17 +546,17 @@ export default function PlayerRegistration({ tournamentId }: PlayerRegistrationP
                       </DialogContent>
                     </Dialog>
                     
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => handleDeletePlayer(player.id)}
-                      className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleDeletePlayer(player.id)}
+                        className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
                   </div>
-                </div>
-              );
+                );
               })}
             </div>
           ) : (
