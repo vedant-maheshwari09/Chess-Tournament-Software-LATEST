@@ -1603,12 +1603,17 @@ async function generateSwissPairings(players: any[], matches: any[], round: numb
       });
     }
   } else {
-    // Subsequent rounds: Swiss pairing with proper precedence rules
+    // Subsequent rounds: PRIORITY #1 = NO REPEAT PAIRINGS
     const playerStats = calculatePlayerStats(players, matches, existingPairings);
+    console.log('=== SWISS PAIRING: PRIORITY #1 = NO REPEAT PAIRINGS ===');
     
-    // Group by score (Rule #2: Equal scores)
-    const scoreGroups = groupPlayersByScore(playerStats);
-    const unpaired = [];
+    // Sort all players by points (highest first), then by rating
+    const allPlayers = [...playerStats].sort((a, b) => {
+      if (b.points !== a.points) return b.points - a.points;
+      return (b.player.rating || 0) - (a.player.rating || 0);
+    });
+    
+    const unpaired = [...allPlayers];
     let boardNumber = 1;
     
     // Process each score group from highest to lowest
