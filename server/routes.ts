@@ -1693,16 +1693,45 @@ async function generateSwissPairings(players: any[], matches: any[], round: numb
     // Handle final unpaired players (cross-score-group pairing if needed)
     while (unpaired.length > 1) {
       const player1 = unpaired.shift()!;
-      const player2 = unpaired.shift()!;
+      let pairedPlayer = null;
+      let pairedIndex = -1;
       
-      const colors = determineSwissColors(player1, player2);
+      // Find a player they haven't played before (USCF Rule #1: avoid repeat pairings)
+      for (let i = 0; i < unpaired.length; i++) {
+        const potentialOpponent = unpaired[i];
+        if (!havePlayed(player1.player.id, potentialOpponent.player.id, matches)) {
+          pairedPlayer = potentialOpponent;
+          pairedIndex = i;
+          break;
+        }
+      }
       
-      pairings.push({
-        whitePlayerId: colors.whitePlayer.id,
-        blackPlayerId: colors.blackPlayer.id,
-        board: boardNumber++,
-        isBye: false,
-      });
+      if (pairedPlayer) {
+        // Remove the paired player from unpaired list
+        unpaired.splice(pairedIndex, 1);
+        
+        const colors = determineSwissColors(player1, pairedPlayer);
+        
+        pairings.push({
+          whitePlayerId: colors.whitePlayer.id,
+          blackPlayerId: colors.blackPlayer.id,
+          board: boardNumber++,
+          isBye: false,
+        });
+      } else {
+        // No valid opponent found - this shouldn't happen in a well-managed tournament
+        // Give the player a bye instead
+        console.warn(`No valid opponent found for ${player1.player.firstName} ${player1.player.lastName} - giving bye`);
+        
+        pairings.push({
+          whitePlayerId: player1.player.id,
+          blackPlayerId: null,
+          board: 0,
+          isBye: true,
+          byeType: 'half_point',
+          isRequested: false,
+        });
+      }
     }
     
     // Handle any remaining player with automatic bye
