@@ -463,18 +463,7 @@ export default function SwissPairings({ tournamentId }: SwissPairingsProps) {
               </AlertDialogContent>
             </AlertDialog>
 
-            {/* Simple Regenerate Future Rounds - show if we have any future rounds */}
-            {allMatches && allMatches.some(m => m.round > currentRound) && (
-              <Button
-                variant="outline"
-                disabled={regenerateFutureRoundsMutation.isPending}
-                onClick={() => regenerateFutureRoundsMutation.mutate({ fromRound: currentRound + 1 })}
-                className="border-blue-300 text-blue-600 hover:bg-blue-50"
-              >
-                <RefreshCw className="h-4 w-4 mr-2" />
-                {regenerateFutureRoundsMutation.isPending ? "Regenerating..." : "Regenerate Future Rounds"}
-              </Button>
-            )}
+
           </div>
         </div>
       </CardHeader>
