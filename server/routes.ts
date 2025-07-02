@@ -1679,6 +1679,13 @@ async function generateSwissPairings(players: any[], matches: any[], round: numb
           // Find the best opponent that they haven't played before
           for (let i = 0; i < remainingPlayers.length; i++) {
             const potentialOpponent = remainingPlayers[i];
+            
+            // Never pair a player against themselves
+            if (player1.player.id === potentialOpponent.player.id) {
+              console.log(`Skipping self-pairing: ${player1.player.firstName} (${player1.player.id}) cannot play themselves`);
+              continue;
+            }
+            
             const hasPlayedBefore = havePlayed(player1.player.id, potentialOpponent.player.id, matches);
             console.log(`Within-group check: ${player1.player.firstName} (${player1.player.id}) vs ${potentialOpponent.player.firstName} (${potentialOpponent.player.id}): hasPlayed=${hasPlayedBefore}`);
             
@@ -1708,7 +1715,13 @@ async function generateSwissPairings(players: any[], matches: any[], round: numb
             unpaired.push(player1);
             
             // Also push all remaining players to unpaired (they need cross-score-group pairing too)
-            unpaired.push(...remainingPlayers);
+            for (const remainingPlayer of remainingPlayers) {
+              // Check for duplicates before adding
+              const isDuplicate = unpaired.some(existing => existing.player.id === remainingPlayer.player.id);
+              if (!isDuplicate) {
+                unpaired.push(remainingPlayer);
+              }
+            }
             break; // Exit the loop since we're moving to cross-score-group pairing
           }
         }
@@ -1734,6 +1747,13 @@ async function generateSwissPairings(players: any[], matches: any[], round: numb
       console.log(`Looking for opponent for ${player1.player.firstName} ${player1.player.lastName} (ID: ${player1.player.id})`);
       for (let i = 0; i < unpaired.length; i++) {
         const potentialOpponent = unpaired[i];
+        
+        // Never pair a player against themselves
+        if (player1.player.id === potentialOpponent.player.id) {
+          console.log(`  Skipping self-pairing: ${player1.player.firstName} (${player1.player.id}) cannot play themselves`);
+          continue;
+        }
+        
         const hasPlayedBefore = havePlayed(player1.player.id, potentialOpponent.player.id, matches);
         console.log(`  Checking vs ${potentialOpponent.player.firstName} ${potentialOpponent.player.lastName} (ID: ${potentialOpponent.player.id}): hasPlayed=${hasPlayedBefore}`);
         
