@@ -1016,35 +1016,35 @@ export async function registerRoutes(app: Express): Promise<Server> {
               tournamentId,
               round: fromRound,
               board: pairing.board,
-              whitePlayerId: pairing.whitePlayer.id,
-              blackPlayerId: pairing.blackPlayer?.id || null,
+              whitePlayerId: pairing.whitePlayerId,
+              blackPlayerId: pairing.blackPlayerId || null,
               result: null,
               status: 'pending'
             });
             allNewMatches.push(match);
 
             // Create pairings for both players
-            if (pairing.whitePlayer) {
+            if (pairing.whitePlayerId) {
               const whitePairing = await storage.createPairing({
                 tournamentId,
                 round: fromRound,
-                playerId: pairing.whitePlayer.id,
-                opponentId: pairing.blackPlayer?.id || null,
+                playerId: pairing.whitePlayerId,
+                opponentId: pairing.blackPlayerId || null,
                 color: 'white',
                 points: pairing.isBye ? (pairing.byeType === 'full_point' ? 2 : 1) : 0,
-                isBye: pairing.isBye,
+                isBye: pairing.isBye || false,
                 byeType: pairing.byeType || null,
                 isRequested: pairing.isRequested || false,
               });
               allNewPairings.push(whitePairing);
             }
 
-            if (pairing.blackPlayer) {
+            if (pairing.blackPlayerId) {
               const blackPairing = await storage.createPairing({
                 tournamentId,
                 round: fromRound,
-                playerId: pairing.blackPlayer.id,
-                opponentId: pairing.whitePlayer.id,
+                playerId: pairing.blackPlayerId,
+                opponentId: pairing.whitePlayerId,
                 color: 'black',
                 points: 0,
                 isBye: false,
@@ -1105,34 +1105,35 @@ export async function registerRoutes(app: Express): Promise<Server> {
             tournamentId,
             round,
             board: pairing.board,
-            whitePlayerId: pairing.whitePlayer.id,
-            blackPlayerId: pairing.blackPlayer?.id || null,
+            whitePlayerId: pairing.whitePlayerId,
+            blackPlayerId: pairing.blackPlayerId || null,
             result: null,
             status: 'pending'
           });
           allNewMatches.push(match);
 
           // Create pairings for both players
-          if (pairing.whitePlayer) {
+          if (pairing.whitePlayerId) {
             const whitePairing = await storage.createPairing({
               tournamentId,
               round,
-              playerId: pairing.whitePlayer.id,
-              opponentId: pairing.blackPlayer?.id || null,
+              playerId: pairing.whitePlayerId,
+              opponentId: pairing.blackPlayerId || null,
               color: 'white',
-              points: pairing.isBye ? (pairing.byeType === 'full_point' ? 1 : 0.5) : 0,
-              isBye: pairing.isBye,
+              points: pairing.isBye ? (pairing.byeType === 'full_point' ? 2 : 1) : 0,
+              isBye: pairing.isBye || false,
               byeType: pairing.byeType || null,
+              isRequested: pairing.isRequested || false,
             });
             allNewPairings.push(whitePairing);
           }
 
-          if (pairing.blackPlayer) {
+          if (pairing.blackPlayerId) {
             const blackPairing = await storage.createPairing({
               tournamentId,
               round,
-              playerId: pairing.blackPlayer.id,
-              opponentId: pairing.whitePlayer.id,
+              playerId: pairing.blackPlayerId,
+              opponentId: pairing.whitePlayerId,
               color: 'black',
               points: 0,
               isBye: false,
