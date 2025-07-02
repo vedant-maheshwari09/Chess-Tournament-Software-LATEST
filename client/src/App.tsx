@@ -58,14 +58,12 @@ function AuthenticatedApp() {
               {(params) => <TournamentManagement tournamentId={parseInt(params.id)} />}
             </Route>
             <Route path="/tournaments/:id" component={TournamentView} />
-            <Route component={NotFound} />
           </>
         ) : (
           <>
             <Route path="/" component={PlayerDashboard} />
             <Route path="/dashboard" component={PlayerDashboard} />
             <Route path="/tournaments/:id/view" component={TournamentView} />
-            <Route component={NotFound} />
           </>
         )}
       </Switch>
