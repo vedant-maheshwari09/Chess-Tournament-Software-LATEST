@@ -795,7 +795,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/tournaments/:tournamentId/generate-pairings", async (req, res) => {
+  app.post("/api/tournaments/:tournamentId/generate-pairings", requireAuth, async (req, res) => {
     try {
       const tournamentId = parseInt(req.params.tournamentId);
       const { regenerate = false, targetRound } = req.body;
