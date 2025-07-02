@@ -1285,20 +1285,24 @@ async function generatePairings(tournament: any, players: any[], matches: any[],
   const pairings = [];
   
   if (tournament.format === 'swiss') {
+    // Get existing pairings for bye points calculation
+    const existingPairings = await storage.getPairingsByTournament(tournament.id);
+    
     // Use proper Swiss pairing algorithm
-    const swissPairings = await generateSwissPairings(players, matches, round);
+    const swissPairings = await generateSwissPairings(players, matches, round, existingPairings);
     
     // Convert to our pairing format
     for (const pairing of swissPairings) {
       if (pairing.isBye) {
-        // Handle bye
+        // Handle bye - use integer mapping: 0=0pts, 1=0.5pts, 2=1pt
+        const byePoints = pairing.byeType === 'half_point' ? 1 : 2; // 1=0.5pts, 2=1pt
         pairings.push({
           tournamentId: tournament.id,
           round,
           playerId: pairing.whitePlayerId,
           opponentId: null,
           color: null,
-          points: 1, // Full point for bye
+          points: byePoints,
           isBye: true,
         });
       } else {
@@ -1512,9 +1516,33 @@ async function generateSwissPairings(players: any[], matches: any[], round: numb
   console.log(`=== CLEAN SWISS PAIRING: ROUND ${round} ===`);
   const pairings: any[] = [];
   
+  // Filter out withdrawn players and players with round-specific bye requests
+  const withdrawnPlayerIds = new Set();
+  const roundByePlayerIds = new Set();
+  
+  for (const pairing of existingPairings) {
+    if (pairing.isBye) {
+      // Withdrawn players have zero-point byes for future rounds
+      if (pairing.byeType === 'zero_point' && pairing.round >= round) {
+        withdrawnPlayerIds.add(pairing.playerId);
+      }
+      // Players with specific bye requests for this round
+      if (pairing.round === round) {
+        roundByePlayerIds.add(pairing.playerId);
+      }
+    }
+  }
+  
+  // Filter to active players only
+  const activePlayers = players.filter(player => 
+    !withdrawnPlayerIds.has(player.id) && !roundByePlayerIds.has(player.id)
+  );
+  
+  console.log(`Active players for round ${round}: ${activePlayers.length} (${withdrawnPlayerIds.size} withdrawn, ${roundByePlayerIds.size} with round byes)`);
+  
   if (round === 1) {
     // Round 1: Sort by rating, pair upper half vs lower half
-    const sortedPlayers = [...players].sort((a, b) => (b.rating || 0) - (a.rating || 0));
+    const sortedPlayers = [...activePlayers].sort((a, b) => (b.rating || 0) - (a.rating || 0));
     const isOdd = sortedPlayers.length % 2 === 1;
     const numPairs = Math.floor(sortedPlayers.length / 2);
     
@@ -1544,12 +1572,12 @@ async function generateSwissPairings(players: any[], matches: any[], round: numb
         blackPlayerId: null,
         board: 0,
         isBye: true,
-        byeType: 'half_point',
+        byeType: 'full_point', // USCF: Round 1 automatic bye is full point
       });
     }
   } else {
     // Calculate player stats with color balance for color assignment
-    const playerStatsWithColors = players.map(player => {
+    const playerStatsWithColors = activePlayers.map(player => {
       const playerMatches = matches.filter(m => 
         m.whitePlayerId === player.id || m.blackPlayerId === player.id
       );
@@ -1558,16 +1586,27 @@ async function generateSwissPairings(players: any[], matches: any[], round: numb
       let whiteGames = 0;
       let blackGames = 0;
       
+      // Add points from matches
       for (const match of playerMatches) {
         if (match.whitePlayerId === player.id) {
           whiteGames++;
-          if (match.result === 'white_wins') points += 1;
-          else if (match.result === 'draw') points += 0.5;
+          if (match.result === 'white_wins' || match.result === '1-0') points += 1;
+          else if (match.result === 'draw' || match.result === '1/2-1/2') points += 0.5;
         } else if (match.blackPlayerId === player.id) {
           blackGames++;
-          if (match.result === 'black_wins') points += 1;
-          else if (match.result === 'draw') points += 0.5;
+          if (match.result === 'black_wins' || match.result === '0-1') points += 1;
+          else if (match.result === 'draw' || match.result === '1/2-1/2') points += 0.5;
         }
+      }
+      
+      // Add points from bye pairings (convert from integer mapping: 0=0pts, 1=0.5pts, 2=1pt)
+      const playerByes = existingPairings.filter(p => 
+        p.playerId === player.id && p.isBye && p.points !== null && p.round < round
+      );
+      
+      for (const bye of playerByes) {
+        const byePoints = bye.points === 1 ? 0.5 : bye.points === 2 ? 1 : 0;
+        points += byePoints;
       }
       
       return { 
@@ -1713,7 +1752,7 @@ async function generateSwissPairings(players: any[], matches: any[], round: numb
             blackPlayerId: null,
             board: 0,
             isBye: true,
-            byeType: 'half_point',
+            byeType: 'full_point', // USCF: Automatic byes are full points
           });
         }
       }
@@ -1726,7 +1765,7 @@ async function generateSwissPairings(players: any[], matches: any[], round: numb
           blackPlayerId: null,
           board: 0,
           isBye: true,
-          byeType: 'half_point',
+          byeType: 'full_point', // USCF: Automatic byes are full points
         });
       }
       
