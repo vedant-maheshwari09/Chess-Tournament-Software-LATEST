@@ -1725,11 +1725,16 @@ async function generateSwissPairings(players: any[], matches: any[], round: numb
       let pairedIndex = -1;
       
       // First try to find a player they haven't played before (USCF Rule #1: avoid repeat pairings when possible)
+      console.log(`Looking for opponent for ${player1.player.firstName} ${player1.player.lastName} (ID: ${player1.player.id})`);
       for (let i = 0; i < unpaired.length; i++) {
         const potentialOpponent = unpaired[i];
-        if (!havePlayed(player1.player.id, potentialOpponent.player.id, matches)) {
+        const hasPlayedBefore = havePlayed(player1.player.id, potentialOpponent.player.id, matches);
+        console.log(`  Checking vs ${potentialOpponent.player.firstName} ${potentialOpponent.player.lastName} (ID: ${potentialOpponent.player.id}): hasPlayed=${hasPlayedBefore}`);
+        
+        if (!hasPlayedBefore) {
           pairedPlayer = potentialOpponent;
           pairedIndex = i;
+          console.log(`  ✓ Found valid opponent: ${player1.player.firstName} vs ${potentialOpponent.player.firstName}`);
           break;
         }
       }
@@ -1738,7 +1743,7 @@ async function generateSwissPairings(players: any[], matches: any[], round: numb
       if (!pairedPlayer && unpaired.length > 0) {
         pairedPlayer = unpaired[0];
         pairedIndex = 0;
-        console.log(`Allowing repeat pairing: ${player1.player.firstName} ${player1.player.lastName} vs ${pairedPlayer.player.firstName} ${pairedPlayer.player.lastName} (necessary for Swiss system)`);
+        console.log(`  No new opponent available: allowing repeat pairing ${player1.player.firstName} vs ${pairedPlayer.player.firstName}`);
       }
       
       if (pairedPlayer) {
