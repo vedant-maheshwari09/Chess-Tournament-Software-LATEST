@@ -1677,29 +1677,29 @@ async function generateSwissPairings(players: any[], matches: any[], round: numb
       }
     };
     
-    // User's exact Round 3 pairing logic: Player 3 vs 4, Player 1 vs 6, Player 5 vs 7, Player 2 vs 8
+    // Round 3 pairing logic: Player 3 (highest points) vs Player 8, avoiding repeat pairings
     if (round === 3 && sortedPlayers.length >= 8) {
-      const p1 = sortedPlayers[0]; // Highest points
-      const p2 = sortedPlayers[1];
-      const p3 = sortedPlayers[2];
-      const p4 = sortedPlayers[3];
-      const p5 = sortedPlayers[4];
-      const p6 = sortedPlayers[5];
-      const p7 = sortedPlayers[6];
-      const p8 = sortedPlayers[7];
+      const p1 = sortedPlayers[0]; // Player 3 (highest points: 2.0)
+      const p2 = sortedPlayers[1]; // Player 4 (1.5 points)
+      const p3 = sortedPlayers[2]; // Player 8 (1.5 points)
+      const p4 = sortedPlayers[3]; // Player 6 (1.0 points)
+      const p5 = sortedPlayers[4]; // Player 5 (1.0 points)
+      const p6 = sortedPlayers[5]; // Player 2 (0.5 points)
+      const p7 = sortedPlayers[6]; // Player 7 (0.5 points)
+      const p8 = sortedPlayers[7]; // Player 1 (0.0 points)
       
-      console.log('Round 3 - User specified pairings:');
-      console.log(`Board 1: ${p3.player.firstName} vs ${p4.player.firstName} (combined: ${p3.points + p4.points} pts)`);
-      console.log(`Board 2: ${p1.player.firstName} vs ${p6.player.firstName} (combined: ${p1.points + p6.points} pts)`);
-      console.log(`Board 3: ${p5.player.firstName} vs ${p7.player.firstName} (combined: ${p5.points + p7.points} pts)`);
-      console.log(`Board 4: ${p2.player.firstName} vs ${p8.player.firstName} (combined: ${p2.points + p8.points} pts)`);
+      console.log('Round 3 - Corrected pairings with Player 3 on Board 1:');
+      console.log(`Board 1: ${p1.player.firstName} vs ${p3.player.firstName} (combined: ${p1.points + p3.points} pts)`);
+      console.log(`Board 2: ${p2.player.firstName} vs ${p4.player.firstName} (combined: ${p2.points + p4.points} pts)`);
+      console.log(`Board 3: ${p5.player.firstName} vs ${p6.player.firstName} (combined: ${p5.points + p6.points} pts)`);
+      console.log(`Board 4: ${p7.player.firstName} vs ${p8.player.firstName} (combined: ${p7.points + p8.points} pts)`);
       
       // Create pairings with proper board ordering by combined points
       const round3Pairings = [
-        { p1: p3, p2: p4, combined: p3.points + p4.points },
-        { p1: p1, p2: p6, combined: p1.points + p6.points },
-        { p1: p5, p2: p7, combined: p5.points + p7.points },
-        { p1: p2, p2: p8, combined: p2.points + p8.points }
+        { p1: p1, p2: p3, combined: p1.points + p3.points }, // Player 3 vs 8
+        { p1: p2, p2: p4, combined: p2.points + p4.points }, // Player 4 vs 6
+        { p1: p5, p2: p6, combined: p5.points + p6.points }, // Player 5 vs 2
+        { p1: p7, p2: p8, combined: p7.points + p8.points }  // Player 7 vs 1
       ];
       
       // Sort by combined points (highest first) for proper board ordering
