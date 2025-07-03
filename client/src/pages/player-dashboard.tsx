@@ -291,7 +291,7 @@ export default function PlayerDashboard() {
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                {selectedTournament.format === 'swiss' ? (
+                {selectedTournament.format === 'swiss' || selectedTournament.format === 'roundrobin' ? (
                   <SwissPairings tournamentId={selectedTournament.id} />
                 ) : (
                   <p className="text-gray-600 dark:text-gray-400">

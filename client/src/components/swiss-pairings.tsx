@@ -10,11 +10,11 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import type { Match, Player, Pairing, Tournament } from "@shared/schema";
 
-interface SwissPairingsProps {
+interface TournamentPairingsProps {
   tournamentId: number;
 }
 
-export default function SwissPairings({ tournamentId }: SwissPairingsProps) {
+export default function SwissPairings({ tournamentId }: TournamentPairingsProps) {
   const [currentRound, setCurrentRound] = useState(1);
   const [pendingResultChange, setPendingResultChange] = useState<{matchId: number, result: string, isPastRound: boolean} | null>(null);
   const { toast } = useToast();
@@ -284,7 +284,9 @@ export default function SwissPairings({ tournamentId }: SwissPairingsProps) {
               <Chess className="h-5 w-5" />
               Round {currentRound} Pairings
             </CardTitle>
-            <p className="text-sm text-gray-600 mt-1">Swiss System - USCF Tournament Rules</p>
+            <p className="text-sm text-gray-600 mt-1">
+              {tournament?.format === 'roundrobin' ? 'Round Robin - Complete Schedule' : 'Swiss System - USCF Tournament Rules'}
+            </p>
           </div>
           
           {/* Round Navigation */}
@@ -341,69 +343,73 @@ export default function SwissPairings({ tournamentId }: SwissPairingsProps) {
           </div>
           
           <div className="flex flex-wrap gap-2">
-            {/* Generate Next Round Button - show differently based on tournament completion */}
-            {tournament && tournament.rounds && currentRound >= tournament.rounds ? (
-              /* Tournament has reached planned rounds - show as extension */
-              <AlertDialog>
-                <AlertDialogTrigger asChild>
-                  <Button
-                    disabled={generatePairingsMutation.isPending}
-                    className="bg-green-600 hover:bg-green-700"
-                    size="sm"
-                  >
-                    <Play className="h-4 w-4 mr-1" />
-                    {generatePairingsMutation.isPending ? "Generating..." : `Generate Round ${currentRound + 1}`}
-                  </Button>
-                </AlertDialogTrigger>
-                <AlertDialogContent>
-                  <AlertDialogHeader>
-                    <AlertDialogTitle>Generate Round {currentRound + 1}?</AlertDialogTitle>
-                    <AlertDialogDescription>
-                      This will extend the tournament beyond the planned {tournament.rounds} rounds. Make sure all results from Round {currentRound} have been entered first.
-                    </AlertDialogDescription>
-                  </AlertDialogHeader>
-                  <AlertDialogFooter>
-                    <AlertDialogCancel>Cancel</AlertDialogCancel>
-                    <AlertDialogAction
-                      onClick={() => generatePairingsMutation.mutate({ regenerate: false })}
-                      className="bg-green-600 hover:bg-green-700"
-                    >
-                      Generate Round {currentRound + 1}
-                    </AlertDialogAction>
-                  </AlertDialogFooter>
-                </AlertDialogContent>
-              </AlertDialog>
-            ) : (
-              /* Normal next round generation */
-              <AlertDialog>
-                <AlertDialogTrigger asChild>
-                  <Button
-                    disabled={generatePairingsMutation.isPending}
-                    className="bg-green-600 hover:bg-green-700"
-                    size="sm"
-                  >
-                    <Play className="h-4 w-4 mr-1" />
-                    {generatePairingsMutation.isPending ? "Generating..." : "Generate Next Round"}
-                  </Button>
-                </AlertDialogTrigger>
-                <AlertDialogContent>
-                  <AlertDialogHeader>
-                    <AlertDialogTitle>Generate Round {currentRound + 1}?</AlertDialogTitle>
-                    <AlertDialogDescription>
-                      This will create pairings for Round {currentRound + 1}. Make sure all results from Round {currentRound} have been entered first.
-                    </AlertDialogDescription>
-                  </AlertDialogHeader>
-                  <AlertDialogFooter>
-                    <AlertDialogCancel>Cancel</AlertDialogCancel>
-                    <AlertDialogAction
-                      onClick={() => generatePairingsMutation.mutate({ regenerate: false })}
-                      className="bg-green-600 hover:bg-green-700"
-                    >
-                      Generate Round {currentRound + 1}
-                    </AlertDialogAction>
-                  </AlertDialogFooter>
-                </AlertDialogContent>
-              </AlertDialog>
+            {/* Generate Next Round Button - only show for Swiss tournaments */}
+            {tournament?.format === 'swiss' && (
+              <>
+                {tournament && tournament.rounds && currentRound >= tournament.rounds ? (
+                  /* Tournament has reached planned rounds - show as extension */
+                  <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                      <Button
+                        disabled={generatePairingsMutation.isPending}
+                        className="bg-green-600 hover:bg-green-700"
+                        size="sm"
+                      >
+                        <Play className="h-4 w-4 mr-1" />
+                        {generatePairingsMutation.isPending ? "Generating..." : `Generate Round ${currentRound + 1}`}
+                      </Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>Generate Round {currentRound + 1}?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                          This will extend the tournament beyond the planned {tournament.rounds} rounds. Make sure all results from Round {currentRound} have been entered first.
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        <AlertDialogAction
+                          onClick={() => generatePairingsMutation.mutate({ regenerate: false })}
+                          className="bg-green-600 hover:bg-green-700"
+                        >
+                          Generate Round {currentRound + 1}
+                        </AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
+                ) : (
+                  /* Normal next round generation - Swiss only */
+                  <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                      <Button
+                        disabled={generatePairingsMutation.isPending}
+                        className="bg-green-600 hover:bg-green-700"
+                        size="sm"
+                      >
+                        <Play className="h-4 w-4 mr-1" />
+                        {generatePairingsMutation.isPending ? "Generating..." : "Generate Next Round"}
+                      </Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>Generate Round {currentRound + 1}?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                          This will create pairings for Round {currentRound + 1}. Make sure all results from Round {currentRound} have been entered first.
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        <AlertDialogAction
+                          onClick={() => generatePairingsMutation.mutate({ regenerate: false })}
+                          className="bg-green-600 hover:bg-green-700"
+                        >
+                          Generate Round {currentRound + 1}
+                        </AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
+                )}
+              </>
             )}
 
             {/* Finish Tournament Button - always available for tournament directors */}
@@ -440,18 +446,19 @@ export default function SwissPairings({ tournamentId }: SwissPairingsProps) {
               </AlertDialogContent>
             </AlertDialog>
 
-            {/* Repair Round with Confirmation */}
-            <AlertDialog>
-              <AlertDialogTrigger asChild>
-                <Button
-                  variant="outline"
-                  disabled={generatePairingsMutation.isPending}
-                  size="sm"
-                >
-                  <RefreshCw className="h-4 w-4 mr-1" />
-                  Repair
-                </Button>
-              </AlertDialogTrigger>
+            {/* Repair Round with Confirmation - Swiss only */}
+            {tournament?.format === 'swiss' && (
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button
+                    variant="outline"
+                    disabled={generatePairingsMutation.isPending}
+                    size="sm"
+                  >
+                    <RefreshCw className="h-4 w-4 mr-1" />
+                    Repair
+                  </Button>
+                </AlertDialogTrigger>
               <AlertDialogContent>
                 <AlertDialogHeader>
                   <AlertDialogTitle>Repair Round {currentRound} Pairings?</AlertDialogTitle>
@@ -469,7 +476,8 @@ export default function SwissPairings({ tournamentId }: SwissPairingsProps) {
                   </AlertDialogAction>
                 </AlertDialogFooter>
               </AlertDialogContent>
-            </AlertDialog>
+              </AlertDialog>
+            )}
 
             {/* Regenerate Future Rounds - HIDDEN: available on every round if future rounds exist */}
             {false && allMatches && allMatches.length > 0 && (

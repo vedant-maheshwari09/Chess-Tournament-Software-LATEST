@@ -20,6 +20,7 @@ import {
   requireTournamentAccess,
   generateSessionToken
 } from "./auth";
+import { generateRoundRobinSchedule, validateRoundRobinSchedule } from "./round-robin";
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // Authentication routes
@@ -357,14 +358,82 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "Need at least 2 players to start tournament" });
       }
       
+      // Calculate number of rounds and update tournament
+      const numRounds = tournament.format === 'roundrobin' ? 
+        (players.length % 2 === 0 ? players.length - 1 : players.length) : 
+        tournament.rounds;
+      
       // Update tournament status and set current round to 1
       const updatedTournament = await storage.updateTournament(tournamentId, {
         status: 'active',
-        currentRound: 1
+        currentRound: 1,
+        rounds: numRounds
       });
       
-      // Generate first round pairings
-      await generatePairings(tournament, players, [], 1);
+      if (tournament.format === 'roundrobin') {
+        // Generate ALL Round Robin pairings for all rounds
+        console.log(`Generating Round Robin schedule for ${players.length} players, ${numRounds} rounds`);
+        const roundRobinPairings = generateRoundRobinSchedule(players);
+        
+        // Validate the schedule
+        const playerIds = players.map(p => p.id);
+        const isValid = validateRoundRobinSchedule(roundRobinPairings, playerIds);
+        if (!isValid) {
+          throw new Error('Invalid Round Robin schedule generated');
+        }
+        
+        // Convert to our pairing format and save all pairings
+        for (const pairing of roundRobinPairings) {
+          if (pairing.isBye) {
+            // Create bye pairing
+            await storage.createPairing({
+              tournamentId,
+              round: pairing.round,
+              playerId: pairing.whitePlayerId!,
+              opponentId: null,
+              color: null,
+              points: 1, // 1 point for bye
+              isBye: true
+            });
+          } else {
+            // Create pairings for both players
+            await storage.createPairing({
+              tournamentId,
+              round: pairing.round,
+              playerId: pairing.whitePlayerId!,
+              opponentId: pairing.blackPlayerId!,
+              color: 'white',
+              points: 0,
+              isBye: false
+            });
+            await storage.createPairing({
+              tournamentId,
+              round: pairing.round,
+              playerId: pairing.blackPlayerId!,
+              opponentId: pairing.whitePlayerId!,
+              color: 'black',
+              points: 0,
+              isBye: false
+            });
+            
+            // Create match record
+            await storage.createMatch({
+              tournamentId,
+              round: pairing.round,
+              whitePlayerId: pairing.whitePlayerId!,
+              blackPlayerId: pairing.blackPlayerId!,
+              board: pairing.board,
+              result: null,
+              status: 'pending'
+            });
+          }
+        }
+        
+        console.log(`Generated ${roundRobinPairings.length} pairings for all ${numRounds} rounds`);
+      } else {
+        // Swiss tournament - generate first round pairings only
+        await generatePairings(tournament, players, [], 1);
+      }
       
       res.json(updatedTournament);
     } catch (error) {
@@ -411,8 +480,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         currentRound: nextRound
       });
       
-      // Generate next round pairings
-      await generatePairings(tournament, players, matches, nextRound);
+      // For Round Robin, pairings are already pre-generated, just advance round
+      if (tournament.format === 'roundrobin') {
+        console.log(`Round Robin tournament - advanced to round ${nextRound}. Pairings already exist.`);
+      } else {
+        // Generate next round pairings for Swiss
+        await generatePairings(tournament, players, matches, nextRound);
+      }
       
       res.json(updatedTournament);
     } catch (error) {
@@ -1327,31 +1401,10 @@ async function generatePairings(tournament: any, players: any[], matches: any[],
         });
       }
     }
-  } else if (tournament.format === 'round_robin') {
-    // Round robin pairing - implement later
-    // For now, use simple pairing
-    for (let i = 0; i < players.length; i += 2) {
-      if (i + 1 < players.length) {
-        pairings.push({
-          tournamentId: tournament.id,
-          round,
-          playerId: players[i].id,
-          opponentId: players[i + 1].id,
-          color: 'white',
-          points: 0,
-          isBye: false,
-        });
-        pairings.push({
-          tournamentId: tournament.id,
-          round,
-          playerId: players[i + 1].id,
-          opponentId: players[i].id,
-          color: 'black',
-          points: 0,
-          isBye: false,
-        });
-      }
-    }
+  } else if (tournament.format === 'roundrobin') {
+    // Round robin uses pre-generated pairings, not generated per round
+    console.log('Round Robin tournament - pairings should be pre-generated');
+    return [];
   }
   
   return pairings;
