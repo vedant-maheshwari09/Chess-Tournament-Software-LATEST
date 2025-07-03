@@ -18,8 +18,12 @@ interface TournamentPairingsProps {
 export default function SwissPairings({ tournamentId }: TournamentPairingsProps) {
   const [currentRound, setCurrentRound] = useState(1);
   const [pendingResultChange, setPendingResultChange] = useState<{matchId: number, result: string, isPastRound: boolean} | null>(null);
-  const [draggedPlayer, setDraggedPlayer] = useState<{playerId: number, matchId: number, color: 'white' | 'black'} | null>(null);
-  const [isDragging, setIsDragging] = useState(false);
+  const [selectedPlayers, setSelectedPlayers] = useState<{
+    playerId: number;
+    matchId: number;
+    color: 'white' | 'black';
+    playerName: string;
+  }[]>([]);
   const { toast } = useToast();
   const { user } = useAuth();
   
@@ -189,16 +193,14 @@ export default function SwissPairings({ tournamentId }: TournamentPairingsProps)
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [`/api/tournaments/${tournamentId}/matches`] });
       queryClient.invalidateQueries({ queryKey: [`/api/tournaments/${tournamentId}/pairings`] });
-      setDraggedPlayer(null);
-      setIsDragging(false);
+      setSelectedPlayers([]);
       toast({
         title: "Players swapped",
         description: "The pairing has been updated successfully.",
       });
     },
     onError: (error) => {
-      setDraggedPlayer(null);
-      setIsDragging(false);
+      setSelectedPlayers([]);
       toast({
         title: "Error",
         description: error.message,
@@ -314,17 +316,51 @@ export default function SwissPairings({ tournamentId }: TournamentPairingsProps)
     }
   };
 
-  const handleDragStart = (playerId: number, matchId: number, color: 'white' | 'black') => {
-    if (!isOwner) return;
-    setDraggedPlayer({ playerId, matchId, color });
-    setIsDragging(true);
-  };
-
-
-
-  const handleDragEnd = () => {
-    setDraggedPlayer(null);
-    setIsDragging(false);
+  // Player selection handlers
+  const handlePlayerClick = (playerId: number, matchId: number, color: 'white' | 'black', playerName: string) => {
+    if (!isOwner || !playerId) return;
+    
+    const playerInfo = { playerId, matchId, color, playerName };
+    
+    // Check if this player is already selected
+    const existingIndex = selectedPlayers.findIndex(p => 
+      p.playerId === playerId && p.matchId === matchId && p.color === color
+    );
+    
+    if (existingIndex >= 0) {
+      // Deselect the player
+      setSelectedPlayers(prev => prev.filter((_, i) => i !== existingIndex));
+      return;
+    }
+    
+    if (selectedPlayers.length === 0) {
+      // First player selection
+      setSelectedPlayers([playerInfo]);
+    } else if (selectedPlayers.length === 1) {
+      // Second player selection - execute swap
+      const firstPlayer = selectedPlayers[0];
+      
+      // Don't swap with self
+      if (firstPlayer.playerId === playerId && firstPlayer.matchId === matchId && firstPlayer.color === color) {
+        return;
+      }
+      
+      // Execute the swap
+      swapPlayersMutation.mutate({
+        match1Id: firstPlayer.matchId,
+        match2Id: matchId,
+        player1Id: firstPlayer.playerId,
+        player2Id: playerId,
+        color1: firstPlayer.color,
+        color2: color,
+      });
+      
+      // Clear selections
+      setSelectedPlayers([]);
+    } else {
+      // Reset to just this player if somehow more than 2 are selected
+      setSelectedPlayers([playerInfo]);
+    }
   };
 
   const confirmResultChange = () => {
@@ -348,7 +384,7 @@ export default function SwissPairings({ tournamentId }: TournamentPairingsProps)
     }
   };
 
-  // Draggable player box component
+  // Clickable player box component for selection-based swapping
   const PlayerBox = ({ 
     playerId, 
     playerName, 
@@ -366,80 +402,23 @@ export default function SwissPairings({ tournamentId }: TournamentPairingsProps)
     color: 'white' | 'black'; 
     round: number;
   }) => {
-    const isDraggedOver = draggedPlayer && 
-      draggedPlayer.matchId !== matchId && 
-      draggedPlayer.color !== color;
-    
-    const isBeingDragged = draggedPlayer && 
-      draggedPlayer.playerId === playerId && 
-      draggedPlayer.matchId === matchId && 
-      draggedPlayer.color === color;
+    const isSelected = selectedPlayers.some(p => 
+      p.playerId === playerId && p.matchId === matchId && p.color === color
+    );
 
     return (
       <div
-        draggable={isOwner && playerId !== null}
-        onMouseDown={(e) => {
+        onClick={() => {
           if (playerId && isOwner) {
-            console.log('Mouse down on player:', playerId, 'draggable:', isOwner && playerId !== null);
+            handlePlayerClick(playerId, matchId, color, playerName);
           }
         }}
-        onDragStart={(e) => {
-          if (playerId && isOwner) {
-            console.log('Drag started for player:', playerId, 'match:', matchId, 'color:', color);
-            e.dataTransfer.effectAllowed = 'move';
-            e.dataTransfer.setData('text/plain', JSON.stringify({ playerId, matchId, color }));
-            handleDragStart(playerId, matchId, color);
-          } else {
-            e.preventDefault();
-          }
-        }}
-        onDragOver={(e) => {
-          e.preventDefault();
-          e.dataTransfer.dropEffect = 'move';
-        }}
-        onDrop={(e) => {
-          e.preventDefault();
-          console.log('Drop event triggered on player:', playerId, 'with draggedPlayer:', draggedPlayer);
-          
-          if (!draggedPlayer || !isOwner) {
-            console.log('Drop cancelled - no draggedPlayer or not owner');
-            return;
-          }
-          
-          // Can't drop on the same position
-          if (draggedPlayer.matchId === matchId && draggedPlayer.color === color) {
-            console.log('Drop cancelled - same position');
-            return;
-          }
-
-          console.log('Executing player swap:', {
-            match1Id: draggedPlayer.matchId,
-            match2Id: matchId,
-            player1Id: draggedPlayer.playerId,
-            player2Id: playerId,
-            color1: draggedPlayer.color,
-            color2: color,
-          });
-
-          // Execute the swap
-          swapPlayersMutation.mutate({
-            match1Id: draggedPlayer.matchId,
-            match2Id: matchId,
-            player1Id: draggedPlayer.playerId,
-            player2Id: playerId,
-            color1: draggedPlayer.color,
-            color2: color,
-          });
-        }}
-        onDragEnd={handleDragEnd}
         className={`
           inline-flex items-center gap-2 px-3 py-2 rounded-lg border transition-all
-          ${isOwner && playerId ? 'cursor-move hover:shadow-lg hover:border-blue-400' : 'cursor-default'}
-          ${isBeingDragged ? 'opacity-30 bg-blue-200 border-blue-500 shadow-lg scale-105' : ''}
-          ${isDraggedOver ? 'bg-green-100 border-green-400 border-dashed border-2' : 'bg-gray-50 border-gray-200'}
+          ${isOwner && playerId ? 'cursor-pointer hover:shadow-lg hover:border-blue-400' : 'cursor-default'}
+          ${isSelected ? 'bg-blue-100 border-blue-500 shadow-lg' : 'bg-gray-50 border-gray-200'}
           ${playerId ? 'text-gray-900' : 'text-gray-500 italic'}
         `}
-        style={{ userSelect: 'none' }}
       >
         <div className="flex flex-col">
           <span className="text-sm font-medium">
@@ -449,6 +428,9 @@ export default function SwissPairings({ tournamentId }: TournamentPairingsProps)
             {playerId ? `(${rating})` : ''}
           </span>
         </div>
+        {isSelected && (
+          <div className="w-2 h-2 bg-blue-500 rounded-full ml-1"></div>
+        )}
       </div>
     );
   };
