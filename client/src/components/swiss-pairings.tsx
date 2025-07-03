@@ -675,7 +675,12 @@ export default function SwissPairings({ tournamentId }: TournamentPairingsProps)
                                             <SelectItem value="0F-1F">0F-1F</SelectItem>
                                           </>
                                         ) : (
-                                          <SelectItem value="1-bye">1-point bye</SelectItem>
+                                          <>
+                                            <SelectItem value="1-0">1-0 (Win)</SelectItem>
+                                            <SelectItem value="0-1">0-1 (Loss)</SelectItem>
+                                            <SelectItem value="1/2-1/2">½-½ (Draw)</SelectItem>
+                                            <SelectItem value="1-bye">1-point bye</SelectItem>
+                                          </>
                                         )}
                                       </SelectContent>
                                     </Select>
@@ -772,7 +777,12 @@ export default function SwissPairings({ tournamentId }: TournamentPairingsProps)
                                       <SelectItem value="0F-1F">0F-1F</SelectItem>
                                     </>
                                   ) : (
-                                    <SelectItem value="1-bye">1-point bye</SelectItem>
+                                    <>
+                                      <SelectItem value="1-0">1-0 (Win)</SelectItem>
+                                      <SelectItem value="0-1">0-1 (Loss)</SelectItem>
+                                      <SelectItem value="1/2-1/2">½-½ (Draw)</SelectItem>
+                                      <SelectItem value="1-bye">1-point bye</SelectItem>
+                                    </>
                                   )}
                                 </SelectContent>
                               </Select>
