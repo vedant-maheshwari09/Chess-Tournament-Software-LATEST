@@ -37,10 +37,15 @@ export default function SwissPairings({ tournamentId }: TournamentPairingsProps)
     }
   }, [allMatches]);
 
+  // For Round Robin, show all matches, for Swiss show current round
   const { data: matches, isLoading } = useQuery<Match[]>({
-    queryKey: [`/api/tournaments/${tournamentId}/matches`, { round: currentRound }],
+    queryKey: [`/api/tournaments/${tournamentId}/matches`, { round: tournament?.format === 'roundrobin' ? undefined : currentRound }],
     queryFn: async () => {
-      return await apiRequest(`/api/tournaments/${tournamentId}/matches?round=${currentRound}`);
+      if (tournament?.format === 'roundrobin') {
+        return await apiRequest(`/api/tournaments/${tournamentId}/matches`);
+      } else {
+        return await apiRequest(`/api/tournaments/${tournamentId}/matches?round=${currentRound}`);
+      }
     },
   });
 
@@ -535,111 +540,208 @@ export default function SwissPairings({ tournamentId }: TournamentPairingsProps)
           </div>
         ) : (
           <div className="space-y-6">
-            {/* Matches Table */}
-            <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-gray-200">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Board
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      White
-                    </th>
-                    <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      vs
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Black
-                    </th>
-                    <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Result
-                    </th>
-                    <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Status
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="bg-white divide-y divide-gray-200">
-                  {matches.sort((a, b) => a.board - b.board).map((match) => (
-                    <tr key={match.id}>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm font-medium text-gray-900">{match.board}</div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="flex items-center">
-                          <div className="text-sm font-medium text-gray-900">
-                            {getPlayerName(match.whitePlayerId)} [{getPlayerPoints(match.whitePlayerId, currentRound)}]
-                          </div>
-                          <div className="text-xs text-gray-500 ml-2">
-                            ({getPlayerRating(match.whitePlayerId)})
-                          </div>
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-center">
-                        <span className="text-gray-400">vs</span>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="flex items-center">
-                          <div className="text-sm font-medium text-gray-900">
-                            {getPlayerName(match.blackPlayerId)} [{getPlayerPoints(match.blackPlayerId, currentRound)}]
-                          </div>
-                          <div className="text-xs text-gray-500 ml-2">
-                            ({getPlayerRating(match.blackPlayerId)})
-                          </div>
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-center">
-                        <Select
-                          value={match.result || "Pending"}
-                          onValueChange={(value) => handleResultChange(match.id, value)}
-                        >
-                          <SelectTrigger className="w-24">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="Pending">Pending</SelectItem>
-                            <SelectItem value="1-0">1-0</SelectItem>
-                            <SelectItem value="0-1">0-1</SelectItem>
-                            <SelectItem value="1/2-1/2">½-½</SelectItem>
-                            <SelectItem value="1F-0F">1F-0F</SelectItem>
-                            <SelectItem value="0F-1F">0F-1F</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-center">
-                        {getStatusBadge(match.status)}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-
-            {/* Byes Section */}
-            {pairings && pairings.filter((p: any) => p.isBye).length > 0 && (
-              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
-                <h4 className="text-sm font-medium text-yellow-800 mb-2">Byes This Round</h4>
-                <div className="space-y-1">
-                  {pairings.filter((p: any) => p.isBye).map((byePairing: any) => (
-                    <div key={byePairing.id} className="flex items-center justify-between text-sm">
-                      <span className="text-yellow-700">
-                        {getPlayerName(byePairing.playerId)} [{getPlayerPoints(byePairing.playerId)}] ({getPlayerRating(byePairing.playerId)})
-                      </span>
-                      <div className="flex items-center gap-2">
-                        <Badge variant="outline" className="text-yellow-700 border-yellow-300">
-                          {byePairing.byeType === 'half_point' ? '½ Point Bye' : 
-                           byePairing.byeType === 'zero_point' ? '0 Point Bye' : '1 Point Bye'}
-                        </Badge>
-                        {byePairing.isRequested && (
-                          <Badge variant="secondary" className="text-xs">
-                            Requested
+            {tournament?.format === 'roundrobin' ? (
+              // Round Robin - Show all rounds with matches organized by round
+              (() => {
+                const roundGroups = matches.reduce((acc, match) => {
+                  if (!acc[match.round]) acc[match.round] = [];
+                  acc[match.round].push(match);
+                  return acc;
+                }, {} as Record<number, typeof matches>);
+                
+                const sortedRounds = Object.keys(roundGroups).map(Number).sort((a, b) => a - b);
+                
+                return (
+                  <div className="space-y-8">
+                    {sortedRounds.map(round => (
+                      <div key={round} className="border rounded-lg p-4">
+                        <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
+                          <span>Round {round}</span>
+                          <Badge variant={round === currentRound ? "default" : "secondary"}>
+                            {round === currentRound ? "Current" : round < currentRound ? "Completed" : "Upcoming"}
                           </Badge>
-                        )}
+                        </h3>
+                        <div className="overflow-x-auto">
+                          <table className="min-w-full divide-y divide-gray-200">
+                            <thead className="bg-gray-50">
+                              <tr>
+                                <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Board</th>
+                                <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">White</th>
+                                <th className="px-4 py-2 text-center text-xs font-medium text-gray-500 uppercase">vs</th>
+                                <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Black</th>
+                                <th className="px-4 py-2 text-center text-xs font-medium text-gray-500 uppercase">Result</th>
+                                <th className="px-4 py-2 text-center text-xs font-medium text-gray-500 uppercase">Status</th>
+                              </tr>
+                            </thead>
+                            <tbody className="bg-white divide-y divide-gray-200">
+                              {roundGroups[round].sort((a, b) => (a.board || 0) - (b.board || 0)).map((match) => (
+                                <tr key={match.id}>
+                                  <td className="px-4 py-3 whitespace-nowrap">
+                                    <div className="text-sm font-medium text-gray-900">{match.board}</div>
+                                  </td>
+                                  <td className="px-4 py-3 whitespace-nowrap">
+                                    <div className="flex items-center">
+                                      <div className="text-sm font-medium text-gray-900">
+                                        {getPlayerName(match.whitePlayerId)} [{getPlayerPoints(match.whitePlayerId, round)}]
+                                      </div>
+                                      <div className="text-xs text-gray-500 ml-2">
+                                        ({getPlayerRating(match.whitePlayerId)})
+                                      </div>
+                                    </div>
+                                  </td>
+                                  <td className="px-4 py-3 whitespace-nowrap text-center">
+                                    <span className="text-gray-400">vs</span>
+                                  </td>
+                                  <td className="px-4 py-3 whitespace-nowrap">
+                                    <div className="flex items-center">
+                                      <div className="text-sm font-medium text-gray-900">
+                                        {getPlayerName(match.blackPlayerId)} [{getPlayerPoints(match.blackPlayerId, round)}]
+                                      </div>
+                                      <div className="text-xs text-gray-500 ml-2">
+                                        ({getPlayerRating(match.blackPlayerId)})
+                                      </div>
+                                    </div>
+                                  </td>
+                                  <td className="px-4 py-3 whitespace-nowrap text-center">
+                                    <Select
+                                      value={match.result || "Pending"}
+                                      onValueChange={(value) => handleResultChange(match.id, value)}
+                                    >
+                                      <SelectTrigger className="w-24">
+                                        <SelectValue />
+                                      </SelectTrigger>
+                                      <SelectContent>
+                                        <SelectItem value="Pending">Pending</SelectItem>
+                                        <SelectItem value="1-0">1-0</SelectItem>
+                                        <SelectItem value="0-1">0-1</SelectItem>
+                                        <SelectItem value="1/2-1/2">½-½</SelectItem>
+                                        <SelectItem value="1F-0F">1F-0F</SelectItem>
+                                        <SelectItem value="0F-1F">0F-1F</SelectItem>
+                                      </SelectContent>
+                                    </Select>
+                                  </td>
+                                  <td className="px-4 py-3 whitespace-nowrap text-center">
+                                    {getStatusBadge(match.status)}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    ))}
+                  </div>
+                );
+              })()
+            ) : (
+              // Swiss - Show current round only
+              <div className="space-y-6">
+                <div className="overflow-x-auto">
+                  <table className="min-w-full divide-y divide-gray-200">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          Board
+                        </th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          White
+                        </th>
+                        <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          vs
+                        </th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          Black
+                        </th>
+                        <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          Result
+                        </th>
+                        <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          Status
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody className="bg-white divide-y divide-gray-200">
+                      {matches.sort((a, b) => (a.board || 0) - (b.board || 0)).map((match) => (
+                        <tr key={match.id}>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <div className="text-sm font-medium text-gray-900">{match.board}</div>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <div className="flex items-center">
+                              <div className="text-sm font-medium text-gray-900">
+                                {getPlayerName(match.whitePlayerId)} [{getPlayerPoints(match.whitePlayerId, currentRound)}]
+                              </div>
+                              <div className="text-xs text-gray-500 ml-2">
+                                ({getPlayerRating(match.whitePlayerId)})
+                              </div>
+                            </div>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-center">
+                            <span className="text-gray-400">vs</span>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <div className="flex items-center">
+                              <div className="text-sm font-medium text-gray-900">
+                                {getPlayerName(match.blackPlayerId)} [{getPlayerPoints(match.blackPlayerId, currentRound)}]
+                              </div>
+                              <div className="text-xs text-gray-500 ml-2">
+                                ({getPlayerRating(match.blackPlayerId)})
+                              </div>
+                            </div>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-center">
+                            <Select
+                              value={match.result || "Pending"}
+                              onValueChange={(value) => handleResultChange(match.id, value)}
+                            >
+                              <SelectTrigger className="w-24">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="Pending">Pending</SelectItem>
+                                <SelectItem value="1-0">1-0</SelectItem>
+                                <SelectItem value="0-1">0-1</SelectItem>
+                                <SelectItem value="1/2-1/2">½-½</SelectItem>
+                                <SelectItem value="1F-0F">1F-0F</SelectItem>
+                                <SelectItem value="0F-1F">0F-1F</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-center">
+                            {getStatusBadge(match.status)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
+
+                {/* Byes Section */}
+                {pairings && pairings.filter((p: any) => p.isBye).length > 0 && (
+                  <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                    <h4 className="text-sm font-medium text-yellow-800 mb-2">Byes This Round</h4>
+                    <div className="space-y-1">
+                      {pairings.filter((p: any) => p.isBye).map((byePairing: any) => (
+                        <div key={byePairing.id} className="flex items-center justify-between text-sm">
+                          <span className="text-yellow-700">
+                            {getPlayerName(byePairing.playerId)} [{getPlayerPoints(byePairing.playerId)}] ({getPlayerRating(byePairing.playerId)})
+                          </span>
+                          <div className="flex items-center gap-2">
+                            <Badge variant="outline" className="text-yellow-700 border-yellow-300">
+                              {byePairing.byeType === 'half_point' ? '½ Point Bye' : 
+                               byePairing.byeType === 'zero_point' ? '0 Point Bye' : '1 Point Bye'}
+                            </Badge>
+                            {byePairing.isRequested && (
+                              <Badge variant="secondary" className="text-xs">
+                                Requested
+                              </Badge>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>

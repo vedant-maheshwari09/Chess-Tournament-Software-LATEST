@@ -887,6 +887,103 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.log(`Pairing generation: regenerate=${regenerate}, targetRound=${targetRound}`);
       console.log(`Request body:`, JSON.stringify(req.body));
 
+      // Handle Round Robin tournaments differently - generate all pairings if none exist
+      if (tournament.format === 'roundrobin') {
+        const existingPairings = await storage.getPairingsByTournament(tournamentId);
+        const existingMatches = await storage.getMatchesByTournament(tournamentId);
+        
+        if (existingPairings.length === 0 && existingMatches.length === 0) {
+          // Generate all Round Robin pairings for all rounds
+          const { generateRoundRobinSchedule, validateRoundRobinSchedule } = await import('./round-robin');
+          const roundRobinPairings = generateRoundRobinSchedule(players);
+          const numRounds = players.length % 2 === 0 ? players.length - 1 : players.length;
+          
+          console.log(`Generating Round Robin schedule: ${players.length} players, ${numRounds} rounds, ${roundRobinPairings.length} total pairings`);
+          
+          const playerIds = players.map(p => p.id);
+          const isValid = validateRoundRobinSchedule(roundRobinPairings, playerIds);
+          if (!isValid) {
+            throw new Error('Invalid Round Robin schedule generated');
+          }
+          
+          const savedPairings = [];
+          const savedMatches = [];
+          
+          // Convert to our pairing format and save all pairings
+          for (const pairing of roundRobinPairings) {
+            if (pairing.isBye) {
+              // Create bye pairing
+              const savedPairing = await storage.createPairing({
+                tournamentId,
+                round: pairing.round,
+                playerId: pairing.whitePlayerId!,
+                opponentId: null,
+                color: null,
+                points: 2, // 1 point for bye (using integer mapping: 2=1pt)
+                isBye: true
+              });
+              savedPairings.push(savedPairing);
+            } else {
+              // Create pairings for both players
+              const whitePairing = await storage.createPairing({
+                tournamentId,
+                round: pairing.round,
+                playerId: pairing.whitePlayerId!,
+                opponentId: pairing.blackPlayerId!,
+                color: 'white',
+                points: 0,
+                isBye: false
+              });
+              
+              const blackPairing = await storage.createPairing({
+                tournamentId,
+                round: pairing.round,
+                playerId: pairing.blackPlayerId!,
+                opponentId: pairing.whitePlayerId!,
+                color: 'black',
+                points: 0,
+                isBye: false
+              });
+              
+              savedPairings.push(whitePairing, blackPairing);
+              
+              // Create match record
+              const match = await storage.createMatch({
+                tournamentId,
+                round: pairing.round,
+                whitePlayerId: pairing.whitePlayerId!,
+                blackPlayerId: pairing.blackPlayerId!,
+                board: pairing.board,
+                result: null,
+                status: 'pending'
+              });
+              savedMatches.push(match);
+            }
+          }
+          
+          console.log(`Generated Round Robin tournament: ${savedPairings.length} pairings and ${savedMatches.length} matches for all ${numRounds} rounds`);
+          
+          // Update tournament current round to 1
+          await storage.updateTournament(tournamentId, { currentRound: 1 });
+          
+          return res.json({ 
+            pairings: savedPairings, 
+            matches: savedMatches, 
+            message: `Round Robin tournament started! Generated ${numRounds} rounds with ${savedMatches.length} matches.`,
+            round: 1,
+            totalRounds: numRounds
+          });
+        } else {
+          // Round Robin pairings already exist
+          return res.json({ 
+            pairings: existingPairings, 
+            matches: existingMatches,
+            message: "Round Robin pairings already generated for all rounds.",
+            round: 1
+          });
+        }
+      }
+
       const existingMatches = await storage.getMatchesByTournament(tournamentId);
       let currentRound: number;
 
