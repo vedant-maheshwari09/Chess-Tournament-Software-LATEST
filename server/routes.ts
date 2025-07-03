@@ -1794,12 +1794,23 @@ async function generateSwissPairings(players: any[], matches: any[], round: numb
       for (const match of playerMatches) {
         if (match.whitePlayerId === player.id) {
           whiteGames++;
-          if (match.result === 'white_wins' || match.result === '1-0') points += 1;
-          else if (match.result === 'draw' || match.result === '1/2-1/2') points += 0.5;
+          if (match.result === 'white_wins' || match.result === '1-0' || match.result === '1F-0F') {
+            points += 1;
+          } else if (match.result === 'draw' || match.result === '1/2-1/2') {
+            points += 0.5;
+          }
         } else if (match.blackPlayerId === player.id) {
           blackGames++;
-          if (match.result === 'black_wins' || match.result === '0-1') points += 1;
-          else if (match.result === 'draw' || match.result === '1/2-1/2') points += 0.5;
+          if (match.result === 'black_wins' || match.result === '0-1' || match.result === '0F-1F') {
+            points += 1;
+          } else if (match.result === 'draw' || match.result === '1/2-1/2') {
+            points += 0.5;
+          }
+        }
+        
+        // Debug logging for this player's matches
+        if (match.whitePlayerId === player.id || match.blackPlayerId === player.id) {
+          console.log(`${player.firstName} match result: ${match.result} (points now: ${points})`);
         }
       }
       
