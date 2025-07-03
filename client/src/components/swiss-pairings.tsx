@@ -31,6 +31,15 @@ export default function SwissPairings({ tournamentId }: TournamentPairingsProps)
   // Check if user is a tournament director and owns this tournament
   const isTournamentDirector = user?.role === 'tournament_director';
   const isOwner = isTournamentDirector && tournament && user && tournament.createdBy === user.id;
+  
+  // Debug log
+  console.log('Drag debug:', { 
+    isOwner, 
+    isTournamentDirector, 
+    tournamentCreatedBy: tournament?.createdBy, 
+    userId: user?.id,
+    userRole: user?.role 
+  });
 
   // Get all matches to determine the current round
   const { data: allMatches } = useQuery<Match[]>({
@@ -369,8 +378,14 @@ export default function SwissPairings({ tournamentId }: TournamentPairingsProps)
     return (
       <div
         draggable={isOwner && playerId !== null}
+        onMouseDown={(e) => {
+          if (playerId && isOwner) {
+            console.log('Mouse down on player:', playerId, 'draggable:', isOwner && playerId !== null);
+          }
+        }}
         onDragStart={(e) => {
           if (playerId && isOwner) {
+            console.log('Drag started for player:', playerId, 'match:', matchId, 'color:', color);
             e.dataTransfer.effectAllowed = 'move';
             e.dataTransfer.setData('text/plain', JSON.stringify({ playerId, matchId, color }));
             handleDragStart(playerId, matchId, color);
@@ -405,11 +420,12 @@ export default function SwissPairings({ tournamentId }: TournamentPairingsProps)
         onDragEnd={handleDragEnd}
         className={`
           inline-flex items-center gap-2 px-3 py-2 rounded-lg border transition-all
-          ${isOwner && playerId ? 'cursor-move hover:shadow-md select-none' : 'cursor-default'}
+          ${isOwner && playerId ? 'cursor-move hover:shadow-md' : 'cursor-default'}
           ${isBeingDragged ? 'opacity-50 bg-blue-100 border-blue-300' : ''}
           ${isDraggedOver ? 'bg-green-100 border-green-300 border-dashed' : 'bg-gray-50 border-gray-200'}
           ${playerId ? 'text-gray-900' : 'text-gray-500 italic'}
         `}
+        style={{ userSelect: 'none' }}
       >
         <div className="flex flex-col">
           <span className="text-sm font-medium">
