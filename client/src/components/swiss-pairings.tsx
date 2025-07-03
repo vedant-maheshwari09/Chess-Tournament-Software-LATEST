@@ -118,7 +118,9 @@ export default function SwissPairings({ tournamentId }: TournamentPairingsProps)
         title: "Tournament Completed",
         description: "Tournament has been finished. Final standings are now available.",
       });
+      // Invalidate both the tournament details and the tournament list for the dashboard
       queryClient.invalidateQueries({ queryKey: [`/api/tournaments/${tournamentId}`] });
+      queryClient.invalidateQueries({ queryKey: ["/api/my-tournaments"] });
     },
     onError: (error: any) => {
       const errorMessage = error?.error || "Failed to finish tournament.";
