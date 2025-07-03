@@ -100,6 +100,24 @@ export default function RoundRobinCrosstable({ tournamentId }: RoundRobinCrossta
           points += 0.5;
           draws++;
           results[opponentId] = '½';
+        } else if (match.result === '1F-0F') {
+          if (isWhite) {
+            points += 1;
+            wins++;
+            results[opponentId] = 'X';
+          } else {
+            losses++;
+            results[opponentId] = 'F';
+          }
+        } else if (match.result === '0F-1F') {
+          if (isWhite) {
+            losses++;
+            results[opponentId] = 'F';
+          } else {
+            points += 1;
+            wins++;
+            results[opponentId] = 'X';
+          }
         }
       }
     });
@@ -156,6 +174,10 @@ export default function RoundRobinCrosstable({ tournamentId }: RoundRobinCrossta
           return 'bg-red-100 text-red-800 font-semibold';
         case '½':
           return 'bg-yellow-100 text-yellow-800 font-semibold';
+        case 'X':
+          return 'bg-green-200 text-green-900 font-bold';  // Win by forfeit
+        case 'F':
+          return 'bg-red-200 text-red-900 font-bold';      // Loss by forfeit
         default:
           return 'text-gray-500';
       }
@@ -256,6 +278,14 @@ export default function RoundRobinCrosstable({ tournamentId }: RoundRobinCrossta
           <div className="flex items-center gap-2">
             <span className="bg-red-100 text-red-800 px-1 py-0.5 rounded font-semibold">0</span>
             <span>Loss</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="bg-green-200 text-green-900 px-1 py-0.5 rounded font-bold">X</span>
+            <span>Win by forfeit</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="bg-red-200 text-red-900 px-1 py-0.5 rounded font-bold">F</span>
+            <span>Loss by forfeit</span>
           </div>
         </div>
       </CardContent>

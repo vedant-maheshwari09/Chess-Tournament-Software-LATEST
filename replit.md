@@ -174,6 +174,13 @@ Changelog:
   - Built tournament history UI component with detailed change viewing and revert capabilities
   - Enhanced tournament director interface with dedicated History tab showing chronological change timeline
   - Added visual change indicators with action-specific badges and icons for better change identification
+- July 3, 2025. Enhanced Round Robin tournament system with complete pre-generation and crosstable display
+  - Fixed Round Robin pairing generation to create all rounds when tournament starts instead of round-by-round
+  - Enhanced pairings display to show all Round Robin rounds organized by round with status badges
+  - Updated tournament controls to hide Swiss-specific buttons (Generate Next Round, Repair) for Round Robin
+  - Improved Round Robin crosstable with forfeit result support (X=win by forfeit, F=loss by forfeit)
+  - Added proper Round Robin workflow: complete schedule generated at tournament start, not per round
+  - Enhanced format-specific displays: Round Robin shows all rounds, Swiss shows current round only
 ```
 
 ## User Preferences
