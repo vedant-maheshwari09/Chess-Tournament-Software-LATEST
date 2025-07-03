@@ -89,10 +89,14 @@ export function requireRole(role: 'player' | 'tournament_director') {
 export async function requireTournamentAccess(req: Request, res: Response, next: NextFunction) {
   try {
     const user = (req as any).user as User;
-    const tournamentId = parseInt(req.params.tournamentId);
+    const tournamentId = parseInt(req.params.id || req.params.tournamentId);
     
     if (!user) {
       return res.status(401).json({ message: 'Authentication required' });
+    }
+    
+    if (isNaN(tournamentId)) {
+      return res.status(400).json({ message: 'Invalid tournament ID' });
     }
     
     // Tournament directors can access tournaments they created
