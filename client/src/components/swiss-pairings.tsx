@@ -399,13 +399,27 @@ export default function SwissPairings({ tournamentId }: TournamentPairingsProps)
         }}
         onDrop={(e) => {
           e.preventDefault();
+          console.log('Drop event triggered on player:', playerId, 'with draggedPlayer:', draggedPlayer);
           
-          if (!draggedPlayer || !isOwner) return;
+          if (!draggedPlayer || !isOwner) {
+            console.log('Drop cancelled - no draggedPlayer or not owner');
+            return;
+          }
           
           // Can't drop on the same position
           if (draggedPlayer.matchId === matchId && draggedPlayer.color === color) {
+            console.log('Drop cancelled - same position');
             return;
           }
+
+          console.log('Executing player swap:', {
+            match1Id: draggedPlayer.matchId,
+            match2Id: matchId,
+            player1Id: draggedPlayer.playerId,
+            player2Id: playerId,
+            color1: draggedPlayer.color,
+            color2: color,
+          });
 
           // Execute the swap
           swapPlayersMutation.mutate({
@@ -420,9 +434,9 @@ export default function SwissPairings({ tournamentId }: TournamentPairingsProps)
         onDragEnd={handleDragEnd}
         className={`
           inline-flex items-center gap-2 px-3 py-2 rounded-lg border transition-all
-          ${isOwner && playerId ? 'cursor-move hover:shadow-md' : 'cursor-default'}
-          ${isBeingDragged ? 'opacity-50 bg-blue-100 border-blue-300' : ''}
-          ${isDraggedOver ? 'bg-green-100 border-green-300 border-dashed' : 'bg-gray-50 border-gray-200'}
+          ${isOwner && playerId ? 'cursor-move hover:shadow-lg hover:border-blue-400' : 'cursor-default'}
+          ${isBeingDragged ? 'opacity-30 bg-blue-200 border-blue-500 shadow-lg scale-105' : ''}
+          ${isDraggedOver ? 'bg-green-100 border-green-400 border-dashed border-2' : 'bg-gray-50 border-gray-200'}
           ${playerId ? 'text-gray-900' : 'text-gray-500 italic'}
         `}
         style={{ userSelect: 'none' }}
