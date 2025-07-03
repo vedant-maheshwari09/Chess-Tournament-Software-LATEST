@@ -360,16 +360,23 @@ export default function SwissStandings({ tournamentId }: SwissStandingsProps) {
                         {standing.player.rating} {standing.player.federation}
                       </div>
                     </td>
-                    {standing.roundResults.map((result, roundIndex) => (
-                      <td key={roundIndex} className="px-2 py-3 whitespace-nowrap text-center">
-                        <div className="text-xs text-gray-900">
-                          {formatRoundResultDisplay(result)}
-                        </div>
-                        <div className="text-xs font-medium text-gray-700">
-                          {roundIndex < currentRound ? formatPoints(standing) : ''}
-                        </div>
-                      </td>
-                    ))}
+                    {standing.roundResults.map((result, roundIndex) => {
+                      // Calculate cumulative points up to this round
+                      const cumulativePoints = standing.roundResults
+                        .slice(0, roundIndex + 1)
+                        .reduce((sum, r) => sum + r.points, 0);
+                      
+                      return (
+                        <td key={roundIndex} className="px-2 py-3 whitespace-nowrap text-center">
+                          <div className="text-xs text-gray-900">
+                            {formatRoundResultDisplay(result)}
+                          </div>
+                          <div className="text-xs font-medium text-gray-700">
+                            {roundIndex < currentRound ? cumulativePoints : ''}
+                          </div>
+                        </td>
+                      );
+                    })}
                   </tr>
                 ))}
               </tbody>
