@@ -11,6 +11,7 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import PlayerRegistration from "@/components/player-registration";
 import SwissPairings from "@/components/swiss-pairings";
 import Standings from "@/components/standings";
+import RoundRobinCrosstable from "@/components/round-robin-crosstable";
 import KnockoutBracket from "@/components/knockout-bracket";
 import type { Tournament, Player } from "@shared/schema";
 
@@ -291,7 +292,7 @@ export default function TournamentManagement({ tournamentId }: TournamentManagem
               </CardTitle>
             </CardHeader>
             <CardContent>
-              {tournament.format === 'swiss' ? (
+              {tournament.format === 'swiss' || tournament.format === 'roundrobin' ? (
                 <SwissPairings tournamentId={tournamentId} />
               ) : (
                 <div className="text-center py-8">
@@ -304,17 +305,21 @@ export default function TournamentManagement({ tournamentId }: TournamentManagem
         </TabsContent>
 
         <TabsContent value="standings" className="mt-6">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center space-x-2">
-                <Trophy className="h-5 w-5" />
-                <span>Tournament Standings</span>
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <Standings tournamentId={tournamentId} />
-            </CardContent>
-          </Card>
+          {tournament.format === 'roundrobin' ? (
+            <RoundRobinCrosstable tournamentId={tournamentId} />
+          ) : (
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center space-x-2">
+                  <Trophy className="h-5 w-5" />
+                  <span>Tournament Standings</span>
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <Standings tournamentId={tournamentId} />
+              </CardContent>
+            </Card>
+          )}
         </TabsContent>
 
 

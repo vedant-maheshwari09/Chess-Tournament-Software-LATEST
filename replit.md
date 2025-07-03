@@ -159,6 +159,14 @@ Changelog:
   - Implemented proper automatic bye assignment: lowest-rated active player gets 1-point bye when odd numbers
   - Fixed USCF compliance: respects explicit bye requests while giving automatic byes to remaining odd player
   - Enhanced pairing generation to distinguish between withdrawal byes vs requested byes vs automatic byes
+- July 3, 2025. Implemented comprehensive Round Robin tournament format with complete pre-made scheduling
+  - Created Round Robin pairing algorithm using rotation method for all tournament rounds
+  - All pairings for all rounds generated automatically when tournament starts (e.g., 4 players = 3 rounds)
+  - Built Round Robin crosstable component displaying head-to-head results matrix with player rankings
+  - Enhanced tournament pairings component to support both Swiss and Round Robin formats
+  - Added proper Round Robin display: crown symbols for self-matches, color-coded results (1, ½, 0)
+  - Hidden Swiss-specific controls (Generate Next Round, Repair) for Round Robin tournaments
+  - Updated both tournament director and player interfaces to show Round Robin crosstables
 - July 2, 2025. Implemented comprehensive tournament history and change tracking system
   - Added tournament_history database table to track all tournament modifications with complete audit trail
   - Created automatic history logging for match result changes with before/after state preservation

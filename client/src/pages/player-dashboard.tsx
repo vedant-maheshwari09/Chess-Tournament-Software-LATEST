@@ -9,6 +9,7 @@ import { useAuth } from "@/hooks/useAuth";
 import type { Tournament } from "@shared/schema";
 import Standings from "@/components/standings";
 import SwissPairings from "@/components/swiss-pairings";
+import RoundRobinCrosstable from "@/components/round-robin-crosstable";
 import KnockoutBracket from "@/components/knockout-bracket";
 
 export default function PlayerDashboard() {
@@ -277,7 +278,11 @@ export default function PlayerDashboard() {
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                <Standings tournamentId={selectedTournament.id} />
+                {selectedTournament.format === 'roundrobin' ? (
+                  <RoundRobinCrosstable tournamentId={selectedTournament.id} />
+                ) : (
+                  <Standings tournamentId={selectedTournament.id} />
+                )}
               </CardContent>
             </Card>
           </TabsContent>
