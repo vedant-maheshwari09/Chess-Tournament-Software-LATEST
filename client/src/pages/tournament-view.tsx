@@ -15,6 +15,8 @@ import PlayerRegistration from "@/components/player-registration";
 import SwissPairings from "@/components/swiss-pairings";
 import KnockoutBracket from "@/components/knockout-bracket";
 import Standings from "@/components/standings";
+import SwissStandings from "@/components/swiss-standings";
+import RoundRobinCrosstable from "@/components/round-robin-crosstable";
 import type { Tournament } from "@shared/schema";
 
 export default function TournamentView() {
@@ -233,7 +235,23 @@ export default function TournamentView() {
             </TabsContent>
 
             <TabsContent value="standings">
-              <Standings tournamentId={tournament.id} />
+              {tournament.format === 'roundrobin' ? (
+                <RoundRobinCrosstable tournamentId={tournament.id} />
+              ) : tournament.format === 'swiss' ? (
+                <SwissStandings tournamentId={tournament.id} />
+              ) : (
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center space-x-2">
+                      <Trophy className="h-5 w-5" />
+                      <span>Tournament Standings</span>
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <Standings tournamentId={tournament.id} />
+                  </CardContent>
+                </Card>
+              )}
             </TabsContent>
           </Tabs>
         </div>
