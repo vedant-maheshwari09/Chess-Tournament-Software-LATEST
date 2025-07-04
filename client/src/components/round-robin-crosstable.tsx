@@ -1,7 +1,8 @@
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Trophy, Medal, Award, Crown } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Trophy, Medal, Award, Crown, Download } from "lucide-react";
 import type { Player, Match, Tournament } from "@shared/schema";
 
 interface RoundRobinCrosstableProps {
@@ -139,6 +140,40 @@ export default function RoundRobinCrosstable({ tournamentId }: RoundRobinCrossta
     return (b.player.rating || 0) - (a.player.rating || 0);
   });
 
+  const downloadCrosstable = () => {
+    if (!tournament) return;
+    
+    // Create CSV content with crosstable format
+    const headers = ['Rank', 'Player', 'Rating', ...sortedStandings.map((_, i) => (i + 1).toString()), 'Points', 'Games'];
+    const rows = sortedStandings.map((standing, index) => [
+      index + 1,
+      `${standing.player.firstName} ${standing.player.lastName}`,
+      standing.player.rating || 'Unrated',
+      ...sortedStandings.map(opponent => {
+        if (standing.player.id === opponent.player.id) return 'X'; // Self-match
+        const result = standing.results[opponent.player.id];
+        return result || '-';
+      }),
+      standing.points,
+      standing.gamesPlayed
+    ]);
+
+    const csvContent = [headers, ...rows]
+      .map(row => row.map(cell => `"${cell}"`).join(','))
+      .join('\n');
+
+    // Create download
+    const blob = new Blob([csvContent], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${tournament.name}_round_robin_crosstable.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
   const getRankIcon = (position: number) => {
     switch (position) {
       case 1:
@@ -193,13 +228,26 @@ export default function RoundRobinCrosstable({ tournamentId }: RoundRobinCrossta
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <Trophy className="h-5 w-5" />
-          Round Robin Crosstable
-        </CardTitle>
-        <p className="text-sm text-gray-600">
-          Head-to-head results matrix • 1 = Win, ½ = Draw, 0 = Loss
-        </p>
+        <div className="flex items-center justify-between">
+          <div>
+            <CardTitle className="flex items-center gap-2">
+              <Trophy className="h-5 w-5" />
+              Round Robin Crosstable
+            </CardTitle>
+            <p className="text-sm text-gray-600">
+              Head-to-head results matrix • 1 = Win, ½ = Draw, 0 = Loss
+            </p>
+          </div>
+          <Button
+            onClick={downloadCrosstable}
+            variant="outline"
+            size="sm"
+            className="flex items-center gap-2"
+          >
+            <Download className="w-4 h-4" />
+            Download CSV
+          </Button>
+        </div>
       </CardHeader>
       <CardContent>
         <div className="overflow-x-auto">

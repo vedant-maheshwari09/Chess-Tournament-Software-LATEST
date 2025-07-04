@@ -1,5 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Download } from "lucide-react";
 import type { Player, Match, Tournament } from "@shared/schema";
 
 interface SwissStandingsProps {
@@ -279,6 +281,33 @@ export default function SwissStandings({ tournamentId }: SwissStandingsProps) {
   const currentRound = matches.length > 0 ? Math.max(...matches.map(m => m.round)) : 0;
   const totalRounds = Math.max(currentRound, tournament.rounds || 5);
 
+  const downloadStandings = () => {
+    // Create CSV content
+    const headers = ['Rank', 'Name', 'Rating', 'Points', ...Array.from({ length: totalRounds }, (_, i) => `Round ${i + 1}`)];
+    const rows = standings.map(standing => [
+      standing.position,
+      `${standing.player.firstName} ${standing.player.lastName}`,
+      standing.player.rating || 'Unrated',
+      formatPoints(standing),
+      ...standing.roundResults.map((result, index) => formatRoundResult(result, index + 1))
+    ]);
+
+    const csvContent = [headers, ...rows]
+      .map(row => row.map(cell => `"${cell}"`).join(','))
+      .join('\n');
+
+    // Create download link
+    const blob = new Blob([csvContent], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${tournament.name}_standings_round_${currentRound}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
   const formatRoundResult = (result: PlayerRoundResult, round: number): string => {
     if (result.result === 'bye') {
       return 'bye';
@@ -353,10 +382,23 @@ export default function SwissStandings({ tournamentId }: SwissStandingsProps) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Swiss Tournament Standings</CardTitle>
-        <p className="text-sm text-gray-600 mt-1">
-          Detailed round-by-round results and current rankings
-        </p>
+        <div className="flex items-center justify-between">
+          <div>
+            <CardTitle>Swiss Tournament Standings</CardTitle>
+            <p className="text-sm text-gray-600 mt-1">
+              Detailed round-by-round results and current rankings
+            </p>
+          </div>
+          <Button
+            onClick={downloadStandings}
+            variant="outline"
+            size="sm"
+            className="flex items-center gap-2"
+          >
+            <Download className="w-4 h-4" />
+            Download CSV
+          </Button>
+        </div>
       </CardHeader>
       <CardContent>
         {standings.length === 0 ? (

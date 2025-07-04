@@ -193,6 +193,11 @@ Changelog:
   - Shows "U" followed by points they had at that round (e.g., "U0", "U1.5") 
   - Automatically detects when player has no match or pairing record for early rounds
   - Distinguished from withdrawals and byes to show proper tournament history notation
+- July 4, 2025. Implemented downloadable standings and crosstables
+  - Added CSV download functionality for Swiss Tournament Standings with round-by-round results
+  - Added CSV download for Round Robin Crosstables with complete head-to-head matrix
+  - Download buttons integrated into component headers with professional file naming
+  - CSV files include all tournament data: rankings, ratings, points, and detailed round results
 ```
 
 ## User Preferences
