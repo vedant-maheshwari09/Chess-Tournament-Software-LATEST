@@ -181,11 +181,11 @@ Changelog:
   - Improved Round Robin crosstable with forfeit result support (X=win by forfeit, F=loss by forfeit)
   - Added proper Round Robin workflow: complete schedule generated at tournament start, not per round
   - Enhanced format-specific displays: Round Robin shows all rounds, Swiss shows current round only
-- July 4, 2025. Implemented Tournament Director (TD) player functionality and undo swap feature
-  - Added TD player designation: only one active TD per tournament, plays when odd players create "See T.D." pairing
-  - Enhanced player registration with TD checkbox and automatic deactivation of previous active TD
-  - Updated Swiss standings to show "TD" for active tournament director in opponent columns
-  - Active TD players display as "(substitute player)" in both pairings and standings for clear identification
+- July 4, 2025. Implemented Houseplayer (TD) functionality and undo swap feature
+  - Added houseplayer designation: only one houseplayer per tournament, plays when odd players create "See T.D." pairing
+  - Enhanced player registration with houseplayer checkbox and automatic deactivation of previous houseplayer
+  - Updated Swiss standings to show "TD" for houseplayer in opponent columns
+  - Houseplayers display as "(substitute player)" in both pairings and standings for clear identification
   - Implemented player swap undo functionality with 30-second expiration timer
   - Added "Undo Swap" button that appears after manual pairing adjustments for improved tournament management
 ```

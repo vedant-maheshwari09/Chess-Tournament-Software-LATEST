@@ -378,15 +378,15 @@ export default function PlayerRegistration({ tournamentId }: PlayerRegistrationP
                   className="rounded border-gray-300 text-yellow-600 focus:ring-yellow-500"
                 />
                 <Label htmlFor="isActiveTd" className="text-sm font-medium">
-                  Make this player the Active Tournament Director (TD)
+                  Make this player the Houseplayer (TD)
                 </Label>
               </div>
               <p className="text-xs text-yellow-700">
-                • Only one TD can be active per tournament
-                • TD plays only when odd number of players creates "See T.D." pairing
-                • Active TD appears as "(substitute player)" in pairings and standings
+                • Only one houseplayer can be active per tournament
+                • Houseplayer plays only when odd number of players creates "See T.D." pairing
+                • Houseplayer appears as "(substitute player)" in pairings and standings
                 • In opponent standings, shows as "TD" instead of board number
-                • Previous active TD will be automatically deactivated
+                • Previous houseplayer will be automatically deactivated
               </p>
             </div>
             

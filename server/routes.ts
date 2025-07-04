@@ -595,7 +595,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const playerData = { ...playerFields, tournamentId };
       const player = insertPlayerSchema.parse(playerData);
       
-      // If this player is being set as active TD, deactivate any existing active TD
+      // If this player is being set as houseplayer, deactivate any existing houseplayer
       if (player.isActiveTd) {
         const existingPlayers = await storage.getPlayersByTournament(tournamentId);
         for (const existingPlayer of existingPlayers) {
