@@ -298,7 +298,7 @@ export default function TournamentManagement({ tournamentId }: TournamentManagem
                 {tournament?.directorEmail && (
                   <div className="space-y-2">
                     <h4 className="font-medium text-gray-900">Director Email</h4>
-                    <p className="text-gray-600">{tournament.directorEmail}</p>
+                    <p className="text-gray-600">{String(tournament.directorEmail)}</p>
                   </div>
                 )}
                 

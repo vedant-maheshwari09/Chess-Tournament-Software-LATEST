@@ -18,9 +18,9 @@ export default function RegistrationManagement({ tournamentId }: RegistrationMan
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
-  const { data: registrations = [], isLoading } = useQuery({
-    queryKey: ['/api/tournaments', tournamentId, 'registrations'],
-    queryFn: () => fetch(`/api/tournaments/${tournamentId}/registrations`).then(res => res.json()),
+  const { data: registrations = [], isLoading, error } = useQuery<PlayerRegistration[]>({
+    queryKey: [`/api/tournaments/${tournamentId}/registrations`],
+    retry: false,
   });
 
   const updateRegistrationMutation = useMutation({
@@ -83,6 +83,22 @@ export default function RegistrationManagement({ tournamentId }: RegistrationMan
     updateRegistrationMutation.mutate({ registrationId, status: "declined" });
   };
 
+  if (error) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>Player Registrations</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="text-center py-8">
+            <p className="text-gray-600">Unable to load registrations.</p>
+            <p className="text-sm text-gray-500 mt-2">This feature requires tournament director permissions.</p>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
   if (isLoading) {
     return (
       <Card>
@@ -98,8 +114,8 @@ export default function RegistrationManagement({ tournamentId }: RegistrationMan
     );
   }
 
-  const pendingRegistrations = registrations.filter((reg: PlayerRegistration) => reg.status === "pending");
-  const processedRegistrations = registrations.filter((reg: PlayerRegistration) => reg.status !== "pending");
+  const pendingRegistrations = Array.isArray(registrations) ? registrations.filter((reg: PlayerRegistration) => reg.status === "pending") : [];
+  const processedRegistrations = Array.isArray(registrations) ? registrations.filter((reg: PlayerRegistration) => reg.status !== "pending") : [];
 
   return (
     <div className="space-y-6">
@@ -173,7 +189,7 @@ export default function RegistrationManagement({ tournamentId }: RegistrationMan
                             </div>
                           )}
                           <div className="text-xs text-muted-foreground">
-                            Registered: {new Date(registration.createdAt).toLocaleDateString()}
+                            Registered: {registration.createdAt ? new Date(registration.createdAt).toLocaleDateString() : 'N/A'}
                           </div>
                         </div>
                       </TableCell>
@@ -296,7 +312,7 @@ export default function RegistrationManagement({ tournamentId }: RegistrationMan
                       </TableCell>
                       <TableCell>
                         <div className="text-sm text-muted-foreground">
-                          {new Date(registration.updatedAt).toLocaleDateString()}
+                          {registration.updatedAt ? new Date(registration.updatedAt).toLocaleDateString() : 'N/A'}
                         </div>
                       </TableCell>
                     </TableRow>
