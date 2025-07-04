@@ -5,6 +5,7 @@ import {
   pairings,
   byeRequests,
   tournamentHistory,
+  playerRegistrations,
   users,
   sessions,
   passwordResets,
@@ -20,6 +21,8 @@ import {
   type InsertByeRequest,
   type TournamentHistory,
   type InsertTournamentHistory,
+  type PlayerRegistration,
+  type InsertPlayerRegistration,
   type User,
   type InsertUser,
   type Session,
@@ -88,6 +91,14 @@ export interface IStorage {
   createHistoryEntry(entry: InsertTournamentHistory): Promise<TournamentHistory>;
   getTournamentHistory(tournamentId: number): Promise<TournamentHistory[]>;
   getHistoryEntry(id: number): Promise<TournamentHistory | undefined>;
+
+  // Player registration methods
+  createPlayerRegistration(registration: InsertPlayerRegistration): Promise<PlayerRegistration>;
+  getPlayerRegistration(id: number): Promise<PlayerRegistration | undefined>;
+  getPlayerRegistrationsByTournament(tournamentId: number): Promise<PlayerRegistration[]>;
+  getPlayerRegistrationsByUser(userId: number): Promise<PlayerRegistration[]>;
+  updatePlayerRegistration(id: number, registration: Partial<PlayerRegistration>): Promise<PlayerRegistration | undefined>;
+  deletePlayerRegistration(id: number): Promise<boolean>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -400,6 +411,39 @@ export class DatabaseStorage implements IStorage {
       .from(tournamentHistory)
       .where(eq(tournamentHistory.id, id));
     return entry || undefined;
+  }
+
+  // Player registration methods
+  async createPlayerRegistration(registration: InsertPlayerRegistration): Promise<PlayerRegistration> {
+    const [newRegistration] = await db.insert(playerRegistrations).values(registration).returning();
+    return newRegistration;
+  }
+
+  async getPlayerRegistration(id: number): Promise<PlayerRegistration | undefined> {
+    const [registration] = await db.select().from(playerRegistrations).where(eq(playerRegistrations.id, id));
+    return registration;
+  }
+
+  async getPlayerRegistrationsByTournament(tournamentId: number): Promise<PlayerRegistration[]> {
+    return await db.select().from(playerRegistrations).where(eq(playerRegistrations.tournamentId, tournamentId));
+  }
+
+  async getPlayerRegistrationsByUser(userId: number): Promise<PlayerRegistration[]> {
+    return await db.select().from(playerRegistrations).where(eq(playerRegistrations.userId, userId));
+  }
+
+  async updatePlayerRegistration(id: number, registration: Partial<PlayerRegistration>): Promise<PlayerRegistration | undefined> {
+    const [updatedRegistration] = await db
+      .update(playerRegistrations)
+      .set({ ...registration, updatedAt: new Date() })
+      .where(eq(playerRegistrations.id, id))
+      .returning();
+    return updatedRegistration;
+  }
+
+  async deletePlayerRegistration(id: number): Promise<boolean> {
+    const result = await db.delete(playerRegistrations).where(eq(playerRegistrations.id, id));
+    return result.count > 0;
   }
 }
 

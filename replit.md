@@ -219,6 +219,13 @@ Changelog:
   - Player dashboard now shows Info, Standings, Pairings, and Predictor tabs for selected tournaments
   - Pairing predictor includes simulation warnings and mock pairing generation for educational purposes
   - Enhanced player tournament selection interface with full tournament details viewing capability
+- July 4, 2025. Implemented comprehensive online player registration system with TD approval workflow
+  - Players can register for tournaments online with optional fields: name, USCF rating, phone, email, arrival time
+  - Registration requests appear in tournament director's dedicated "Registrations" tab for review
+  - Tournament directors can approve or decline registration requests with confirmation dialogs
+  - Approved players are automatically added to tournament with provided information
+  - Player dashboard shows registration status (pending, approved, declined) with detailed information
+  - Registration system integrates seamlessly with existing player management and tournament workflows
 ```
 
 ## User Preferences

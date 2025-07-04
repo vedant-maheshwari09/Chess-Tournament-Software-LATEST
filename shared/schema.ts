@@ -116,6 +116,20 @@ export const tournamentHistory = pgTable("tournament_history", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
+export const playerRegistrations = pgTable("player_registrations", {
+  id: serial("id").primaryKey(),
+  tournamentId: integer("tournament_id").references(() => tournaments.id, { onDelete: "cascade" }).notNull(),
+  userId: integer("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
+  playerName: varchar("player_name", { length: 100 }),
+  uscfRating: integer("uscf_rating"),
+  phoneNumber: varchar("phone_number", { length: 20 }),
+  email: varchar("email", { length: 255 }),
+  arrivalTime: varchar("arrival_time", { length: 50 }),
+  status: varchar("status", { length: 20 }).default("pending").notNull(), // pending, approved, declined
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
 // User schemas
 export const insertUserSchema = createInsertSchema(users).omit({
   id: true,
@@ -180,6 +194,12 @@ export const insertTournamentHistorySchema = createInsertSchema(tournamentHistor
   createdAt: true,
 });
 
+export const insertPlayerRegistrationSchema = createInsertSchema(playerRegistrations).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
 // User types
 export type User = typeof users.$inferSelect;
 export type InsertUser = z.infer<typeof insertUserSchema>;
@@ -204,3 +224,5 @@ export type ByeRequest = typeof byeRequests.$inferSelect;
 export type InsertByeRequest = z.infer<typeof insertByeRequestSchema>;
 export type TournamentHistory = typeof tournamentHistory.$inferSelect;
 export type InsertTournamentHistory = z.infer<typeof insertTournamentHistorySchema>;
+export type PlayerRegistration = typeof playerRegistrations.$inferSelect;
+export type InsertPlayerRegistration = z.infer<typeof insertPlayerRegistrationSchema>;

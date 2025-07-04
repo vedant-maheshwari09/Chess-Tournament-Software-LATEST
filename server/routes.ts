@@ -577,6 +577,112 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Player registration routes
+  
+  // Create player registration (for players to register for tournaments)
+  app.post("/api/tournaments/:id/register", requireAuth, async (req, res) => {
+    try {
+      const tournamentId = parseInt(req.params.id);
+      const userId = req.user!.id;
+      const { playerName, uscfRating, phoneNumber, email, arrivalTime } = req.body;
+
+      // Check if tournament exists
+      const tournament = await storage.getTournament(tournamentId);
+      if (!tournament) {
+        return res.status(404).json({ error: "Tournament not found" });
+      }
+
+      // Check if user already registered for this tournament
+      const existingRegistration = await storage.getPlayerRegistrationsByTournament(tournamentId);
+      const userAlreadyRegistered = existingRegistration.find(reg => reg.userId === userId);
+      if (userAlreadyRegistered) {
+        return res.status(400).json({ error: "You are already registered for this tournament" });
+      }
+
+      const registration = await storage.createPlayerRegistration({
+        tournamentId,
+        userId,
+        playerName,
+        uscfRating,
+        phoneNumber,
+        email,
+        arrivalTime,
+        status: "pending"
+      });
+
+      res.json(registration);
+    } catch (error) {
+      console.error("Error creating player registration:", error);
+      res.status(500).json({ error: "Failed to register for tournament" });
+    }
+  });
+
+  // Get player registrations for a tournament (for tournament directors)
+  app.get("/api/tournaments/:id/registrations", requireAuth, requireTournamentAccess, async (req, res) => {
+    try {
+      const tournamentId = parseInt(req.params.id);
+      const registrations = await storage.getPlayerRegistrationsByTournament(tournamentId);
+      res.json(registrations);
+    } catch (error) {
+      console.error("Error fetching player registrations:", error);
+      res.status(500).json({ error: "Failed to fetch player registrations" });
+    }
+  });
+
+  // Approve/decline player registration (for tournament directors)
+  app.patch("/api/tournaments/:id/registrations/:registrationId", requireAuth, requireTournamentAccess, async (req, res) => {
+    try {
+      const tournamentId = parseInt(req.params.id);
+      const registrationId = parseInt(req.params.registrationId);
+      const { status } = req.body;
+
+      if (!["approved", "declined"].includes(status)) {
+        return res.status(400).json({ error: "Invalid status. Must be 'approved' or 'declined'" });
+      }
+
+      const registration = await storage.getPlayerRegistration(registrationId);
+      if (!registration || registration.tournamentId !== tournamentId) {
+        return res.status(404).json({ error: "Registration not found" });
+      }
+
+      const updatedRegistration = await storage.updatePlayerRegistration(registrationId, { status });
+      
+      // If approved, add player to tournament
+      if (status === "approved" && updatedRegistration) {
+        const user = await storage.getUserById(updatedRegistration.userId);
+        if (user) {
+          await storage.createPlayer({
+            tournamentId,
+            name: updatedRegistration.playerName || `${user.firstName} ${user.lastName}`,
+            rating: updatedRegistration.uscfRating || 1200,
+            seed: 0, // Will be set later
+            phoneNumber: updatedRegistration.phoneNumber,
+            email: updatedRegistration.email || user.email,
+            arrivalTime: updatedRegistration.arrivalTime,
+            status: "active"
+          });
+        }
+      }
+
+      res.json(updatedRegistration);
+    } catch (error) {
+      console.error("Error updating player registration:", error);
+      res.status(500).json({ error: "Failed to update player registration" });
+    }
+  });
+
+  // Get player's own registrations
+  app.get("/api/my-registrations", requireAuth, async (req, res) => {
+    try {
+      const userId = req.user!.id;
+      const registrations = await storage.getPlayerRegistrationsByUser(userId);
+      res.json(registrations);
+    } catch (error) {
+      console.error("Error fetching player registrations:", error);
+      res.status(500).json({ error: "Failed to fetch your registrations" });
+    }
+  });
+
   // Player routes
   app.get("/api/tournaments/:tournamentId/players", async (req, res) => {
     try {

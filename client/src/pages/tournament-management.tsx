@@ -10,6 +10,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import PlayerRegistration from "@/components/player-registration";
+import RegistrationManagement from "@/components/registration-management";
 import SwissPairings from "@/components/swiss-pairings";
 import Standings from "@/components/standings";
 import SwissStandings from "@/components/swiss-standings";
@@ -188,10 +189,14 @@ export default function TournamentManagement({ tournamentId }: TournamentManagem
 
       {/* Tournament Management Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-        <TabsList className="grid w-full grid-cols-5">
+        <TabsList className="grid w-full grid-cols-6">
           <TabsTrigger value="info" className="flex items-center space-x-2">
             <Trophy className="h-4 w-4" />
             <span>Tournament Info</span>
+          </TabsTrigger>
+          <TabsTrigger value="registrations" className="flex items-center space-x-2">
+            <Users className="h-4 w-4" />
+            <span>Registrations</span>
           </TabsTrigger>
           <TabsTrigger value="players" className="flex items-center space-x-2">
             <Users className="h-4 w-4" />
@@ -347,6 +352,10 @@ export default function TournamentManagement({ tournamentId }: TournamentManagem
               )}
             </CardContent>
           </Card>
+        </TabsContent>
+
+        <TabsContent value="registrations" className="mt-6">
+          <RegistrationManagement tournamentId={tournamentId} />
         </TabsContent>
 
         <TabsContent value="players" className="mt-6">

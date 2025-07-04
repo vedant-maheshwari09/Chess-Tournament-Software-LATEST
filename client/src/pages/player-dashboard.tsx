@@ -6,13 +6,14 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useAuth } from "@/hooks/useAuth";
-import type { Tournament, Player } from "@shared/schema";
+import type { Tournament, Player, PlayerRegistration as PlayerRegistrationType } from "@shared/schema";
 import Standings from "@/components/standings";
 import SwissStandings from "@/components/swiss-standings";
 import SwissPairings from "@/components/swiss-pairings";
 import RoundRobinCrosstable from "@/components/round-robin-crosstable";
 import KnockoutBracket from "@/components/knockout-bracket";
 import PairingPredictor from "@/components/pairing-predictor";
+import PlayerRegistration from "@/components/player-registration";
 
 export default function PlayerDashboard() {
   const { user } = useAuth();
@@ -20,6 +21,10 @@ export default function PlayerDashboard() {
 
   const { data: tournaments = [], isLoading } = useQuery<Tournament[]>({
     queryKey: ["/api/tournaments"],
+  });
+
+  const { data: myRegistrations = [] } = useQuery<PlayerRegistrationType[]>({
+    queryKey: ["/api/my-registrations"],
   });
 
   const getFormatIcon = (format: string) => {
@@ -392,6 +397,12 @@ export default function PlayerDashboard() {
                 </div>
               </CardContent>
             </Card>
+
+            {/* Player Registration Card */}
+            <PlayerRegistration 
+              tournament={selectedTournament}
+              existingRegistration={myRegistrations.find(reg => reg.tournamentId === selectedTournament.id)}
+            />
           </TabsContent>
 
           <TabsContent value="standings" className="space-y-6">
