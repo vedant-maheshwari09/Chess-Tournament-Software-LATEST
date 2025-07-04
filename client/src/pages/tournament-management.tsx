@@ -23,6 +23,9 @@ interface TournamentManagementProps {
 }
 
 export default function TournamentManagement({ tournamentId }: TournamentManagementProps) {
+  console.log("=== TournamentManagement component START ===");
+  console.log("tournamentId:", tournamentId);
+  
   const [, setLocation] = useLocation();
   const [activeTab, setActiveTab] = useState("info");
   const { toast } = useToast();
@@ -64,6 +67,22 @@ export default function TournamentManagement({ tournamentId }: TournamentManagem
   console.log("Players data:", players);
   console.log("Players loading:", playersLoading);
   console.log("Players error:", playersError);
+
+  // TEST: Early return to see if component is being called
+  if (true) {
+    console.log("TEST: About to render simple test component");
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center">
+          <h1 className="text-2xl font-bold">Tournament Management Test</h1>
+          <p>Tournament ID: {tournamentId}</p>
+          <p>User: {user?.username || 'No user'}</p>
+          <p>Loading: {tournamentLoading ? 'Yes' : 'No'}</p>
+          <p>Tournament: {tournament ? tournament.name : 'No tournament'}</p>
+        </div>
+      </div>
+    );
+  }
 
   // Start tournament mutation
   const startTournamentMutation = useMutation({
@@ -116,6 +135,7 @@ export default function TournamentManagement({ tournamentId }: TournamentManagem
   });
 
   if (tournamentLoading) {
+    console.log("Rendering loading state");
     return (
       <div className="flex items-center justify-center min-h-screen">
         <div className="text-center">
