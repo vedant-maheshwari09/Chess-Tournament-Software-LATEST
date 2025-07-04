@@ -207,6 +207,12 @@ Changelog:
   - Added tiebreaker values display in Swiss standings with small text showing MM/SK/CU values
   - Tiebreaker data included in CSV download with dedicated columns for USCF tournaments
   - Added legend explaining tiebreaker abbreviations: MM (Modified Median), SK (Solkoff), CU (Cumulative)
+- July 4, 2025. Added comprehensive tournament setup fields for professional tournament management
+  - Tournament directors can now add optional tournament location, director phone, and director email
+  - Individual round scheduling with date and time fields for each round during tournament creation
+  - Added confirmation prompt when leaving tournament details blank: "Are you sure you don't want to add..."
+  - Tournament details display in Tournament Info tab showing location, contact info, and round schedule
+  - Enhanced tournament database schema with location, directorPhone, directorEmail, and roundTimings fields
 ```
 
 ## User Preferences

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -28,7 +28,41 @@ export default function TournamentWizard({ tournament, onTournamentCreated }: To
   const [playerCount, setPlayerCount] = useState(tournament?.playerCount || 8);
   const [showAdvancedOptions, setShowAdvancedOptions] = useState(false);
   const [skipAutoGeneration, setSkipAutoGeneration] = useState(false);
+  
+  // Tournament details
+  const [location, setLocationField] = useState(tournament?.location || "");
+  const [directorPhone, setDirectorPhone] = useState(tournament?.directorPhone || "");
+  const [directorEmail, setDirectorEmail] = useState(tournament?.directorEmail || "");
+  const [roundTimings, setRoundTimings] = useState<Array<{round: number, date: string, time: string}>>(
+    tournament?.roundTimings as any || []
+  );
+  const [showDetailsSection, setShowDetailsSection] = useState(false);
   const { toast } = useToast();
+
+  // Initialize round timings when rounds change
+  useEffect(() => {
+    if (roundTimings.length === 0 && rounds > 0) {
+      const initialTimings = Array.from({ length: rounds }, (_, i) => ({
+        round: i + 1,
+        date: '',
+        time: ''
+      }));
+      setRoundTimings(initialTimings);
+    } else if (roundTimings.length !== rounds) {
+      const newTimings = Array.from({ length: rounds }, (_, i) => ({
+        round: i + 1,
+        date: roundTimings[i]?.date || '',
+        time: roundTimings[i]?.time || ''
+      }));
+      setRoundTimings(newTimings);
+    }
+  }, [rounds]);
+
+  const updateRoundTiming = (roundIndex: number, field: 'date' | 'time', value: string) => {
+    setRoundTimings(prev => prev.map((timing, index) => 
+      index === roundIndex ? { ...timing, [field]: value } : timing
+    ));
+  };
 
   const createTournamentMutation = useMutation({
     mutationFn: async (tournamentData: InsertTournament) => {
@@ -101,6 +135,23 @@ export default function TournamentWizard({ tournament, onTournamentCreated }: To
       return;
     }
 
+    // Check for missing optional details
+    const missingDetails = [];
+    if (!location.trim()) missingDetails.push("tournament location");
+    if (!directorPhone.trim()) missingDetails.push("director phone number");
+    if (!directorEmail.trim()) missingDetails.push("director email");
+    
+    const hasRoundTimings = roundTimings.some(timing => timing.date || timing.time);
+    if (!hasRoundTimings) missingDetails.push("round scheduling");
+
+    // Show confirmation if missing details
+    if (missingDetails.length > 0) {
+      const message = `Are you sure you don't want to add: ${missingDetails.join(", ")}?`;
+      if (!window.confirm(message)) {
+        return;
+      }
+    }
+
     const tournamentData: InsertTournament = {
       name: name.trim(),
       format,
@@ -111,6 +162,10 @@ export default function TournamentWizard({ tournament, onTournamentCreated }: To
       tiebreakOrder: format === 'swiss' ? tiebreakOrder : undefined,
       useQuickSetup: tournamentMode === 'casual' && !skipAutoGeneration,
       playerCount: (tournamentMode === 'casual' && !skipAutoGeneration) ? playerCount : undefined,
+      location: location.trim() || undefined,
+      directorPhone: directorPhone.trim() || undefined,
+      directorEmail: directorEmail.trim() || undefined,
+      roundTimings: hasRoundTimings ? roundTimings : undefined,
     };
 
     createTournamentMutation.mutate(tournamentData);
@@ -367,6 +422,82 @@ export default function TournamentWizard({ tournament, onTournamentCreated }: To
                 </p>
               )}
             </div>
+          </div>
+
+          {/* Tournament Details Section */}
+          <div className="border-t pt-6">
+            <button
+              type="button"
+              onClick={() => setShowDetailsSection(!showDetailsSection)}
+              className="text-blue-600 hover:text-blue-800 text-sm font-medium flex items-center space-x-1"
+            >
+              <span>{showDetailsSection ? 'Hide' : 'Show'} Tournament Details (Optional)</span>
+              <span className={`transform transition-transform ${showDetailsSection ? 'rotate-180' : ''}`}>
+                ▼
+              </span>
+            </button>
+            
+            {showDetailsSection && (
+              <div className="mt-4 space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <Label htmlFor="location">Tournament Location</Label>
+                    <Input
+                      id="location"
+                      value={location}
+                      onChange={(e) => setLocationField(e.target.value)}
+                      placeholder="e.g., Community Center, Room 101"
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="directorPhone">Director Phone</Label>
+                    <Input
+                      id="directorPhone"
+                      value={directorPhone}
+                      onChange={(e) => setDirectorPhone(e.target.value)}
+                      placeholder="e.g., (555) 123-4567"
+                    />
+                  </div>
+                </div>
+                
+                <div>
+                  <Label htmlFor="directorEmail">Director Email</Label>
+                  <Input
+                    id="directorEmail"
+                    type="email"
+                    value={directorEmail}
+                    onChange={(e) => setDirectorEmail(e.target.value)}
+                    placeholder="e.g., director@example.com"
+                  />
+                </div>
+
+                <div>
+                  <Label>Round Schedule</Label>
+                  <p className="text-sm text-gray-600 mb-3">
+                    Set dates and times for each round (all optional)
+                  </p>
+                  <div className="space-y-2">
+                    {roundTimings.map((timing, index) => (
+                      <div key={index} className="flex items-center space-x-2">
+                        <span className="text-sm font-medium w-16">Round {timing.round}:</span>
+                        <Input
+                          type="date"
+                          value={timing.date}
+                          onChange={(e) => updateRoundTiming(index, 'date', e.target.value)}
+                          className="flex-1"
+                        />
+                        <Input
+                          type="time"
+                          value={timing.time}
+                          onChange={(e) => updateRoundTiming(index, 'time', e.target.value)}
+                          className="flex-1"
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="flex justify-end space-x-3">

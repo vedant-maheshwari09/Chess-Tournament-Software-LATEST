@@ -1,4 +1,4 @@
-import { pgTable, text, serial, integer, boolean, timestamp, varchar, numeric } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, boolean, timestamp, varchar, numeric, jsonb } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -44,6 +44,10 @@ export const tournaments = pgTable("tournaments", {
   playerCount: integer("player_count"), // for quick setup mode
   useQuickSetup: boolean("use_quick_setup").default(false),
   tiebreakOrder: text("tiebreak_order").default("rating"), // "rating" or "uscf" (Modified Median, Solkoff, Cumulative)
+  location: text("location"), // Tournament venue/location
+  directorPhone: text("director_phone"), // Tournament director phone number
+  directorEmail: text("director_email"), // Tournament director email
+  roundTimings: jsonb("round_timings"), // Array of {round: number, date: string, time: string}
   createdBy: integer("created_by").notNull(), // User ID of tournament director
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),

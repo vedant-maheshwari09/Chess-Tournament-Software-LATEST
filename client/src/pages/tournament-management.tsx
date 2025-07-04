@@ -263,6 +263,76 @@ export default function TournamentManagement({ tournamentId }: TournamentManagem
                     <p className="text-gray-600">Double Round Robin</p>
                   </div>
                 )}
+                
+                {/* Tournament Details */}
+                {(tournament.location || tournament.directorPhone || tournament.directorEmail) && (
+                  <>
+                    <div className="col-span-full">
+                      <h3 className="text-lg font-semibold text-gray-900 mb-4 border-b pb-2">
+                        Tournament Details
+                      </h3>
+                    </div>
+                    
+                    {tournament.location && (
+                      <div className="space-y-2">
+                        <h4 className="font-medium text-gray-900">Location</h4>
+                        <p className="text-gray-600">{tournament.location}</p>
+                      </div>
+                    )}
+                    
+                    {tournament.directorPhone && (
+                      <div className="space-y-2">
+                        <h4 className="font-medium text-gray-900">Director Phone</h4>
+                        <p className="text-gray-600">{tournament.directorPhone}</p>
+                      </div>
+                    )}
+                    
+                    {tournament.directorEmail && (
+                      <div className="space-y-2">
+                        <h4 className="font-medium text-gray-900">Director Email</h4>
+                        <p className="text-gray-600">{tournament.directorEmail}</p>
+                      </div>
+                    )}
+                  </>
+                )}
+                
+                {/* Round Schedule */}
+                {tournament.roundTimings && (tournament.roundTimings as any).length > 0 && (
+                  <>
+                    <div className="col-span-full">
+                      <h3 className="text-lg font-semibold text-gray-900 mb-4 border-b pb-2">
+                        Round Schedule
+                      </h3>
+                    </div>
+                    
+                    <div className="col-span-full">
+                      <div className="space-y-2">
+                        {(tournament.roundTimings as any).map((timing: any, index: number) => {
+                          const hasSchedule = timing.date || timing.time;
+                          if (!hasSchedule) return null;
+                          
+                          return (
+                            <div key={index} className="flex items-center justify-between py-2 border-b border-gray-100">
+                              <span className="font-medium">Round {timing.round}</span>
+                              <div className="text-gray-600">
+                                {timing.date && (
+                                  <span className="mr-3">
+                                    {new Date(timing.date).toLocaleDateString()}
+                                  </span>
+                                )}
+                                {timing.time && (
+                                  <span>
+                                    {timing.time}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </>
+                )}
               </div>
               
               {tournament.status === 'draft' && (
