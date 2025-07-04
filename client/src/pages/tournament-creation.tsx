@@ -1,12 +1,13 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Trophy, ArrowLeft, Shuffle, RotateCcw, Target } from "lucide-react";
+import { Trophy, ArrowLeft, Shuffle, RotateCcw, Target, AlertCircle } from "lucide-react";
 import { Link } from "wouter";
+import { useAuth } from "@/hooks/useAuth";
 import TournamentWizard from "@/components/tournament-wizard";
 import PlayerRegistration from "@/components/player-registration";
 import SwissPairings from "@/components/swiss-pairings";
@@ -19,6 +20,14 @@ export default function TournamentCreation() {
   const [, setLocation] = useLocation();
   const [tournament, setTournament] = useState<Tournament | null>(null);
   const [activeTab, setActiveTab] = useState("setup");
+  const { user, isLoading } = useAuth();
+
+  // Redirect non-tournament directors to player dashboard
+  useEffect(() => {
+    if (!isLoading && user && user.role !== 'tournament_director') {
+      setLocation('/player-dashboard');
+    }
+  }, [user, isLoading, setLocation]);
 
   const handleTournamentCreated = (newTournament: Tournament) => {
     // Redirect to the dedicated tournament view page
@@ -30,6 +39,47 @@ export default function TournamentCreation() {
       setActiveTab("pairings");
     }
   };
+
+  // Show loading state
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <p className="text-gray-600">Loading...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Show access denied for non-tournament directors
+  if (user && user.role !== 'tournament_director') {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <Card className="max-w-md w-full">
+          <CardHeader>
+            <CardTitle className="flex items-center text-red-600">
+              <AlertCircle className="h-5 w-5 mr-2" />
+              Access Denied
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <p className="text-gray-600">
+              Only tournament directors can create tournaments. You're currently logged in as a player.
+            </p>
+            <div className="flex flex-col space-y-2">
+              <Button onClick={() => setLocation('/player-dashboard')} className="w-full">
+                Go to Player Dashboard
+              </Button>
+              <Button variant="outline" onClick={() => setLocation('/auth/logout')} className="w-full">
+                Log Out & Switch Account
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gray-50">

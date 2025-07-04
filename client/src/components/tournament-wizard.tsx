@@ -115,10 +115,19 @@ export default function TournamentWizard({ tournament, onTournamentCreated }: To
       // Redirect to tournament management page
       setLocation(`/tournaments/${newTournament.id}/manage`);
     },
-    onError: () => {
+    onError: (error: any) => {
+      console.error('Tournament creation error:', error);
+      let errorMessage = "Failed to create tournament. Please try again.";
+      
+      if (error.message.includes('tournament_director role required')) {
+        errorMessage = "Only tournament directors can create tournaments. Please log in with a tournament director account or create a new account with tournament director role.";
+      } else if (error.message.includes('403')) {
+        errorMessage = "You don't have permission to create tournaments. Please log in as a tournament director.";
+      }
+      
       toast({
         title: "Error",
-        description: "Failed to create tournament. Please try again.",
+        description: errorMessage,
         variant: "destructive",
       });
     },
