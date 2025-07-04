@@ -12,6 +12,7 @@ import PlayerDashboard from "@/pages/player-dashboard";
 import TournamentCreation from "@/pages/tournament-creation";
 
 import TournamentManagement from "@/pages/tournament-management";
+import TournamentView from "@/pages/tournament-view";
 import NotFound from "@/pages/not-found";
 
 function AuthenticatedApp() {
@@ -57,11 +58,17 @@ function AuthenticatedApp() {
             <Route path="/tournaments/:id/manage">
               {(params) => <TournamentManagement tournamentId={parseInt(params.id)} />}
             </Route>
+            <Route path="/tournaments/:id">
+              {(params) => <TournamentView tournamentId={parseInt(params.id)} />}
+            </Route>
           </>
         ) : (
           <>
             <Route path="/" component={PlayerDashboard} />
             <Route path="/dashboard" component={PlayerDashboard} />
+            <Route path="/tournaments/:id">
+              {(params) => <TournamentView tournamentId={parseInt(params.id)} />}
+            </Route>
           </>
         )}
       </Switch>
