@@ -298,7 +298,7 @@ export default function SwissStandings({ tournamentId }: SwissStandingsProps) {
 
     const colorPrefix = result.color === 'white' ? 'W' : 'B';
     
-    // Show "TD" instead of position number if opponent is the active tournament director
+    // Show "TD (playing for See T.D.)" instead of position number if opponent is the active tournament director
     const opponentDisplayText = result.opponent?.isActiveTd ? 'TD' : result.opponentPosition;
 
     if (result.result === 'forfeit-win') {
