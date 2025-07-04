@@ -188,6 +188,11 @@ Changelog:
   - Houseplayers display as "(substitute player)" in both pairings and standings for clear identification
   - Implemented player swap undo functionality with 30-second expiration timer
   - Added "Undo Swap" button that appears after manual pairing adjustments for improved tournament management
+- July 4, 2025. Added late-joining player notation in Swiss standings
+  - Implemented "U" (Unplayed) notation for players who joined after tournament started
+  - Shows "U" followed by points they had at that round (e.g., "U0", "U1.5") 
+  - Automatically detects when player has no match or pairing record for early rounds
+  - Distinguished from withdrawals and byes to show proper tournament history notation
 ```
 
 ## User Preferences

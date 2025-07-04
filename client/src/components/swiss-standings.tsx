@@ -9,7 +9,7 @@ interface SwissStandingsProps {
 interface PlayerRoundResult {
   opponent: Player | null;
   opponentPosition: number;
-  result: 'W' | 'L' | 'D' | 'bye' | 'withdrawn' | 'forfeit-win' | 'forfeit-loss';
+  result: 'W' | 'L' | 'D' | 'bye' | 'withdrawn' | 'forfeit-win' | 'forfeit-loss' | 'unplayed';
   color: 'white' | 'black' | null;
   points: number;
 }
@@ -190,7 +190,29 @@ export default function SwissStandings({ tournamentId }: SwissStandingsProps) {
           (match.whitePlayerId === standing.player.id || match.blackPlayerId === standing.player.id)
         );
 
+        // Check if player has any pairing (match or bye) for this round
+        const pairingThisRound = Array.isArray(pairings) ? pairings.find((pairing: any) => 
+          pairing.playerId === standing.player.id && 
+          pairing.round === round
+        ) : null;
+
+        if (!matchThisRound && !pairingThisRound) {
+          // No match or pairing found - player joined late (unplayed round)
+          // Calculate points the player had at the beginning of this round
+          const pointsBeforeRound = roundResults.reduce((sum, result) => sum + result.points, 0);
+          
+          roundResults.push({
+            opponent: null,
+            opponentPosition: 0,
+            result: 'unplayed',
+            color: null,
+            points: pointsBeforeRound // Store the points they had at this round
+          });
+          continue;
+        }
+
         if (!matchThisRound) {
+          // No match found but has pairing - might be withdrawn or other issue
           roundResults.push({
             opponent: null,
             opponentPosition: 0,
@@ -262,6 +284,10 @@ export default function SwissStandings({ tournamentId }: SwissStandingsProps) {
       return 'bye';
     }
     
+    if (result.result === 'unplayed') {
+      return `U${result.points}`;
+    }
+    
     if (result.result === 'withdrawn') {
       return round <= currentRound ? '---' : '';
     }
@@ -287,6 +313,10 @@ export default function SwissStandings({ tournamentId }: SwissStandingsProps) {
   const formatRoundResultDisplay = (result: PlayerRoundResult): string => {
     if (result.result === 'bye') {
       return 'bye';
+    }
+    
+    if (result.result === 'unplayed') {
+      return `U${result.points}`;
     }
     
     if (result.result === 'withdrawn') {
