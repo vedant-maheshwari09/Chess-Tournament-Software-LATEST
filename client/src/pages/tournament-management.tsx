@@ -28,25 +28,42 @@ export default function TournamentManagement({ tournamentId }: TournamentManagem
   const { toast } = useToast();
   const { user } = useAuth();
 
+  console.log("TournamentManagement component loaded with tournamentId:", tournamentId);
+  console.log("User auth state:", user);
+
   // Fetch tournament details
-  const { data: tournament, isLoading: tournamentLoading } = useQuery<Tournament>({
+  const { data: tournament, isLoading: tournamentLoading, error: tournamentError } = useQuery<Tournament>({
     queryKey: [`/api/tournaments/${tournamentId}`],
   });
 
+  console.log("Tournament data:", tournament);
+  console.log("Tournament loading:", tournamentLoading);
+  console.log("Tournament error:", tournamentError);
+
   // Check if user owns this tournament
   const isOwner = user?.role === 'tournament_director' && tournament && user && tournament.createdBy === user.id;
+  console.log("User role:", user?.role);
+  console.log("Tournament createdBy:", tournament?.createdBy);
+  console.log("User ID:", user?.id);
+  console.log("IsOwner calculation:", isOwner);
 
   // Redirect non-owners to tournament view
   useEffect(() => {
+    console.log("Redirect check - tournament:", tournament, "user:", user, "isOwner:", isOwner);
     if (tournament && user && !isOwner) {
+      console.log("Redirecting to tournament view");
       setLocation(`/tournaments/${tournamentId}`);
     }
   }, [tournament, user, isOwner, tournamentId, setLocation]);
 
   // Fetch players
-  const { data: players = [], isLoading: playersLoading } = useQuery<Player[]>({
+  const { data: players = [], isLoading: playersLoading, error: playersError } = useQuery<Player[]>({
     queryKey: [`/api/tournaments/${tournamentId}/players`],
   });
+
+  console.log("Players data:", players);
+  console.log("Players loading:", playersLoading);
+  console.log("Players error:", playersError);
 
   // Start tournament mutation
   const startTournamentMutation = useMutation({
