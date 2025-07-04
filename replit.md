@@ -226,6 +226,11 @@ Changelog:
   - Approved players are automatically added to tournament with provided information
   - Player dashboard shows registration status (pending, approved, declined) with detailed information
   - Registration system integrates seamlessly with existing player management and tournament workflows
+- July 4, 2025. Fixed critical tournament management routing and authentication issues
+  - Resolved tournament director dashboard "Manage" button routing to proper management interface
+  - Fixed registration management component authentication errors preventing TD access to player registrations
+  - Enhanced component error handling with proper Date object safety checks and TypeScript type validation
+  - Tournament directors now properly access full management interface instead of player view when managing tournaments
 ```
 
 ## User Preferences
