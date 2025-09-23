@@ -2,6 +2,22 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import type { User, LoginData, RegisterData } from "@shared/schema";
 
+// Assume fetchApi is defined elsewhere and handles the actual fetch and token retrieval
+// For example:
+// const fetchApi = async (url: string) => {
+//   const token = localStorage.getItem("auth_token");
+//   const response = await fetch(url, {
+//     headers: {
+//       Authorization: token ? `Bearer ${token}` : "",
+//     },
+//   });
+//   if (!response.ok) {
+//     throw new Error("Network response was not ok");
+//   }
+//   return response.json();
+// };
+
+
 interface AuthResponse {
   user: User;
   token: string;
@@ -13,8 +29,11 @@ export function useAuth() {
   // Get current user from token
   const { data: user, isLoading, error } = useQuery<User>({
     queryKey: ["/api/auth/me"],
+    queryFn: () => fetchApi("/api/auth/me"),
     retry: false,
-    enabled: !!localStorage.getItem("auth_token"),
+    refetchInterval: false,
+    refetchOnWindowFocus: false,
+    staleTime: 5 * 60 * 1000, // 5 minutes
   });
 
   // Login mutation
@@ -37,7 +56,7 @@ export function useAuth() {
   const registerMutation = useMutation({
     mutationFn: async (registerData: RegisterData): Promise<AuthResponse> => {
       const response = await apiRequest("/api/auth/register", {
-        method: "POST", 
+        method: "POST",
         body: JSON.stringify(registerData),
       });
       return response;
