@@ -14,6 +14,41 @@ run = ["npm", "run", "start"]
 localPort = 5000
 externalPort = 80
 
+[[ports]]
+localPort = 36933
+externalPort = 3000
+exposeLocalhost = true
+
+[[ports]]
+localPort = 39419
+externalPort = 6000
+exposeLocalhost = true
+
+[[ports]]
+localPort = 40019
+externalPort = 3003
+exposeLocalhost = true
+
+[[ports]]
+localPort = 40613
+externalPort = 6800
+exposeLocalhost = true
+
+[[ports]]
+localPort = 44325
+externalPort = 3001
+exposeLocalhost = true
+
+[[ports]]
+localPort = 45553
+externalPort = 4200
+exposeLocalhost = true
+
+[[ports]]
+localPort = 46799
+externalPort = 3002
+exposeLocalhost = true
+
 [workflows]
 runButton = "Project"
 
@@ -34,3 +69,6 @@ author = "agent"
 task = "shell.exec"
 args = "npm run dev"
 waitForPort = 5000
+
+[agent]
+integrations = ["javascript_database==1.0.0", "javascript_log_in_with_replit==1.0.0", "javascript_mem_db==1.0.0"]
