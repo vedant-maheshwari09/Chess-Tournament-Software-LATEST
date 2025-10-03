@@ -58,8 +58,8 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
     }
     
     // Add user to request object
-    (req as any).user = user;
-    (req as any).session = session;
+    req.user = user;
+    req.session = session;
     
     next();
   } catch (error) {
@@ -71,7 +71,7 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
 // Role-based middleware
 export function requireRole(role: 'player' | 'tournament_director') {
   return (req: Request, res: Response, next: NextFunction) => {
-    const user = (req as any).user as User;
+    const user = req.user as User;
     
     if (!user) {
       return res.status(401).json({ message: 'Authentication required' });
@@ -88,7 +88,7 @@ export function requireRole(role: 'player' | 'tournament_director') {
 // Tournament director or owner middleware
 export async function requireTournamentAccess(req: Request, res: Response, next: NextFunction) {
   try {
-    const user = (req as any).user as User;
+    const user = req.user as User;
     const tournamentId = parseInt(req.params.id || req.params.tournamentId);
     
     if (!user) {

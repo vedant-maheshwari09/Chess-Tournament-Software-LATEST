@@ -6,22 +6,31 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge";
 import { Calculator, Play, RotateCcw, AlertCircle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import type { Tournament, Player, Pairing } from "@shared/schema";
+import type { Tournament, Player, Match } from "@shared/schema";
 
 interface PairingPredictorProps {
   tournamentId: number;
   tournament: Tournament;
 }
 
+type MatchResult = "unplayed" | "white-win" | "black-win" | "draw";
+
+interface PredictedPairing {
+  board: number;
+  whitePlayerId: number | null;
+  blackPlayerId: number | null;
+  isBye?: boolean;
+}
+
 export default function PairingPredictor({ tournamentId, tournament }: PairingPredictorProps) {
-  const [predictedResults, setPredictedResults] = useState<Record<number, string>>({});
-  const [predictedPairings, setPredictedPairings] = useState<any[]>([]);
+  const [predictedResults, setPredictedResults] = useState<Record<number, MatchResult>>({});
+  const [predictedPairings, setPredictedPairings] = useState<PredictedPairing[]>([]);
   const [showPredictedPairings, setShowPredictedPairings] = useState(false);
   const { toast } = useToast();
 
   // Fetch current round pairings
-  const { data: pairings = [] } = useQuery<Pairing[]>({
-    queryKey: [`/api/tournaments/${tournamentId}/pairings`],
+  const { data: matches = [] } = useQuery<Match[]>({
+    queryKey: [`/api/tournaments/${tournamentId}/matches`],
   });
 
   // Fetch players
@@ -30,7 +39,7 @@ export default function PairingPredictor({ tournamentId, tournament }: PairingPr
   });
 
   const currentRound = tournament.currentRound || 0;
-  const currentRoundPairings = pairings.filter(p => p.round === currentRound);
+  const currentRoundMatches = matches.filter(match => match.round === currentRound);
 
   const getPlayerName = (playerId: number | null) => {
     if (!playerId) return "BYE";
@@ -39,16 +48,16 @@ export default function PairingPredictor({ tournamentId, tournament }: PairingPr
     return `${player.firstName} ${player.lastName}`;
   };
 
-  const handleResultChange = (pairingId: number, result: string) => {
+  const handleResultChange = (matchId: number, result: MatchResult) => {
     setPredictedResults(prev => ({
       ...prev,
-      [pairingId]: result
+      [matchId]: result
     }));
   };
 
   const handlePredict = () => {
     const completedResults = Object.keys(predictedResults).filter(
-      pairingId => predictedResults[parseInt(pairingId)] && predictedResults[parseInt(pairingId)] !== 'unplayed'
+      matchId => predictedResults[parseInt(matchId, 10)] && predictedResults[parseInt(matchId, 10)] !== "unplayed"
     );
 
     if (completedResults.length === 0) {
@@ -62,15 +71,15 @@ export default function PairingPredictor({ tournamentId, tournament }: PairingPr
 
     // Create mock predicted pairings for next round
     const nextRound = currentRound + 1;
-    const mockPairings = [];
+    const mockPairings: PredictedPairing[] = [];
     
     // Simple mock prediction logic - in reality this would call the server
     for (let i = 0; i < Math.floor(players.length / 2); i++) {
       mockPairings.push({
         board: i + 1,
-        whitePlayerId: players[i * 2]?.id || null,
-        blackPlayerId: players[i * 2 + 1]?.id || null,
-        isBye: false
+        whitePlayerId: players[i * 2]?.id ?? null,
+        blackPlayerId: players[i * 2 + 1]?.id ?? null,
+        isBye: false,
       });
     }
 
@@ -131,7 +140,7 @@ export default function PairingPredictor({ tournamentId, tournament }: PairingPr
         </CardHeader>
         <CardContent>
           <div className="space-y-4">
-            {currentRoundPairings.length === 0 ? (
+            {currentRoundMatches.length === 0 ? (
               <div className="text-center py-8">
                 <AlertCircle className="h-12 w-12 text-gray-400 mx-auto mb-4" />
                 <p className="text-gray-500">No pairings available for current round</p>
@@ -151,22 +160,22 @@ export default function PairingPredictor({ tournamentId, tournament }: PairingPr
                 </div>
 
                 <div className="grid gap-4">
-                  {currentRoundPairings.map((pairing) => (
-                    <div key={pairing.id} className="border rounded-lg p-4">
+                  {currentRoundMatches.map((match) => (
+                    <div key={match.id} className="border rounded-lg p-4">
                       <div className="flex items-center justify-between">
                         <div className="flex items-center space-x-4">
-                          <Badge variant="outline">Board {pairing.board}</Badge>
+                          <Badge variant="outline">Board {match.board ?? "?"}</Badge>
                           <div className="text-sm">
-                            <span className="font-medium">{getPlayerName(pairing.whitePlayerId)}</span>
+                            <span className="font-medium">{getPlayerName(match.whitePlayerId)}</span>
                             <span className="text-gray-500 mx-2">vs</span>
-                            <span className="font-medium">{getPlayerName(pairing.blackPlayerId)}</span>
+                            <span className="font-medium">{getPlayerName(match.blackPlayerId)}</span>
                           </div>
                         </div>
                         <div className="flex items-center space-x-2">
                           <span className="text-sm text-gray-500">Hypothetical Result:</span>
                           <Select
-                            value={predictedResults[pairing.id] || 'unplayed'}
-                            onValueChange={(value) => handleResultChange(pairing.id, value)}
+                            value={predictedResults[match.id] ?? "unplayed"}
+                            onValueChange={(value: MatchResult) => handleResultChange(match.id, value)}
                           >
                             <SelectTrigger className="w-32">
                               <SelectValue />

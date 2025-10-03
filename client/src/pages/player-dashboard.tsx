@@ -14,6 +14,7 @@ import RoundRobinCrosstable from "@/components/round-robin-crosstable";
 import KnockoutBracket from "@/components/knockout-bracket";
 import PairingPredictor from "@/components/pairing-predictor";
 import PlayerRegistration from "@/components/player-registration";
+import { parseTournamentConfig } from "@/lib/tournament-config";
 
 export default function PlayerDashboard() {
   const { user } = useAuth();
@@ -217,6 +218,9 @@ export default function PlayerDashboard() {
   }
 
   // Tournament Details View
+  const tournamentConfig = parseTournamentConfig(selectedTournament);
+  const schedule = tournamentConfig.schedule ?? [];
+
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
       {/* Header with Back Button */}
@@ -326,7 +330,7 @@ export default function PlayerDashboard() {
                   )}
                   
                   {/* Tournament Details */}
-                  {(selectedTournament.location || selectedTournament.directorPhone || selectedTournament.directorEmail) && (
+                  {(tournamentConfig.basic.city || tournamentConfig.basic.description || tournamentConfig.basic.startDate || tournamentConfig.basic.endDate || selectedTournament.directorPhone || selectedTournament.directorEmail) && (
                     <>
                       <div className="col-span-full">
                         <h3 className="text-lg font-semibold text-gray-900 mb-4 border-b pb-2">
@@ -334,10 +338,28 @@ export default function PlayerDashboard() {
                         </h3>
                       </div>
                       
-                      {selectedTournament.location && (
+                      {tournamentConfig.basic.city && (
                         <div className="space-y-2">
                           <h4 className="font-medium text-gray-900">Location</h4>
-                          <p className="text-gray-600">{selectedTournament.location}</p>
+                          <p className="text-gray-600">{tournamentConfig.basic.city}</p>
+                        </div>
+                      )}
+                      {tournamentConfig.basic.startDate && (
+                        <div className="space-y-2">
+                          <h4 className="font-medium text-gray-900">Start Date</h4>
+                          <p className="text-gray-600">{new Date(tournamentConfig.basic.startDate).toLocaleDateString()}</p>
+                        </div>
+                      )}
+                      {tournamentConfig.basic.endDate && (
+                        <div className="space-y-2">
+                          <h4 className="font-medium text-gray-900">End Date</h4>
+                          <p className="text-gray-600">{new Date(tournamentConfig.basic.endDate).toLocaleDateString()}</p>
+                        </div>
+                      )}
+                      {tournamentConfig.basic.description && (
+                        <div className="space-y-2 md:col-span-2 lg:col-span-3">
+                          <h4 className="font-medium text-gray-900">Description</h4>
+                          <p className="text-gray-600 whitespace-pre-wrap">{tournamentConfig.basic.description}</p>
                         </div>
                       )}
                       
@@ -358,7 +380,7 @@ export default function PlayerDashboard() {
                   )}
                   
                   {/* Round Schedule */}
-                  {selectedTournament.roundTimings && (selectedTournament.roundTimings as any).length > 0 && (
+                  {schedule.length > 0 && (
                     <>
                       <div className="col-span-full">
                         <h3 className="text-lg font-semibold text-gray-900 mb-4 border-b pb-2">
@@ -368,13 +390,13 @@ export default function PlayerDashboard() {
                       
                       <div className="col-span-full">
                         <div className="space-y-2">
-                          {(selectedTournament.roundTimings as any).map((timing: any, index: number) => {
+                          {schedule.map((timing, index) => {
                             const hasSchedule = timing.date || timing.time;
                             if (!hasSchedule) return null;
                             
                             return (
                               <div key={index} className="flex items-center justify-between py-2 border-b border-gray-100">
-                                <span className="font-medium">Round {timing.round}</span>
+                                <span className="font-medium">{timing.label ?? `Round ${timing.round ?? index + 1}`}</span>
                                 <div className="text-gray-600">
                                   {timing.date && (
                                     <span className="mr-3">

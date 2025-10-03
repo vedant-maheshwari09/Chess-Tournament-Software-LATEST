@@ -27,6 +27,10 @@ type AuthMode = 'login' | 'register' | 'forgot-password' | 'forgot-username' | '
 
 export default function AuthForm() {
   const [authMode, setAuthMode] = useState<AuthMode>('login');
+  const isLogin = authMode === 'login';
+  const setIsLogin = (value: boolean) => {
+    setAuthMode(value ? 'login' : 'register');
+  };
   const [resetToken, setResetToken] = useState('');
   const { login, register, loginError, registerError, isLoggingIn, isRegistering } = useAuth();
   const { toast } = useToast();

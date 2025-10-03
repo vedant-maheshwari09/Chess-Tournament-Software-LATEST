@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { useLocation } from "wouter";
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -9,14 +9,15 @@ import { Users, Trophy, Calendar, Play, Plus, Undo } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import PlayerRegistration from "@/components/player-registration";
 import RegistrationManagement from "@/components/registration-management";
 import SwissPairings from "@/components/swiss-pairings";
 import Standings from "@/components/standings";
 import SwissStandings from "@/components/swiss-standings";
 import RoundRobinCrosstable from "@/components/round-robin-crosstable";
 import KnockoutBracket from "@/components/knockout-bracket";
+import TournamentBuilder from "@/components/tournament-builder";
 import type { Tournament, Player } from "@shared/schema";
+import PlayerManager from "@/components/player-manager";
 
 interface TournamentManagementProps {
   tournamentId: number;
@@ -27,6 +28,7 @@ export default function TournamentManagement({ tournamentId }: TournamentManagem
   const [activeTab, setActiveTab] = useState("info");
   const { toast } = useToast();
   const { user } = useAuth();
+  const queryClient = useQueryClient();
 
   // Fetch tournament details
   const { data: tournament, isLoading: tournamentLoading } = useQuery<Tournament>({
@@ -130,6 +132,7 @@ export default function TournamentManagement({ tournamentId }: TournamentManagem
   }
 
   const canStartTournament = tournament?.status === 'draft' && players.length >= 2;
+
   const canGenerateNextRound = tournament?.status === 'active' && (tournament?.currentRound || 0) > 0;
 
   return (
@@ -222,137 +225,14 @@ export default function TournamentManagement({ tournamentId }: TournamentManagem
         </TabsList>
 
         <TabsContent value="info" className="mt-6">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center space-x-2">
-                <Trophy className="h-5 w-5" />
-                <span>Tournament Information</span>
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                <div className="space-y-2">
-                  <h4 className="font-medium text-gray-900">Tournament Name</h4>
-                  <p className="text-gray-600">{tournament.name}</p>
-                </div>
-                <div className="space-y-2">
-                  <h4 className="font-medium text-gray-900">Format</h4>
-                  <p className="text-gray-600 capitalize">{tournament.format}</p>
-                </div>
-                <div className="space-y-2">
-                  <h4 className="font-medium text-gray-900">Status</h4>
-                  <Badge variant={tournament.status === 'active' ? 'default' : tournament.status === 'completed' ? 'secondary' : 'outline'}>
-                    {tournament.status.charAt(0).toUpperCase() + tournament.status.slice(1)}
-                  </Badge>
-                </div>
-                {tournament.rounds && (
-                  <div className="space-y-2">
-                    <h4 className="font-medium text-gray-900">Total Rounds</h4>
-                    <p className="text-gray-600">{tournament.rounds}</p>
-                  </div>
-                )}
-                <div className="space-y-2">
-                  <h4 className="font-medium text-gray-900">Current Round</h4>
-                  <p className="text-gray-600">{tournament.currentRound || 0}</p>
-                </div>
-                <div className="space-y-2">
-                  <h4 className="font-medium text-gray-900">Players</h4>
-                  <p className="text-gray-600">{players.length} registered</p>
-                </div>
-                <div className="space-y-2">
-                  <h4 className="font-medium text-gray-900">Created</h4>
-                  <p className="text-gray-600">
-                    {tournament.createdAt ? new Date(tournament.createdAt).toLocaleDateString() : 'Unknown'}
-                  </p>
-                </div>
-                {tournament.format === 'roundrobin' && tournament.isDoubleRoundRobin && (
-                  <div className="space-y-2">
-                    <h4 className="font-medium text-gray-900">Round Robin Type</h4>
-                    <p className="text-gray-600">Double Round Robin</p>
-                  </div>
-                )}
-                
-                {/* Tournament Details */}
-                {(tournament.location || tournament.directorPhone || tournament.directorEmail) && (
-                  <div className="col-span-full">
-                    <h3 className="text-lg font-semibold text-gray-900 mb-4 border-b pb-2">
-                      Tournament Details
-                    </h3>
-                  </div>
-                )}
-                
-                {tournament.location && (
-                  <div className="space-y-2">
-                    <h4 className="font-medium text-gray-900">Location</h4>
-                    <p className="text-gray-600">{tournament.location}</p>
-                  </div>
-                )}
-                
-                {tournament.directorPhone && (
-                  <div className="space-y-2">
-                    <h4 className="font-medium text-gray-900">Director Phone</h4>
-                    <p className="text-gray-600">{tournament.directorPhone}</p>
-                  </div>
-                )}
-                
-                {tournament?.directorEmail && (
-                  <div className="space-y-2">
-                    <h4 className="font-medium text-gray-900">Director Email</h4>
-                    <p className="text-gray-600">{String(tournament.directorEmail)}</p>
-                  </div>
-                )}
-                
-                {/* Round Schedule */}
-                {tournament?.roundTimings && (tournament.roundTimings as any).length > 0 && (
-                  <>
-                    <div className="col-span-full">
-                      <h3 className="text-lg font-semibold text-gray-900 mb-4 border-b pb-2">
-                        Round Schedule
-                      </h3>
-                    </div>
-                    
-                    <div className="col-span-full">
-                      <div className="space-y-2">
-                        {(tournament.roundTimings as any).map((timing: any, index: number) => {
-                          const hasSchedule = timing.date || timing.time;
-                          if (!hasSchedule) return null;
-                          
-                          return (
-                            <div key={index} className="flex items-center justify-between py-2 border-b border-gray-100">
-                              <span className="font-medium">Round {timing.round}</span>
-                              <div className="text-gray-600">
-                                {timing.date && (
-                                  <span className="mr-3">
-                                    {new Date(timing.date).toLocaleDateString()}
-                                  </span>
-                                )}
-                                {timing.time && (
-                                  <span>
-                                    {timing.time}
-                                  </span>
-                                )}
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  </>
-                )}
-              </div>
-              
-              {tournament.status === 'draft' && (
-                <div className="mt-8 p-4 bg-blue-50 border border-blue-200 rounded-lg">
-                  <h4 className="font-medium text-blue-900 mb-2">Getting Started</h4>
-                  <ol className="list-decimal list-inside space-y-1 text-sm text-blue-800">
-                    <li>Add players in the Players tab</li>
-                    <li>Review player information and bye requests</li>
-                    <li>Click "Start Tournament" to begin round 1</li>
-                  </ol>
-                </div>
-              )}
-            </CardContent>
-          </Card>
+          <TournamentBuilder
+            mode="edit"
+            format={tournament.format}
+            tournament={tournament}
+            onComplete={() => {
+              queryClient.invalidateQueries({ queryKey: [`/api/tournaments/${tournamentId}`] });
+            }}
+          />
         </TabsContent>
 
         <TabsContent value="registrations" className="mt-6">
@@ -360,17 +240,7 @@ export default function TournamentManagement({ tournamentId }: TournamentManagem
         </TabsContent>
 
         <TabsContent value="players" className="mt-6">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center space-x-2">
-                <Users className="h-5 w-5" />
-                <span>Player Management</span>
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <PlayerRegistration tournament={tournament} />
-            </CardContent>
-          </Card>
+          <PlayerManager tournament={tournament} tournamentId={tournamentId} />
         </TabsContent>
 
         <TabsContent value="pairings" className="mt-6">

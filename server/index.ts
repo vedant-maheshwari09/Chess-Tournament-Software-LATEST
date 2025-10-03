@@ -69,14 +69,33 @@ app.use((req, res, next) => {
     serveStatic(app);
   }
 
-  // ALWAYS serve the app on port 5000
+  // Always serve the app on PORT env (default 5009)
   // this serves both the API and the client.
   // It is the only port that is not firewalled.
-  const port = 5000;
+  const port = Number(process.env.PORT ?? 5009);
+
+  server.on("error", (error: NodeJS.ErrnoException) => {
+    if (error.code === "EADDRINUSE") {
+      log(`port ${port} is already in use. Stop the conflicting process or set PORT to a free value.`, "express");
+      process.exit(1);
+    }
+
+    throw error;
+  });
+
+  const shutdown = () => {
+    log("shutting down server", "express");
+    server.close(() => {
+      process.exit(0);
+    });
+  };
+
+  process.once("SIGINT", shutdown);
+  process.once("SIGTERM", shutdown);
+
   server.listen({
     port,
     host: "0.0.0.0",
-    reusePort: true,
   }, () => {
     log(`serving on port ${port}`);
   });

@@ -1,15 +1,5 @@
-import { 
-  tournaments, 
-  players, 
-  matches, 
-  pairings,
-  byeRequests,
-  tournamentHistory,
-  playerRegistrations,
-  users,
-  sessions,
-  passwordResets,
-  type Tournament, 
+import {
+  type Tournament,
   type InsertTournament,
   type Player,
   type InsertPlayer,
@@ -26,45 +16,191 @@ import {
   type User,
   type InsertUser,
   type Session,
-  type PasswordReset
+  type PasswordReset,
 } from "@shared/schema";
-import { db } from "./db";
-import { eq, and, desc } from "drizzle-orm";
+import { getSupabaseClient } from "../supabaseClient";
+
+type AnyRecord = Record<string, unknown>;
+
+function toSnakeCaseKey(key: string): string {
+  return key
+    .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
+    .replace(/([A-Z])([A-Z][a-z])/g, "$1_$2")
+    .toLowerCase();
+}
+
+function toCamelCaseKey(key: string): string {
+  return key.replace(/_([a-z0-9])/g, (_, char: string) => char.toUpperCase());
+}
+
+function toSnakeCase<T>(input: T): any {
+  if (input instanceof Date) {
+    return input.toISOString();
+  }
+
+  if (Array.isArray(input)) {
+    return input.map((item) => toSnakeCase(item));
+  }
+
+  if (input === null || typeof input !== "object") {
+    return input;
+  }
+
+  const result: AnyRecord = {};
+
+  for (const [key, value] of Object.entries(input as AnyRecord)) {
+    if (value === undefined) {
+      continue;
+    }
+
+    result[toSnakeCaseKey(key)] = toSnakeCase(value);
+  }
+
+  return result;
+}
+
+function toCamelCase<T>(input: any): T {
+  if (Array.isArray(input)) {
+    return input.map((item) => toCamelCase(item)) as T;
+  }
+
+  if (input === null || typeof input !== "object") {
+    return input as T;
+  }
+
+  const result: AnyRecord = {};
+
+  for (const [key, value] of Object.entries(input as AnyRecord)) {
+    result[toCamelCaseKey(key)] = toCamelCase(value);
+  }
+
+  return result as T;
+}
+
+function client() {
+  return getSupabaseClient();
+}
+
+async function insertOne<T>(table: string, values: AnyRecord): Promise<T> {
+  const { data, error } = await client()
+    .from(table)
+    .insert(toSnakeCase(values))
+    .select()
+    .single();
+
+  if (error) {
+    throw new Error(`Failed to insert into ${table}: ${error.message}`);
+  }
+
+  return toCamelCase<T>(data);
+}
+
+async function updateOne<T>(
+  table: string,
+  filters: Record<string, unknown>,
+  values: AnyRecord,
+): Promise<T | undefined> {
+  let builder: any = client().from(table).update(toSnakeCase(values));
+
+  for (const [key, value] of Object.entries(filters)) {
+    builder = builder.eq(toSnakeCaseKey(key), value as any);
+  }
+
+  const { data, error } = await builder.select().maybeSingle();
+
+  if (error) {
+    throw new Error(`Failed to update ${table}: ${error.message}`);
+  }
+
+  return data ? toCamelCase<T>(data) : undefined;
+}
+
+async function fetchOne<T>(table: string, filters: Record<string, unknown>): Promise<T | undefined> {
+  let builder: any = client().from(table).select();
+
+  for (const [key, value] of Object.entries(filters)) {
+    builder = builder.eq(toSnakeCaseKey(key), value as any);
+  }
+
+  const { data, error } = await builder.maybeSingle();
+
+  if (error) {
+    throw new Error(`Failed to fetch from ${table}: ${error.message}`);
+  }
+
+  return data ? toCamelCase<T>(data) : undefined;
+}
+
+async function fetchMany<T>(
+  table: string,
+  filters: Record<string, unknown> = {},
+  options?: { order?: { column: string; ascending?: boolean } },
+): Promise<T[]> {
+  let builder: any = client().from(table).select();
+
+  for (const [key, value] of Object.entries(filters)) {
+    builder = builder.eq(toSnakeCaseKey(key), value as any);
+  }
+
+  if (options?.order) {
+    builder = builder.order(toSnakeCaseKey(options.order.column), {
+      ascending: options.order.ascending ?? true,
+    });
+  }
+
+  const { data, error } = await builder;
+
+  if (error) {
+    throw new Error(`Failed to list from ${table}: ${error.message}`);
+  }
+
+  return toCamelCase<T[]>(data ?? []);
+}
+
+async function deleteMany(table: string, filters: Record<string, unknown>): Promise<number> {
+  let builder: any = client().from(table).delete().select("id");
+
+  for (const [key, value] of Object.entries(filters)) {
+    builder = builder.eq(toSnakeCaseKey(key), value as any);
+  }
+
+  const { data, error } = await builder;
+
+  if (error) {
+    throw new Error(`Failed to delete from ${table}: ${error.message}`);
+  }
+
+  return data?.length ?? 0;
+}
 
 export interface IStorage {
-  // User methods
   createUser(user: InsertUser): Promise<User>;
   getUserById(id: number): Promise<User | undefined>;
   getUserByUsername(username: string): Promise<User | undefined>;
   getUserByEmail(email: string): Promise<User | undefined>;
   updateUser(id: number, user: Partial<User>): Promise<User | undefined>;
-  
-  // Session methods
+
   createSession(userId: number, token: string, expiresAt: Date): Promise<Session>;
   getSessionByToken(token: string): Promise<Session | undefined>;
   deleteSession(token: string): Promise<boolean>;
-  
-  // Password reset methods
+
   createPasswordReset(userId: number, token: string, expiresAt: Date): Promise<PasswordReset>;
   getPasswordResetByToken(token: string): Promise<PasswordReset | undefined>;
   usePasswordReset(token: string): Promise<boolean>;
-  
-  // Tournament methods
-  createTournament(tournament: InsertTournament): Promise<Tournament>;
+
+  createTournament(tournament: InsertTournament & { createdBy: number }): Promise<Tournament>;
   getTournament(id: number): Promise<Tournament | undefined>;
   getAllTournaments(): Promise<Tournament[]>;
   getTournamentsByUser(userId: number): Promise<Tournament[]>;
   updateTournament(id: number, tournament: Partial<Tournament>): Promise<Tournament | undefined>;
   deleteTournament(id: number): Promise<boolean>;
 
-  // Player methods
   createPlayer(player: InsertPlayer): Promise<Player>;
   getPlayer(id: number): Promise<Player | undefined>;
   getPlayersByTournament(tournamentId: number): Promise<Player[]>;
   updatePlayer(id: number, player: Partial<Player>): Promise<Player | undefined>;
   deletePlayer(id: number): Promise<boolean>;
 
-  // Match methods
   createMatch(match: InsertMatch): Promise<Match>;
   getMatch(id: number): Promise<Match | undefined>;
   getMatchesByTournament(tournamentId: number): Promise<Match[]>;
@@ -73,7 +209,6 @@ export interface IStorage {
   deleteMatch(id: number): Promise<boolean>;
   deleteMatchesByRound(tournamentId: number, round: number): Promise<boolean>;
 
-  // Pairing methods
   createPairing(pairing: InsertPairing): Promise<Pairing>;
   getPairingsByTournament(tournamentId: number): Promise<Pairing[]>;
   getPairingsByRound(tournamentId: number, round: number): Promise<Pairing[]>;
@@ -81,18 +216,15 @@ export interface IStorage {
   deletePairing(id: number): Promise<boolean>;
   deletePairingsByRound(tournamentId: number, round: number): Promise<boolean>;
 
-  // Bye request methods
   createByeRequest(byeRequest: InsertByeRequest): Promise<ByeRequest>;
   getByeRequestsByTournament(tournamentId: number): Promise<ByeRequest[]>;
   getByeRequestsByRound(tournamentId: number, round: number): Promise<ByeRequest[]>;
   updateByeRequest(id: number, byeRequest: Partial<ByeRequest>): Promise<ByeRequest | undefined>;
 
-  // Tournament history methods
   createHistoryEntry(entry: InsertTournamentHistory): Promise<TournamentHistory>;
   getTournamentHistory(tournamentId: number): Promise<TournamentHistory[]>;
   getHistoryEntry(id: number): Promise<TournamentHistory | undefined>;
 
-  // Player registration methods
   createPlayerRegistration(registration: InsertPlayerRegistration): Promise<PlayerRegistration>;
   getPlayerRegistration(id: number): Promise<PlayerRegistration | undefined>;
   getPlayerRegistrationsByTournament(tournamentId: number): Promise<PlayerRegistration[]>;
@@ -101,350 +233,231 @@ export interface IStorage {
   deletePlayerRegistration(id: number): Promise<boolean>;
 }
 
-export class DatabaseStorage implements IStorage {
-  // User methods
+class SupabaseStorage implements IStorage {
   async createUser(user: InsertUser): Promise<User> {
-    const [result] = await db.insert(users).values(user).returning();
-    return result;
+    const payload: AnyRecord = { ...(user as AnyRecord) };
+    delete payload.password;
+    return insertOne<User>("users", payload);
   }
 
   async getUserById(id: number): Promise<User | undefined> {
-    const [user] = await db.select().from(users).where(eq(users.id, id));
-    return user || undefined;
+    return fetchOne<User>("users", { id });
   }
 
   async getUserByUsername(username: string): Promise<User | undefined> {
-    const [user] = await db.select().from(users).where(eq(users.username, username));
-    return user || undefined;
+    return fetchOne<User>("users", { username });
   }
 
   async getUserByEmail(email: string): Promise<User | undefined> {
-    const [user] = await db.select().from(users).where(eq(users.email, email));
-    return user || undefined;
+    return fetchOne<User>("users", { email });
   }
 
   async updateUser(id: number, user: Partial<User>): Promise<User | undefined> {
-    const [updated] = await db
-      .update(users)
-      .set({ ...user, updatedAt: new Date() })
-      .where(eq(users.id, id))
-      .returning();
-    return updated || undefined;
+    return updateOne<User>("users", { id }, { ...user, updatedAt: new Date() });
   }
 
-  // Session methods
   async createSession(userId: number, token: string, expiresAt: Date): Promise<Session> {
-    const [session] = await db
-      .insert(sessions)
-      .values({ userId, token, expiresAt })
-      .returning();
-    return session;
+    return insertOne<Session>("sessions", { userId, token, expiresAt } as AnyRecord);
   }
 
   async getSessionByToken(token: string): Promise<Session | undefined> {
-    const [session] = await db.select().from(sessions).where(eq(sessions.token, token));
-    return session || undefined;
+    return fetchOne<Session>("sessions", { token });
   }
 
   async deleteSession(token: string): Promise<boolean> {
-    const result = await db.delete(sessions).where(eq(sessions.token, token));
-    return (result.rowCount || 0) > 0;
+    return (await deleteMany("sessions", { token })) > 0;
   }
 
-  // Password reset methods
   async createPasswordReset(userId: number, token: string, expiresAt: Date): Promise<PasswordReset> {
-    const [passwordReset] = await db
-      .insert(passwordResets)
-      .values({ userId, token, expiresAt, used: false })
-      .returning();
-    return passwordReset;
+    return insertOne<PasswordReset>("password_resets", { userId, token, expiresAt, used: false } as AnyRecord);
   }
 
   async getPasswordResetByToken(token: string): Promise<PasswordReset | undefined> {
-    const [passwordReset] = await db.select().from(passwordResets).where(eq(passwordResets.token, token));
-    return passwordReset || undefined;
+    return fetchOne<PasswordReset>("password_resets", { token });
   }
 
   async usePasswordReset(token: string): Promise<boolean> {
-    const result = await db
-      .update(passwordResets)
-      .set({ used: true })
-      .where(eq(passwordResets.token, token))
-      .returning();
-    return result.length > 0;
+    const updated = await updateOne<PasswordReset>("password_resets", { token }, { used: true });
+    return Boolean(updated);
   }
 
-  // Tournament methods
   async createTournament(tournament: InsertTournament & { createdBy: number }): Promise<Tournament> {
-    const [result] = await db
-      .insert(tournaments)
-      .values(tournament)
-      .returning();
-    return result;
+    return insertOne<Tournament>("tournaments", tournament as AnyRecord);
   }
 
   async getTournament(id: number): Promise<Tournament | undefined> {
-    const [tournament] = await db.select().from(tournaments).where(eq(tournaments.id, id));
-    return tournament || undefined;
+    return fetchOne<Tournament>("tournaments", { id });
   }
 
   async getAllTournaments(): Promise<Tournament[]> {
-    return await db.select().from(tournaments);
+    return fetchMany<Tournament>("tournaments");
   }
 
   async getTournamentsByUser(userId: number): Promise<Tournament[]> {
-    return await db.select().from(tournaments).where(eq(tournaments.createdBy, userId));
+    return fetchMany<Tournament>("tournaments", { createdBy: userId });
   }
 
   async updateTournament(id: number, tournament: Partial<Tournament>): Promise<Tournament | undefined> {
-    const [updated] = await db
-      .update(tournaments)
-      .set(tournament)
-      .where(eq(tournaments.id, id))
-      .returning();
-    return updated || undefined;
+    return updateOne<Tournament>("tournaments", { id }, tournament as AnyRecord);
   }
 
   async deleteTournament(id: number): Promise<boolean> {
-    const result = await db.delete(tournaments).where(eq(tournaments.id, id));
-    return (result.rowCount || 0) > 0;
+    return (await deleteMany("tournaments", { id })) > 0;
   }
 
-  // Player methods
   async createPlayer(player: InsertPlayer): Promise<Player> {
-    const [result] = await db
-      .insert(players)
-      .values({
-        ...player,
-        rating: player.rating || 1000,
-        federation: player.federation || 'USCF',
-      })
-      .returning();
-    return result;
+    const payload: InsertPlayer = {
+      ...player,
+      rating: player.rating ?? 1000,
+      federation: player.federation ?? "USCF",
+    };
+    return insertOne<Player>("players", payload as AnyRecord);
   }
 
   async getPlayer(id: number): Promise<Player | undefined> {
-    const [player] = await db.select().from(players).where(eq(players.id, id));
-    return player || undefined;
+    return fetchOne<Player>("players", { id });
   }
 
   async getPlayersByTournament(tournamentId: number): Promise<Player[]> {
-    return await db.select().from(players).where(eq(players.tournamentId, tournamentId));
+    return fetchMany<Player>("players", { tournamentId });
   }
 
   async updatePlayer(id: number, player: Partial<Player>): Promise<Player | undefined> {
-    const [updated] = await db
-      .update(players)
-      .set(player)
-      .where(eq(players.id, id))
-      .returning();
-    return updated || undefined;
+    return updateOne<Player>("players", { id }, player as AnyRecord);
   }
 
   async deletePlayer(id: number): Promise<boolean> {
-    const result = await db.delete(players).where(eq(players.id, id));
-    return (result.rowCount || 0) > 0;
+    return (await deleteMany("players", { id })) > 0;
   }
 
-  // Match methods
   async createMatch(match: InsertMatch): Promise<Match> {
-    const [result] = await db
-      .insert(matches)
-      .values({
-        ...match,
-        status: match.status || 'pending',
-        result: match.result || null,
-        board: match.board || null,
-        whitePlayerId: match.whitePlayerId || null,
-        blackPlayerId: match.blackPlayerId || null,
-      })
-      .returning();
-    return result;
+    const payload: InsertMatch = {
+      ...match,
+      status: match.status ?? "pending",
+      result: match.result ?? null,
+      board: match.board ?? null,
+      whitePlayerId: match.whitePlayerId ?? null,
+      blackPlayerId: match.blackPlayerId ?? null,
+    };
+    return insertOne<Match>("matches", payload as AnyRecord);
   }
 
   async getMatch(id: number): Promise<Match | undefined> {
-    const [match] = await db.select().from(matches).where(eq(matches.id, id));
-    return match || undefined;
+    return fetchOne<Match>("matches", { id });
   }
 
   async getMatchesByTournament(tournamentId: number): Promise<Match[]> {
-    return await db.select().from(matches).where(eq(matches.tournamentId, tournamentId));
+    return fetchMany<Match>("matches", { tournamentId });
   }
 
   async getMatchesByRound(tournamentId: number, round: number): Promise<Match[]> {
-    return await db.select()
-      .from(matches)
-      .where(and(eq(matches.tournamentId, tournamentId), eq(matches.round, round)));
+    return fetchMany<Match>("matches", { tournamentId, round });
   }
 
   async updateMatch(id: number, match: Partial<Match>): Promise<Match | undefined> {
-    const [updated] = await db
-      .update(matches)
-      .set(match)
-      .where(eq(matches.id, id))
-      .returning();
-    return updated || undefined;
+    return updateOne<Match>("matches", { id }, match as AnyRecord);
   }
 
   async deleteMatch(id: number): Promise<boolean> {
-    const result = await db.delete(matches).where(eq(matches.id, id));
-    return (result.rowCount ?? 0) > 0;
+    return (await deleteMany("matches", { id })) > 0;
   }
 
   async deleteMatchesByRound(tournamentId: number, round: number): Promise<boolean> {
-    try {
-      const result = await db.delete(matches)
-        .where(and(eq(matches.tournamentId, tournamentId), eq(matches.round, round)));
-      console.log(`Deleted ${result.rowCount ?? 0} matches for tournament ${tournamentId}, round ${round}`);
-      return true;
-    } catch (error) {
-      console.error("Error deleting matches:", error);
-      return false;
-    }
+    await deleteMany("matches", { tournamentId, round });
+    return true;
   }
 
-  // Pairing methods
   async createPairing(pairing: InsertPairing): Promise<Pairing> {
-    const [result] = await db
-      .insert(pairings)
-      .values({
-        ...pairing,
-        color: pairing.color || null,
-        points: pairing.points || 0,
-        opponentId: pairing.opponentId || null,
-        isBye: pairing.isBye || false,
-      })
-      .returning();
-    return result;
+    const payload: InsertPairing = {
+      ...pairing,
+      color: pairing.color ?? null,
+      points: pairing.points ?? 0,
+      opponentId: pairing.opponentId ?? null,
+      isBye: pairing.isBye ?? false,
+    };
+    return insertOne<Pairing>("pairings", payload as AnyRecord);
   }
 
   async getPairingsByTournament(tournamentId: number): Promise<Pairing[]> {
-    return await db.select().from(pairings).where(eq(pairings.tournamentId, tournamentId));
+    return fetchMany<Pairing>("pairings", { tournamentId });
   }
 
   async getPairingsByRound(tournamentId: number, round: number): Promise<Pairing[]> {
-    return await db.select()
-      .from(pairings)
-      .where(and(eq(pairings.tournamentId, tournamentId), eq(pairings.round, round)));
+    return fetchMany<Pairing>("pairings", { tournamentId, round });
   }
 
   async updatePairing(id: number, pairing: Partial<Pairing>): Promise<Pairing | undefined> {
-    const [updated] = await db
-      .update(pairings)
-      .set(pairing)
-      .where(eq(pairings.id, id))
-      .returning();
-    return updated || undefined;
+    return updateOne<Pairing>("pairings", { id }, pairing as AnyRecord);
   }
 
   async deletePairing(id: number): Promise<boolean> {
-    const result = await db.delete(pairings).where(eq(pairings.id, id));
-    return (result.rowCount ?? 0) > 0;
+    return (await deleteMany("pairings", { id })) > 0;
   }
 
   async deletePairingsByRound(tournamentId: number, round: number): Promise<boolean> {
-    try {
-      const result = await db.delete(pairings)
-        .where(and(eq(pairings.tournamentId, tournamentId), eq(pairings.round, round)));
-      console.log(`Deleted ${result.rowCount ?? 0} pairings for tournament ${tournamentId}, round ${round}`);
-      return true;
-    } catch (error) {
-      console.error("Error deleting pairings:", error);
-      return false;
-    }
+    await deleteMany("pairings", { tournamentId, round });
+    return true;
   }
 
-  // Bye request methods
   async createByeRequest(byeRequest: InsertByeRequest): Promise<ByeRequest> {
-    const [createdByeRequest] = await db
-      .insert(byeRequests)
-      .values(byeRequest)
-      .returning();
-    return createdByeRequest;
+    return insertOne<ByeRequest>("bye_requests", byeRequest as AnyRecord);
   }
 
   async getByeRequestsByTournament(tournamentId: number): Promise<ByeRequest[]> {
-    return await db
-      .select()
-      .from(byeRequests)
-      .where(eq(byeRequests.tournamentId, tournamentId));
+    return fetchMany<ByeRequest>("bye_requests", { tournamentId });
   }
 
   async getByeRequestsByRound(tournamentId: number, round: number): Promise<ByeRequest[]> {
-    return await db
-      .select()
-      .from(byeRequests)
-      .where(
-        and(
-          eq(byeRequests.tournamentId, tournamentId),
-          eq(byeRequests.round, round)
-        )
-      );
+    return fetchMany<ByeRequest>("bye_requests", { tournamentId, round });
   }
 
   async updateByeRequest(id: number, byeRequest: Partial<ByeRequest>): Promise<ByeRequest | undefined> {
-    const [updatedByeRequest] = await db
-      .update(byeRequests)
-      .set(byeRequest)
-      .where(eq(byeRequests.id, id))
-      .returning();
-    return updatedByeRequest || undefined;
+    return updateOne<ByeRequest>("bye_requests", { id }, byeRequest as AnyRecord);
   }
 
-  // Tournament history methods
   async createHistoryEntry(entry: InsertTournamentHistory): Promise<TournamentHistory> {
-    const [result] = await db.insert(tournamentHistory).values(entry).returning();
-    return result;
+    return insertOne<TournamentHistory>("tournament_history", entry as AnyRecord);
   }
 
   async getTournamentHistory(tournamentId: number): Promise<TournamentHistory[]> {
-    return await db
-      .select()
-      .from(tournamentHistory)
-      .where(eq(tournamentHistory.tournamentId, tournamentId))
-      .orderBy(desc(tournamentHistory.createdAt));
+    return fetchMany<TournamentHistory>(
+      "tournament_history",
+      { tournamentId },
+      { order: { column: "createdAt", ascending: false } },
+    );
   }
 
   async getHistoryEntry(id: number): Promise<TournamentHistory | undefined> {
-    const [entry] = await db
-      .select()
-      .from(tournamentHistory)
-      .where(eq(tournamentHistory.id, id));
-    return entry || undefined;
+    return fetchOne<TournamentHistory>("tournament_history", { id });
   }
 
-  // Player registration methods
   async createPlayerRegistration(registration: InsertPlayerRegistration): Promise<PlayerRegistration> {
-    const [newRegistration] = await db.insert(playerRegistrations).values(registration).returning();
-    return newRegistration;
+    return insertOne<PlayerRegistration>("player_registrations", registration as AnyRecord);
   }
 
   async getPlayerRegistration(id: number): Promise<PlayerRegistration | undefined> {
-    const [registration] = await db.select().from(playerRegistrations).where(eq(playerRegistrations.id, id));
-    return registration;
+    return fetchOne<PlayerRegistration>("player_registrations", { id });
   }
 
   async getPlayerRegistrationsByTournament(tournamentId: number): Promise<PlayerRegistration[]> {
-    return await db.select().from(playerRegistrations).where(eq(playerRegistrations.tournamentId, tournamentId));
+    return fetchMany<PlayerRegistration>("player_registrations", { tournamentId });
   }
 
   async getPlayerRegistrationsByUser(userId: number): Promise<PlayerRegistration[]> {
-    return await db.select().from(playerRegistrations).where(eq(playerRegistrations.userId, userId));
+    return fetchMany<PlayerRegistration>("player_registrations", { userId });
   }
 
   async updatePlayerRegistration(id: number, registration: Partial<PlayerRegistration>): Promise<PlayerRegistration | undefined> {
-    const [updatedRegistration] = await db
-      .update(playerRegistrations)
-      .set({ ...registration, updatedAt: new Date() })
-      .where(eq(playerRegistrations.id, id))
-      .returning();
-    return updatedRegistration;
+    return updateOne<PlayerRegistration>(
+      "player_registrations",
+      { id },
+      { ...registration, updatedAt: new Date() } as AnyRecord,
+    );
   }
 
   async deletePlayerRegistration(id: number): Promise<boolean> {
-    const result = await db.delete(playerRegistrations).where(eq(playerRegistrations.id, id));
-    return result.count > 0;
+    return (await deleteMany("player_registrations", { id })) > 0;
   }
 }
 
-export const storage = new DatabaseStorage();
+export const storage: IStorage = new SupabaseStorage();

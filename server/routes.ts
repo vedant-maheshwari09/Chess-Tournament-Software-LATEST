@@ -22,6 +22,103 @@ import {
 } from "./auth";
 import { generateRoundRobinSchedule, validateRoundRobinSchedule } from "./round-robin";
 
+interface RatingLookupResult {
+  source: "uscf" | "fide" | "ecf";
+  id: string;
+  name: string;
+  rating?: string;
+  location?: string;
+  extra?: string;
+}
+
+async function fetchText(url: string): Promise<string> {
+  const response = await fetch(url, {
+    headers: {
+      "User-Agent": "ChessTournamentManager/1.0",
+    },
+  });
+  if (!response.ok) {
+    throw new Error(`Request failed: ${response.status}`);
+  }
+  return response.text();
+}
+
+async function fetchJson<T>(url: string): Promise<T> {
+  const response = await fetch(url, {
+    headers: {
+      Accept: "application/json",
+      "User-Agent": "ChessTournamentManager/1.0",
+    },
+  });
+  if (!response.ok) {
+    throw new Error(`Request failed: ${response.status}`);
+  }
+  return (await response.json()) as T;
+}
+
+async function lookupUSCF(query: string): Promise<RatingLookupResult[]> {
+  try {
+    const text = await fetchText(`https://www.uschess.org/msa/thin.php?name=${encodeURIComponent(query)}`);
+    const lines = text.split("\n").filter((line) => line.includes("|"));
+    return lines.slice(0, 10).map((line) => {
+      const parts = line.split("|");
+      const [name = "", id = "", state = "", , , , , rating = ""] = parts;
+      return {
+        source: "uscf" as const,
+        id: id.trim(),
+        name: name.trim(),
+        rating: rating.trim(),
+        location: state.trim(),
+        extra: parts[3]?.trim(),
+      };
+    });
+  } catch (error) {
+    console.warn("USCF lookup failed", error);
+    return [];
+  }
+}
+
+async function lookupFide(query: string): Promise<RatingLookupResult[]> {
+  try {
+    // Public community API mirror
+    const data = await fetchJson<{ players?: any[] }>(
+      `https://api.chessmanager.com/api/player-search?search=${encodeURIComponent(query)}&federation=`
+    );
+    const players = Array.isArray(data?.players) ? data.players : [];
+    return players.slice(0, 10).map((player: any) => ({
+      source: "fide" as const,
+      id: String(player?.fideId ?? player?.id ?? ""),
+      name: `${player?.lastName ?? ""}, ${player?.firstName ?? ""}`.trim(),
+      rating: String(player?.standardRating ?? player?.elo ?? "").trim(),
+      location: player?.federation ?? "",
+      extra: player?.title ?? "",
+    }));
+  } catch (error) {
+    console.warn("FIDE lookup failed", error);
+    return [];
+  }
+}
+
+async function lookupECF(query: string): Promise<RatingLookupResult[]> {
+  try {
+    const data = await fetchJson<any>(
+      `https://www.ecfrating.org.uk/v2/new/api.php?v2/players?name=${encodeURIComponent(query)}`
+    );
+    const players = Array.isArray(data?.players) ? data.players : Array.isArray(data) ? data : [];
+    return players.slice(0, 10).map((player: any) => ({
+      source: "ecf" as const,
+      id: String(player?.ECFCode ?? player?.ecf_code ?? ""),
+      name: player?.name ?? "",
+      rating: String(player?.ECF ?? player?.ecf ?? "").trim(),
+      location: player?.club ?? "",
+      extra: player?.category ?? "",
+    }));
+  } catch (error) {
+    console.warn("ECF lookup failed", error);
+    return [];
+  }
+}
+
 export async function registerRoutes(app: Express): Promise<Server> {
   // Authentication routes
   app.post("/api/auth/register", async (req, res) => {
@@ -161,7 +258,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/auth/logout", requireAuth, async (req, res) => {
     try {
-      const session = (req as any).session;
+      const session = req.session;
+      if (!session) {
+        return res.status(401).json({ message: "Session not found" });
+      }
       await storage.deleteSession(session.token);
       res.json({ message: "Logged out successfully" });
     } catch (error) {
@@ -172,7 +272,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/auth/me", requireAuth, async (req, res) => {
     try {
-      const user = (req as any).user;
+      const user = req.user;
+      if (!user) {
+        return res.status(401).json({ message: "User not found" });
+      }
       const { passwordHash: _, ...userWithoutPassword } = user;
       res.json(userWithoutPassword);
     } catch (error) {
@@ -286,6 +389,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.get("/api/rating-lookup", async (req, res) => {
+    try {
+      const query = typeof req.query.q === "string" ? req.query.q.trim() : undefined;
+      if (!query) {
+        return res.status(400).json({ message: "Query parameter 'q' is required" });
+      }
+
+      const [uscf, fide, ecf] = await Promise.all([
+        lookupUSCF(query),
+        lookupFide(query),
+        lookupECF(query),
+      ]);
+
+      res.json({ query, uscf, fide, ecf });
+    } catch (error) {
+      console.error("Rating lookup error:", error);
+      res.status(500).json({ message: "Failed to retrieve rating data" });
+    }
+  });
+
   // Tournament routes (role-specific access)
   
   // Get all live tournaments (for players to view)
@@ -303,7 +426,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get tournaments for a specific tournament director (protected)
   app.get("/api/my-tournaments", requireAuth, requireRole('tournament_director'), async (req, res) => {
     try {
-      const user = (req as any).user;
+      const user = req.user;
+      if (!user) {
+        return res.status(401).json({ message: "User not found" });
+      }
       const tournaments = await storage.getTournamentsByUser(user.id);
       res.json(tournaments);
     } catch (error) {
@@ -314,7 +440,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Create tournament (tournament directors only)
   app.post("/api/tournaments", requireAuth, requireRole('tournament_director'), async (req, res) => {
     try {
-      const user = (req as any).user;
+      const user = req.user;
+      if (!user) {
+        return res.status(401).json({ message: "User not found" });
+      }
       console.log('Creating tournament - user:', user.id);
       console.log('Tournament data received:', req.body);
       
@@ -358,83 +487,77 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Start tournament
+  // Start tournament
   app.post("/api/tournaments/:id/start", requireAuth, requireRole('tournament_director'), requireTournamentAccess, async (req, res) => {
     try {
       const tournamentId = parseInt(req.params.id);
       const tournament = await storage.getTournament(tournamentId);
-      
+
       if (!tournament) {
         return res.status(404).json({ message: "Tournament not found" });
       }
-      
-      if (tournament.status !== 'draft') {
+
+      if (tournament.status !== "draft") {
         return res.status(400).json({ message: "Tournament is already started" });
       }
-      
+
       const players = await storage.getPlayersByTournament(tournamentId);
       if (players.length < 2) {
         return res.status(400).json({ message: "Need at least 2 players to start tournament" });
       }
-      
-      // Calculate number of rounds and update tournament
-      const numRounds = tournament.format === 'roundrobin' ? 
-        (players.length % 2 === 0 ? players.length - 1 : players.length) : 
-        tournament.rounds;
-      
-      // Update tournament status and set current round to 1
+
+      let rounds = tournament.rounds;
+      if (tournament.format === "roundrobin") {
+        rounds = players.length % 2 === 0 ? players.length - 1 : players.length;
+      }
+
       const updatedTournament = await storage.updateTournament(tournamentId, {
-        status: 'active',
+        status: "active",
         currentRound: 1,
-        rounds: numRounds
+        rounds,
       });
-      
-      if (tournament.format === 'roundrobin') {
-        // Generate ALL Round Robin pairings for all rounds
-        console.log(`Generating Round Robin schedule for ${players.length} players, ${numRounds} rounds`);
+
+      if (tournament.format === "roundrobin") {
+        const { generateRoundRobinSchedule, validateRoundRobinSchedule } = await import("./round-robin");
+        console.log(`Generating Round Robin schedule for ${players.length} players`);
         const roundRobinPairings = generateRoundRobinSchedule(players);
-        
-        // Validate the schedule
-        const playerIds = players.map(p => p.id);
-        const isValid = validateRoundRobinSchedule(roundRobinPairings, playerIds);
-        if (!isValid) {
-          throw new Error('Invalid Round Robin schedule generated');
+        const playerIds = players.map((p) => p.id);
+
+        if (!validateRoundRobinSchedule(roundRobinPairings, playerIds)) {
+          throw new Error("Invalid Round Robin schedule generated");
         }
-        
-        // Convert to our pairing format and save all pairings
+
         for (const pairing of roundRobinPairings) {
           if (pairing.isBye) {
-            // Create bye pairing
             await storage.createPairing({
               tournamentId,
               round: pairing.round,
               playerId: pairing.whitePlayerId!,
               opponentId: null,
               color: null,
-              points: 1, // 1 point for bye
-              isBye: true
+              points: 1,
+              isBye: true,
             });
           } else {
-            // Create pairings for both players
             await storage.createPairing({
               tournamentId,
               round: pairing.round,
               playerId: pairing.whitePlayerId!,
               opponentId: pairing.blackPlayerId!,
-              color: 'white',
+              color: "white",
               points: 0,
-              isBye: false
+              isBye: false,
             });
             await storage.createPairing({
               tournamentId,
               round: pairing.round,
               playerId: pairing.blackPlayerId!,
               opponentId: pairing.whitePlayerId!,
-              color: 'black',
+              color: "black",
               points: 0,
-              isBye: false
+              isBye: false,
             });
-            
-            // Create match record
+
             await storage.createMatch({
               tournamentId,
               round: pairing.round,
@@ -442,20 +565,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
               blackPlayerId: pairing.blackPlayerId!,
               board: pairing.board,
               result: null,
-              status: 'pending'
+              status: "pending",
             });
           }
         }
-        
-        console.log(`Generated ${roundRobinPairings.length} pairings for all ${numRounds} rounds`);
       } else {
-        // Swiss tournament - generate first round pairings only
         await generatePairings(tournament, players, [], 1);
       }
-      
+
       res.json(updatedTournament);
     } catch (error) {
-      console.error('Start tournament error:', error);
+      console.error("Start tournament error:", error);
       res.status(500).json({ message: "Failed to start tournament" });
     }
   });
@@ -583,7 +703,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/tournaments/:id/register", requireAuth, async (req, res) => {
     try {
       const tournamentId = parseInt(req.params.id);
-      const userId = req.user!.id;
+      const user = req.user;
+      if (!user) {
+        return res.status(401).json({ error: "User not found" });
+      }
+      const userId = user.id;
       const { playerName, uscfRating, phoneNumber, email, arrivalTime } = req.body;
 
       // Check if tournament exists
@@ -651,15 +775,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (status === "approved" && updatedRegistration) {
         const user = await storage.getUserById(updatedRegistration.userId);
         if (user) {
+          const fullName = updatedRegistration.playerName || `${user.firstName} ${user.lastName}`;
+          const [firstName, ...rest] = fullName.trim().split(/\\s+/);
+          const lastName = rest.length > 0 ? rest.join(" ") : firstName;
+
           await storage.createPlayer({
             tournamentId,
-            name: updatedRegistration.playerName || `${user.firstName} ${user.lastName}`,
-            rating: updatedRegistration.uscfRating || 1200,
-            seed: 0, // Will be set later
-            phoneNumber: updatedRegistration.phoneNumber,
-            email: updatedRegistration.email || user.email,
-            arrivalTime: updatedRegistration.arrivalTime,
-            status: "active"
+            firstName,
+            lastName,
+            rating: updatedRegistration.uscfRating || undefined,
+            federation: undefined,
           });
         }
       }
@@ -674,7 +799,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get player's own registrations
   app.get("/api/my-registrations", requireAuth, async (req, res) => {
     try {
-      const userId = req.user!.id;
+      const user = req.user;
+      if (!user) {
+        return res.status(401).json({ error: "User not found" });
+      }
+      const userId = user.id;
       const registrations = await storage.getPlayerRegistrationsByUser(userId);
       res.json(registrations);
     } catch (error) {
@@ -742,7 +871,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.delete("/api/players/:id", requireAuth, requireRole('tournament_director'), async (req, res) => {
     try {
       const id = parseInt(req.params.id);
-      const user = (req as any).user;
+      const user = req.user;
+      if (!user) {
+        return res.status(401).json({ message: "User not found" });
+      }
       
       // Get player to check tournament ownership
       const player = await storage.getPlayer(id);
@@ -769,7 +901,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const pairingId = parseInt(req.params.id);
       
       // Find the pairing across all user's tournaments to verify ownership
-      const tournaments = await storage.getTournamentsByUser((req as any).user.id);
+      const user = req.user;
+      if (!user) {
+        return res.status(401).json({ message: "User not found" });
+      }
+      const tournaments = await storage.getTournamentsByUser(user.id);
       let targetPairing = null;
       
       for (const tournament of tournaments) {
@@ -800,6 +936,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const playerId = parseInt(req.params.id);
       const { status, byeRounds } = req.body;
       console.log(`Player ${playerId} status update request:`, { status, byeRounds });
+
+      const user = req.user;
+      if (!user) {
+        return res.status(401).json({ message: "User not found" });
+      }
       
       // Get player to find tournament ID for access control
       const player = await storage.getPlayer(playerId);
@@ -809,7 +950,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // Validate tournament access
       const tournament = await storage.getTournament(player.tournamentId);
-      if (!tournament || tournament.createdBy !== (req as any).user.id) {
+      if (!tournament || tournament.createdBy !== user.id) {
         return res.status(403).json({ message: "Access denied" });
       }
       
@@ -952,21 +1093,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.put("/api/matches/:id", requireAuth, requireRole('tournament_director'), async (req, res) => {
     try {
       const id = parseInt(req.params.id);
-      const user = (req as any).user;
-      
-      // Get the current match state before updating
+      const user = req.user;
+      if (!user) {
+        return res.status(401).json({ message: "User not found" });
+      }
+
       const currentMatch = await storage.getMatch(id);
       if (!currentMatch) {
         return res.status(404).json({ message: "Match not found" });
       }
-      
-      // Update the match
+
       const updatedMatch = await storage.updateMatch(id, req.body);
       if (!updatedMatch) {
         return res.status(404).json({ message: "Match not found" });
       }
-      
-      // Log the change in tournament history
+
       if (currentMatch.result !== updatedMatch.result) {
         const whitePlayerName = currentMatch.whitePlayerId 
           ? await storage.getPlayer(currentMatch.whitePlayerId) 
@@ -1017,6 +1158,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/tournaments/:tournamentId/generate-pairings", requireAuth, requireRole('tournament_director'), requireTournamentAccess, async (req, res) => {
     try {
+      const user = req.user;
+      if (!user) {
+        return res.status(401).json({ message: "User not found" });
+      }
       const tournamentId = parseInt(req.params.tournamentId);
       const { regenerate = false, targetRound } = req.body;
       
@@ -1055,7 +1200,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             tournamentId,
             action: 'regenerate_all_rounds',
             description: `Round Robin tournament regenerated - all rounds recreated`,
-            changedBy: (req as any).user.id,
+            changedBy: user.id,
             previousState: JSON.stringify({ pairingsCount: existingPairings.length, matchesCount: existingMatches.length }),
             newState: JSON.stringify({ regenerated: true }),
             round: null,
@@ -1361,7 +1506,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       // Log pairing generation in tournament history
-      const user = (req as any).user;
       const action = regenerate ? 'pairing_regeneration' : 'pairing_generation';
       const description = regenerate 
         ? `Round ${currentRound} pairings regenerated (${savedPairings.length} pairings created)`
