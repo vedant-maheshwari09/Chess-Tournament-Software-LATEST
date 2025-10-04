@@ -27,6 +27,11 @@ export interface RegistersConfig {
   disableSms: boolean;
   hideTeams: boolean;
   passwordPin?: string;
+  notifyPairingsEmail: boolean;
+  notifyPairingsSms: boolean;
+  playerLimit?: number | null;
+  earlyBirdDetails?: string;
+  paymentDetails?: string;
 }
 
 export interface FideRegistrationData {
@@ -182,6 +187,11 @@ export function createDefaultConfig(format: Tournament["format"], mode: Tourname
       disableSms: false,
       hideTeams: false,
       passwordPin: "",
+      notifyPairingsEmail: true,
+      notifyPairingsSms: false,
+      playerLimit: null,
+      earlyBirdDetails: "",
+      paymentDetails: "",
     },
     fide: {
       prizeFund: "",
@@ -266,6 +276,18 @@ export function parseTournamentConfig(tournament: Tournament): TournamentConfig 
       registers: {
         ...createDefaultConfig(tournament.format, normalizedMode ?? "rated").registers,
         ...parsed.registers,
+        notifyPairingsEmail: parsed.registers?.notifyPairingsEmail ?? true,
+        notifyPairingsSms: parsed.registers?.notifyPairingsSms ?? false,
+        playerLimit:
+          typeof parsed.registers?.playerLimit === "number"
+            ? parsed.registers?.playerLimit
+            : parsed.registers?.playerLimit === null
+            ? null
+            : parsed.registers?.playerLimit
+            ? Number(parsed.registers?.playerLimit) || null
+            : null,
+        earlyBirdDetails: parsed.registers?.earlyBirdDetails ?? "",
+        paymentDetails: parsed.registers?.paymentDetails ?? "",
       },
       fide: {
         ...createDefaultConfig(tournament.format, normalizedMode ?? "rated").fide,

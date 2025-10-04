@@ -1,18 +1,6 @@
-import React, { useMemo, useRef, useState } from "react";
+import React, { useRef, useState } from "react";
 import { useMutation } from "@tanstack/react-query";
-import {
-  Upload,
-  Check,
-  ChevronRight,
-  Sparkles,
-  Heading1,
-  Heading2,
-  Bold,
-  Italic,
-  List,
-  ListOrdered,
-  Link2,
-} from "lucide-react";
+import { Upload, Check, ChevronRight } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
@@ -40,8 +28,6 @@ import {
   ScheduleEvent,
   SCHEDULE_EVENT_OPTIONS,
 } from "@/lib/tournament-config";
-
-type ToolbarAction = "h1" | "h2" | "bold" | "italic" | "bullet" | "numbered" | "link";
 
 type BuilderMode = "create" | "edit";
 
@@ -129,8 +115,6 @@ const RATING_TYPE_OPTIONS = [
   { value: "blitz", label: "Blitz" },
 ];
 
-  const scheduleTemplateOptions = SCHEDULE_EVENT_OPTIONS;
-
 function fileToText(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -138,6 +122,122 @@ function fileToText(file: File): Promise<string> {
     reader.onerror = () => reject(reader.error);
     reader.readAsText(file);
   });
+}
+
+
+interface BasicInformationFieldsProps {
+  config: TournamentConfig;
+  onConfigChange: (config: TournamentConfig) => void;
+}
+
+function BasicInformationFields({ config, onConfigChange }: BasicInformationFieldsProps) {
+  const updateBasic = (updates: Partial<TournamentConfig["basic"]>) => {
+    onConfigChange({
+      ...config,
+      basic: { ...config.basic, ...updates },
+    });
+  };
+
+  const openMaps = (provider: "google" | "apple") => {
+    const query = config.basic.city.trim();
+    if (!query) return;
+    const url =
+      provider === "google"
+        ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`
+        : `https://maps.apple.com/?q=${encodeURIComponent(query)}`;
+    window.open(url, "_blank");
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="space-y-2">
+        <Label htmlFor="tournament-name">Tournament Name</Label>
+        <Input
+          id="tournament-name"
+          value={config.basic.name}
+          onChange={(event) => updateBasic({ name: event.target.value })}
+          placeholder="e.g., San Diego Fall Open"
+        />
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-2">
+        <div className="space-y-2">
+          <Label htmlFor="basic-location">Location / Venue</Label>
+          <Input
+            id="basic-location"
+            value={config.basic.city}
+            onChange={(event) => updateBasic({ city: event.target.value })}
+            placeholder="e.g., San Diego Convention Center"
+          />
+          <div className="flex gap-2 pt-1">
+            <Button
+              type="button"
+              variant="outline"
+              disabled={!config.basic.city.trim()}
+              onClick={() => openMaps("google")}
+            >
+              Open in Google Maps
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={!config.basic.city.trim()}
+              onClick={() => openMaps("apple")}
+            >
+              Open in Apple Maps
+            </Button>
+          </div>
+        </div>
+        <div className="space-y-2">
+          <Label>Federation</Label>
+          <Select
+            value={config.basic.federation}
+            onValueChange={(value) => updateBasic({ federation: value })}
+          >
+            <SelectTrigger>
+              <SelectValue placeholder="Select federation" />
+            </SelectTrigger>
+            <SelectContent>
+              {FEDERATION_OPTIONS.map((option) => (
+                <SelectItem key={option.code} value={option.code}>
+                  {option.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-2">
+        <div className="space-y-2">
+          <Label>Start Date</Label>
+          <Input
+            type="date"
+            value={config.basic.startDate ?? ""}
+            onChange={(event) => updateBasic({ startDate: event.target.value || null })}
+          />
+        </div>
+        <div className="space-y-2">
+          <Label>End Date</Label>
+          <Input
+            type="date"
+            value={config.basic.endDate ?? ""}
+            onChange={(event) => updateBasic({ endDate: event.target.value || null })}
+          />
+        </div>
+      </div>
+
+      <div className="space-y-2">
+        <Label>Description</Label>
+        <Textarea
+          rows={4}
+          value={config.basic.description}
+          onChange={(event) => updateBasic({ description: event.target.value })}
+          placeholder="Add venue notes, parking details, or livestream information"
+        />
+      </div>
+    </div>
+  );
 }
 
 interface StepOneProps {
@@ -285,6 +385,18 @@ function StepOne({
         </CardContent>
       </Card>
 
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-xl">Basic Information</CardTitle>
+          <p className="text-sm text-muted-foreground">
+            Capture the essentials so your public page is easier to finish later.
+          </p>
+        </CardHeader>
+        <CardContent>
+          <BasicInformationFields config={config} onConfigChange={onConfigChange} />
+        </CardContent>
+      </Card>
+
       <div className="flex flex-wrap gap-3 justify-between">
         <div className="flex gap-2">
           <Button variant="outline" onClick={() => fileInputRef.current?.click()}>
@@ -326,117 +438,7 @@ interface StepTwoProps {
 }
 
 function StepTwo({ format, mode, config, onConfigChange, onBack, onCancel, onSave, saving }: StepTwoProps) {
-  const { toast } = useToast();
-  const pageEditorRef = useRef<HTMLTextAreaElement | null>(null);
-
-  const pageToolbar = useMemo(
-    () => [
-      { action: "h1" as ToolbarAction, icon: <Heading1 className="h-4 w-4" />, label: "Heading 1" },
-      { action: "h2" as ToolbarAction, icon: <Heading2 className="h-4 w-4" />, label: "Heading 2" },
-      { action: "bold" as ToolbarAction, icon: <Bold className="h-4 w-4" />, label: "Bold" },
-      { action: "italic" as ToolbarAction, icon: <Italic className="h-4 w-4" />, label: "Italic" },
-      { action: "bullet" as ToolbarAction, icon: <List className="h-4 w-4" />, label: "Bullet list" },
-      { action: "numbered" as ToolbarAction, icon: <ListOrdered className="h-4 w-4" />, label: "Numbered list" },
-      { action: "link" as ToolbarAction, icon: <Link2 className="h-4 w-4" />, label: "Insert link" },
-    ],
-    []
-  );
-
-  const handlePageContentChange = (value: string) => {
-    onConfigChange({ ...config, tournamentPageContent: value });
-  };
-
-  const geminiDraft = useMutation({
-    mutationFn: async () =>
-      apiRequest("/api/tools/gemini-draft", {
-        method: "POST",
-        body: JSON.stringify({ config }),
-      }),
-    onSuccess: (data: any) => {
-      const generated = (data?.content ?? "").toString().trim();
-      if (generated) {
-        handlePageContentChange(generated);
-        toast({ title: "Draft ready", description: "Review and save the generated copy." });
-      } else {
-        toast({
-          title: "No content returned",
-          description: "Gemini did not return any text. Try again soon.",
-        });
-      }
-    },
-    onError: (error: any) => {
-      toast({
-        title: "Draft failed",
-        description: error?.message ?? "Unable to generate content.",
-        variant: "destructive",
-      });
-    },
-  });
-
-  const wrapSelection = (
-    before: string,
-    after = "",
-    options: { placeholder?: string; selectPlaceholder?: boolean; newlineBefore?: boolean } = {}
-  ) => {
-    const textarea = pageEditorRef.current;
-    const currentValue = config.tournamentPageContent ?? "";
-    const start = textarea ? textarea.selectionStart : currentValue.length;
-    const end = textarea ? textarea.selectionEnd : start;
-    const needsNewline = options.newlineBefore && start > 0 && !currentValue.slice(0, start).endsWith("\n");
-    const selected = currentValue.slice(start, end);
-    const placeholder = selected.length > 0 ? selected : options.placeholder ?? "";
-    const insertBefore = `${needsNewline ? "\n" : ""}${before}`;
-
-    const nextValue =
-      currentValue.slice(0, start) +
-      insertBefore +
-      placeholder +
-      after +
-      currentValue.slice(end);
-
-    handlePageContentChange(nextValue);
-
-    requestAnimationFrame(() => {
-      const el = pageEditorRef.current;
-      if (!el) return;
-      el.focus();
-      const base = start + insertBefore.length;
-      if (options.selectPlaceholder && placeholder.length > 0) {
-        el.setSelectionRange(base, base + placeholder.length);
-      } else {
-        const position = base + placeholder.length + after.length;
-        el.setSelectionRange(position, position);
-      }
-    });
-  };
-
-  const handleToolbarAction = (action: ToolbarAction) => {
-    switch (action) {
-      case "h1":
-        wrapSelection("# ", "", { newlineBefore: true });
-        break;
-      case "h2":
-        wrapSelection("## ", "", { newlineBefore: true });
-        break;
-      case "bold":
-        wrapSelection("**", "**", { placeholder: "Bold text", selectPlaceholder: true });
-        break;
-      case "italic":
-        wrapSelection("*", "*", { placeholder: "Italic text", selectPlaceholder: true });
-        break;
-      case "bullet":
-        wrapSelection("- ", "", { newlineBefore: true });
-        break;
-      case "numbered":
-        wrapSelection("1. ", "", { newlineBefore: true });
-        break;
-      case "link":
-        wrapSelection("[", "](https://)", { placeholder: "Link text", selectPlaceholder: true });
-        break;
-      default:
-        break;
-    }
-  };
+  const scheduleTemplateOptions = SCHEDULE_EVENT_OPTIONS;
   const updateDetails = (updates: Partial<TournamentConfig["details"]>) =>
     onConfigChange({ ...config, details: { ...config.details, ...updates } });
 
@@ -612,140 +614,10 @@ function StepTwo({ format, mode, config, onConfigChange, onBack, onCancel, onSav
                 <TabsTrigger value="details">Details</TabsTrigger>
                 <TabsTrigger value="schedule">Schedule</TabsTrigger>
                 <TabsTrigger value="contacts">Contacts</TabsTrigger>
-                <TabsTrigger value="page">Tournament page</TabsTrigger>
+                <TabsTrigger value="playerSignup">Player sign up</TabsTrigger>
               </TabsList>
-
-              <TabsContent value="basic" className="bg-white p-6 space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="tournament-name">Tournament Name</Label>
-                  <Input
-                    id="tournament-name"
-                    value={config.basic.name}
-                    onChange={(event) =>
-                      onConfigChange({
-                        ...config,
-                        basic: { ...config.basic, name: event.target.value },
-                      })
-                    }
-                    placeholder="e.g., San Diego Fall Open"
-                  />
-                </div>
-
-                <div className="grid gap-4 md:grid-cols-2">
-                  <div className="space-y-2">
-                    <Label htmlFor="basic-location">Location / Venue</Label>
-                    <Input
-                      id="basic-location"
-                      value={config.basic.city}
-                      onChange={(event) =>
-                        onConfigChange({
-                          ...config,
-                          basic: { ...config.basic, city: event.target.value },
-                        })
-                      }
-                      placeholder="e.g., San Diego Convention Center"
-                    />
-                    <div className="flex gap-2 pt-1">
-                      <Button
-                        type="button"
-                        variant="outline"
-                        disabled={!config.basic.city.trim()}
-                        onClick={() => {
-                          const query = config.basic.city.trim();
-                          if (!query) return;
-                          window.open(
-                            `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`,
-                            "_blank"
-                          );
-                        }}
-                      >
-                        Open in Google Maps
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        disabled={!config.basic.city.trim()}
-                        onClick={() => {
-                          const query = config.basic.city.trim();
-                          if (!query) return;
-                          window.open(
-                            `https://maps.apple.com/?q=${encodeURIComponent(query)}`,
-                            "_blank"
-                          );
-                        }}
-                      >
-                        Open in Apple Maps
-                      </Button>
-                    </div>
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Federation</Label>
-                    <Select
-                      value={config.basic.federation}
-                      onValueChange={(value) =>
-                        onConfigChange({
-                          ...config,
-                          basic: { ...config.basic, federation: value },
-                        })
-                      }
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select federation" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {FEDERATION_OPTIONS.map((option) => (
-                          <SelectItem key={option.code} value={option.code}>
-                            {option.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
-
-                <div className="grid gap-4 md:grid-cols-2">
-                  <div className="space-y-2">
-                    <Label>Start Date</Label>
-                    <Input
-                      type="date"
-                      value={config.basic.startDate ?? ""}
-                      onChange={(event) =>
-                        onConfigChange({
-                          ...config,
-                          basic: { ...config.basic, startDate: event.target.value || null },
-                        })
-                      }
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>End Date</Label>
-                    <Input
-                      type="date"
-                      value={config.basic.endDate ?? ""}
-                      onChange={(event) =>
-                        onConfigChange({
-                          ...config,
-                          basic: { ...config.basic, endDate: event.target.value || null },
-                        })
-                      }
-                    />
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <Label>Description</Label>
-                  <Textarea
-                    rows={4}
-                    value={config.basic.description}
-                    onChange={(event) =>
-                      onConfigChange({
-                        ...config,
-                        basic: { ...config.basic, description: event.target.value },
-                      })
-                    }
-                    placeholder="Add venue notes, parking details, or livestream information"
-                  />
-                </div>
+              <TabsContent value="basic" className="bg-white p-6">
+                <BasicInformationFields config={config} onConfigChange={onConfigChange} />
               </TabsContent>
 
               <TabsContent value="details" className="bg-white p-6 space-y-4">
@@ -1099,46 +971,73 @@ function StepTwo({ format, mode, config, onConfigChange, onBack, onCancel, onSav
                 </div>
               </TabsContent>
 
-              <TabsContent value="page" className="bg-white p-6 space-y-4">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div>
-                    <Label className="text-sm font-semibold uppercase tracking-wide">Tournament Page Content</Label>
-                    <p className="text-sm text-muted-foreground">
-                      Provide the public description players and parents will see on your tournament portal.
-                    </p>
+              <TabsContent value="playerSignup" className="bg-white p-6 space-y-4">
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="flex items-center justify-between rounded-lg border px-4 py-3">
+                    <div>
+                      <Label className="text-sm font-medium">Email notifications</Label>
+                      <p className="text-xs text-muted-foreground">Send pairing updates by email to registered players.</p>
+                    </div>
+                    <Switch
+                      checked={config.registers.notifyPairingsEmail}
+                      onCheckedChange={(checked) => updateRegisters({ notifyPairingsEmail: checked })}
+                    />
                   </div>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => geminiDraft.mutate()}
-                    disabled={geminiDraft.isPending}
-                    className="flex items-center gap-2"
-                  >
-                    <Sparkles className="h-4 w-4" />
-                    {geminiDraft.isPending ? "Drafting..." : "Draft with Gemini"}
-                  </Button>
+                  <div className="flex items-center justify-between rounded-lg border px-4 py-3">
+                    <div>
+                      <Label className="text-sm font-medium">SMS notifications</Label>
+                      <p className="text-xs text-muted-foreground">Deliver pairing texts when players opt in.</p>
+                    </div>
+                    <Switch
+                      checked={config.registers.notifyPairingsSms}
+                      onCheckedChange={(checked) => updateRegisters({ notifyPairingsSms: checked })}
+                    />
+                  </div>
                 </div>
-                <div className="flex flex-wrap items-center gap-1 rounded-md border bg-slate-50 p-2">
-                  {pageToolbar.map((item) => (
-                    <Button
-                      key={item.action}
-                      variant="ghost"
-                      size="sm"
-                      title={item.label}
-                      onClick={() => handleToolbarAction(item.action)}
-                    >
-                      {item.icon}
-                    </Button>
-                  ))}
+
+                <div className="space-y-2">
+                  <Label htmlFor="player-limit">Player cap</Label>
+                  <Input
+                    id="player-limit"
+                    type="number"
+                    min={0}
+                    value={typeof config.registers.playerLimit === "number" ? String(config.registers.playerLimit) : ""}
+                    onChange={(event) => {
+                      const raw = event.target.value;
+                      const trimmed = raw.trim();
+                      if (trimmed.length === 0) {
+                        updateRegisters({ playerLimit: null });
+                        return;
+                      }
+
+                      const parsed = Number(trimmed);
+                      updateRegisters({ playerLimit: Number.isFinite(parsed) ? parsed : config.registers.playerLimit ?? null });
+                    }}
+                    placeholder="Leave blank for no limit"
+                  />
                 </div>
-                <Textarea
-                  ref={pageEditorRef}
-                  rows={12}
-                  value={config.tournamentPageContent ?? ""}
-                  onChange={(event) => handlePageContentChange(event.target.value)}
-                  className="min-h-[280px]"
-                  placeholder="Welcome to our event! Share parking info, schedule highlights, livestream links, and more."
-                />
+
+                <div className="space-y-2">
+                  <Label htmlFor="early-bird">Early bird entry details</Label>
+                  <Textarea
+                    id="early-bird"
+                    rows={3}
+                    value={config.registers.earlyBirdDetails ?? ""}
+                    onChange={(event) => updateRegisters({ earlyBirdDetails: event.target.value })}
+                    placeholder="Outline pricing deadlines or incentives for early registration."
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="payment-info">Payment information</Label>
+                  <Textarea
+                    id="payment-info"
+                    rows={4}
+                    value={config.registers.paymentDetails ?? ""}
+                    onChange={(event) => updateRegisters({ paymentDetails: event.target.value })}
+                    placeholder="Provide payment methods, account references, or onsite instructions."
+                  />
+                </div>
               </TabsContent>
             </Tabs>
           </CardContent>

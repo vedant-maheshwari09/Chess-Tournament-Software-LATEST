@@ -206,48 +206,48 @@ export default function TournamentManagement({ tournamentId }: TournamentManagem
 
       {/* Tournament Management Tabs */}
       <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full">
-        <TabsList className="grid w-full grid-cols-6 overflow-hidden rounded-lg border border-slate-200 bg-white">
+        <TabsList className="grid w-full grid-cols-6 items-stretch gap-0 overflow-hidden rounded-xl border border-slate-200 bg-white p-0">
           <TabsTrigger
             value="dashboard"
-            className="flex min-w-[140px] items-center justify-center gap-2 px-4 py-3 text-sm font-semibold uppercase tracking-wide data-[state=active]:bg-indigo-50 data-[state=active]:text-indigo-950"
+            className="flex h-full w-full items-center justify-center gap-2 px-6 py-4 text-center text-sm font-medium text-slate-600 transition data-[state=active]:bg-indigo-50 data-[state=active]:text-indigo-900 data-[state=active]:shadow-none"
           >
-            <Trophy className="h-4 w-4" />
-            <span>Dashboard</span>
+            <Trophy className="h-5 w-5 -translate-y-[2px]" />
+            <span className="capitalize -translate-y-[4px]">Dashboard</span>
           </TabsTrigger>
           <TabsTrigger
             value="tournamentPage"
-            className="flex min-w-[140px] items-center justify-center gap-2 px-4 py-3 text-sm font-semibold uppercase tracking-wide data-[state=active]:bg-indigo-50 data-[state=active]:text-indigo-950"
+            className="flex h-full w-full items-center justify-center gap-2 px-6 py-4 text-center text-sm font-medium text-slate-600 transition data-[state=active]:bg-indigo-50 data-[state=active]:text-indigo-900 data-[state=active]:shadow-none"
           >
-            <FileText className="h-4 w-4" />
-            <span>Tournament Page</span>
+            <FileText className="h-5 w-5 -translate-y-[2px]" />
+            <span className="capitalize -translate-y-[4px]">Tournament Page</span>
           </TabsTrigger>
           <TabsTrigger
             value="players"
-            className="flex min-w-[140px] items-center justify-center gap-2 px-4 py-3 text-sm font-semibold uppercase tracking-wide data-[state=active]:bg-indigo-50 data-[state=active]:text-indigo-950"
+            className="flex h-full w-full items-center justify-center gap-2 px-6 py-4 text-center text-sm font-medium text-slate-600 transition data-[state=active]:bg-indigo-50 data-[state=active]:text-indigo-900 data-[state=active]:shadow-none"
           >
-            <Users className="h-4 w-4" />
-            <span>Players</span>
+            <Users className="h-5 w-5 -translate-y-[2px]" />
+            <span className="capitalize -translate-y-[4px]">Players</span>
           </TabsTrigger>
           <TabsTrigger
             value="rounds"
-            className="flex min-w-[140px] items-center justify-center gap-2 px-4 py-3 text-sm font-semibold uppercase tracking-wide data-[state=active]:bg-indigo-50 data-[state=active]:text-indigo-950"
+            className="flex h-full w-full items-center justify-center gap-2 px-6 py-4 text-center text-sm font-medium text-slate-600 transition data-[state=active]:bg-indigo-50 data-[state=active]:text-indigo-900 data-[state=active]:shadow-none"
           >
-            <Calendar className="h-4 w-4" />
-            <span>Rounds</span>
+            <Calendar className="h-5 w-5 -translate-y-[2px]" />
+            <span className="capitalize -translate-y-[4px]">Rounds</span>
           </TabsTrigger>
           <TabsTrigger
             value="standings"
-            className="flex min-w-[140px] items-center justify-center gap-2 px-4 py-3 text-sm font-semibold uppercase tracking-wide data-[state=active]:bg-indigo-50 data-[state=active]:text-indigo-950"
+            className="flex h-full w-full items-center justify-center gap-2 px-6 py-4 text-center text-sm font-medium text-slate-600 transition data-[state=active]:bg-indigo-50 data-[state=active]:text-indigo-900 data-[state=active]:shadow-none"
           >
-            <Trophy className="h-4 w-4" />
-            <span>Standings</span>
+            <Trophy className="h-5 w-5 -translate-y-[2px]" />
+            <span className="capitalize -translate-y-[4px]">Standings</span>
           </TabsTrigger>
           <TabsTrigger
             value="contact"
-            className="flex min-w-[140px] items-center justify-center gap-2 px-4 py-3 text-sm font-semibold uppercase tracking-wide data-[state=active]:bg-indigo-50 data-[state=active]:text-indigo-950"
+            className="flex h-full w-full items-center justify-center gap-2 px-6 py-4 text-center text-sm font-medium text-slate-600 transition data-[state=active]:bg-indigo-50 data-[state=active]:text-indigo-900 data-[state=active]:shadow-none"
           >
-            <UserCircle2 className="h-4 w-4" />
-            <span>Contact</span>
+            <UserCircle2 className="h-5 w-5 -translate-y-[2px]" />
+            <span className="capitalize -translate-y-[4px]">Contact</span>
           </TabsTrigger>
         </TabsList>
 
@@ -274,6 +274,7 @@ export default function TournamentManagement({ tournamentId }: TournamentManagem
         <TabsContent value="players" className="mt-6">
           <PlayerManager tournament={tournament} tournamentId={tournamentId} />
         </TabsContent>
+
 
         <TabsContent value="rounds" className="mt-6 space-y-6">
           <Card>
