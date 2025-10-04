@@ -40,6 +40,9 @@ export default function SettingsPage() {
   const [carrier, setCarrier] = useState(user?.carrier ?? "");
   const [notifyEmail, setNotifyEmail] = useState<boolean>(user?.notifyEmail ?? true);
   const [notifySms, setNotifySms] = useState<boolean>(user?.notifySms ?? false);
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
 
   useEffect(() => {
     setPhoneNumber(user?.phoneNumber ?? "");
@@ -121,6 +124,52 @@ export default function SettingsPage() {
       });
     },
   });
+
+  const changePasswordMutation = useMutation({
+    mutationFn: async () => {
+      return apiRequest("/api/auth/change-password", {
+        method: "POST",
+        body: JSON.stringify({ currentPassword, newPassword }),
+      });
+    },
+    onSuccess: () => {
+      toast({ title: "Password updated" });
+      setCurrentPassword("");
+      setNewPassword("");
+      setConfirmPassword("");
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Change failed",
+        description: error?.message ?? "Unable to update password.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const handleChangePassword = () => {
+    if (changePasswordMutation.isPending) return;
+
+    if (!currentPassword || !newPassword) {
+      toast({
+        title: "Missing information",
+        description: "Enter both your current and new password.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (newPassword !== confirmPassword) {
+      toast({
+        title: "Passwords do not match",
+        description: "Confirm password must match the new password.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    changePasswordMutation.mutate();
+  };
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900 py-10">
@@ -224,6 +273,56 @@ export default function SettingsPage() {
               disabled={updatePreferencesMutation.isPending}
             >
               {updatePreferencesMutation.isPending ? "Saving..." : "Save preferences"}
+            </Button>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Change password</CardTitle>
+            <p className="text-sm text-muted-foreground">
+              Update your credentials to keep your account secure.
+            </p>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="current-password">Current password</Label>
+              <Input
+                id="current-password"
+                type="password"
+                value={currentPassword}
+                onChange={(event) => setCurrentPassword(event.target.value)}
+                placeholder="Enter current password"
+              />
+            </div>
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="new-password">New password</Label>
+                <Input
+                  id="new-password"
+                  type="password"
+                  value={newPassword}
+                  onChange={(event) => setNewPassword(event.target.value)}
+                  placeholder="Enter new password"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="confirm-password">Confirm password</Label>
+                <Input
+                  id="confirm-password"
+                  type="password"
+                  value={confirmPassword}
+                  onChange={(event) => setConfirmPassword(event.target.value)}
+                  placeholder="Re-enter new password"
+                />
+              </div>
+            </div>
+            <Button
+              onClick={handleChangePassword}
+              className="w-full md:w-auto"
+              disabled={changePasswordMutation.isPending}
+            >
+              {changePasswordMutation.isPending ? "Updating..." : "Update password"}
             </Button>
           </CardContent>
         </Card>

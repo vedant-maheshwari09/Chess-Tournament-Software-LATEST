@@ -11,7 +11,8 @@ import {
   registerSchema,
   forgotPasswordSchema,
   forgotUsernameSchema,
-  resetPasswordSchema
+  resetPasswordSchema,
+  changePasswordSchema
 } from "@shared/schema";
 import { 
   hashPassword, 
@@ -394,6 +395,37 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "Invalid preferences" });
       }
       res.status(500).json({ message: "Failed to update preferences" });
+    }
+  });
+
+  app.post("/api/auth/change-password", requireAuth, async (req, res) => {
+    try {
+      const user = req.user;
+      if (!user) {
+        return res.status(401).json({ message: "User not found" });
+      }
+
+      const payload = changePasswordSchema.parse(req.body ?? {});
+
+      const matches = await verifyPassword(payload.currentPassword, user.passwordHash);
+      if (!matches) {
+        return res.status(400).json({ message: "Current password is incorrect" });
+      }
+
+      if (payload.currentPassword === payload.newPassword) {
+        return res.status(400).json({ message: "New password must be different" });
+      }
+
+      const passwordHash = await hashPassword(payload.newPassword);
+      await storage.updateUser(user.id, { passwordHash });
+
+      res.json({ message: "Password updated" });
+    } catch (error) {
+      console.error("Change password error:", error);
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ message: "Invalid payload" });
+      }
+      res.status(500).json({ message: "Failed to change password" });
     }
   });
 

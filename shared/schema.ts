@@ -172,6 +172,11 @@ export const resetPasswordSchema = z.object({
   newPassword: z.string().min(6),
 });
 
+export const changePasswordSchema = z.object({
+  currentPassword: z.string().min(1),
+  newPassword: z.string().min(6),
+});
+
 export const insertTournamentSchema = createInsertSchema(tournaments).omit({
   id: true,
   createdBy: true, // This will be set on the backend
@@ -216,6 +221,7 @@ export type RegisterData = z.infer<typeof registerSchema>;
 export type ForgotPasswordData = z.infer<typeof forgotPasswordSchema>;
 export type ForgotUsernameData = z.infer<typeof forgotUsernameSchema>;
 export type ResetPasswordData = z.infer<typeof resetPasswordSchema>;
+export type ChangePasswordData = z.infer<typeof changePasswordSchema>;
 export type Session = typeof sessions.$inferSelect;
 export type PasswordReset = typeof passwordResets.$inferSelect;
 
