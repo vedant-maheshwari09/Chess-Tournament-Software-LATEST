@@ -4,3 +4,10 @@ dist
 server/public
 vite.config.ts.*
 *.tar.gz
+# Local rating data and helpers
+GDB*.TXT
+GDQ*.TXT
+players_list-fide-*.txt
+inspect.js
+tempFetchUSCF.mjs
+Screenshot *.png

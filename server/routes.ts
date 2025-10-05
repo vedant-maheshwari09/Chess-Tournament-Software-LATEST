@@ -25,102 +25,116 @@ import {
 } from "./auth";
 import { generateRoundRobinSchedule, validateRoundRobinSchedule } from "./round-robin";
 import { notificationService } from "./notifications";
+import { searchUSCF, searchFide, type LocalRatingResult, type LocalSearchParams } from "./lib/localRatings";
+
+type RatingSource = "uscf" | "fide";
 
 interface RatingLookupResult {
-  source: "uscf" | "fide" | "ecf";
+  source: RatingSource;
   id: string;
   name: string;
   rating?: string;
+  ratingDisplay?: string;
   location?: string;
   extra?: string;
+  extraRatings?: Array<{
+    type: "quick" | "blitz" | "rapid";
+    label: string;
+    value?: string;
+    display?: string;
+  }>;
+  metadata?: Record<string, string | undefined>;
+  sex?: string;
+  birthYear?: string;
 }
 
-async function fetchText(url: string): Promise<string> {
-  const response = await fetch(url, {
-    headers: {
-      "User-Agent": "ChessTournamentManager/1.0",
-    },
-  });
-  if (!response.ok) {
-    throw new Error(`Request failed: ${response.status}`);
-  }
-  return response.text();
+
+async function lookupUSCF(params: LocalSearchParams, limit = 30): Promise<RatingLookupResult[]> {
+  const results = await searchUSCF(params, limit);
+  return results.map((entry) => mapLocalResult("uscf", entry));
 }
 
-async function fetchJson<T>(url: string): Promise<T> {
-  const response = await fetch(url, {
-    headers: {
-      Accept: "application/json",
-      "User-Agent": "ChessTournamentManager/1.0",
-    },
-  });
-  if (!response.ok) {
-    throw new Error(`Request failed: ${response.status}`);
-  }
-  return (await response.json()) as T;
+async function lookupFide(params: LocalSearchParams, limit = 30): Promise<RatingLookupResult[]> {
+  const results = await searchFide(params, limit);
+  return results.map((entry) => mapLocalResult("fide", entry));
 }
 
-async function lookupUSCF(query: string): Promise<RatingLookupResult[]> {
-  try {
-    const text = await fetchText(`https://www.uschess.org/msa/thin.php?name=${encodeURIComponent(query)}`);
-    const lines = text.split("\n").filter((line) => line.includes("|"));
-    return lines.slice(0, 10).map((line) => {
-      const parts = line.split("|");
-      const [name = "", id = "", state = "", , , , , rating = ""] = parts;
-      return {
-        source: "uscf" as const,
-        id: id.trim(),
-        name: name.trim(),
-        rating: rating.trim(),
-        location: state.trim(),
-        extra: parts[3]?.trim(),
-      };
+function mapLocalResult(source: RatingSource, entry: LocalRatingResult): RatingLookupResult {
+  const extraRatings: RatingLookupResult["extraRatings"] = [];
+  if (entry.quickRating) {
+    extraRatings.push({
+      type: "quick",
+      label: "Quick",
+      value: entry.quickRating.value,
+      display: entry.quickRating.raw ?? entry.quickRating.value,
     });
-  } catch (error) {
-    console.warn("USCF lookup failed", error);
-    return [];
   }
+  if (entry.rapidRating) {
+    extraRatings.push({
+      type: "rapid",
+      label: "Rapid",
+      value: entry.rapidRating.value,
+      display: entry.rapidRating.raw ?? entry.rapidRating.value,
+    });
+  }
+  if (entry.blitzRating) {
+    extraRatings.push({
+      type: "blitz",
+      label: "Blitz",
+      value: entry.blitzRating.value,
+      display: entry.blitzRating.raw ?? entry.blitzRating.value,
+    });
+  }
+
+  const location = entry.location ?? entry.federation ?? undefined;
+  const extra = source === "fide" ? entry.title ?? undefined : undefined;
+  const metadata: Record<string, string | undefined> = { ...entry.metadata };
+  if (source === "fide" && entry.birthYear) {
+    metadata.birthYear = entry.birthYear;
+  }
+  if (source === "uscf" && entry.location) {
+    metadata.state = entry.location;
+  }
+
+  const cleanedMetadata = Object.values(metadata).some((value) => value)
+    ? metadata
+    : undefined;
+
+  return {
+    source,
+    id: entry.id,
+    name: entry.name,
+    rating: entry.rating?.value,
+    ratingDisplay: entry.rating?.raw ?? entry.rating?.value,
+    location,
+    extra,
+    extraRatings: extraRatings.length > 0 ? extraRatings : undefined,
+    metadata: cleanedMetadata,
+    sex: entry.sex,
+    birthYear: entry.birthYear,
+  };
 }
 
-async function lookupFide(query: string): Promise<RatingLookupResult[]> {
-  try {
-    // Public community API mirror
-    const data = await fetchJson<{ players?: any[] }>(
-      `https://api.chessmanager.com/api/player-search?search=${encodeURIComponent(query)}&federation=`
-    );
-    const players = Array.isArray(data?.players) ? data.players : [];
-    return players.slice(0, 10).map((player: any) => ({
-      source: "fide" as const,
-      id: String(player?.fideId ?? player?.id ?? ""),
-      name: `${player?.lastName ?? ""}, ${player?.firstName ?? ""}`.trim(),
-      rating: String(player?.standardRating ?? player?.elo ?? "").trim(),
-      location: player?.federation ?? "",
-      extra: player?.title ?? "",
-    }));
-  } catch (error) {
-    console.warn("FIDE lookup failed", error);
-    return [];
-  }
+function extractQueryParam(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
 }
 
-async function lookupECF(query: string): Promise<RatingLookupResult[]> {
-  try {
-    const data = await fetchJson<any>(
-      `https://www.ecfrating.org.uk/v2/new/api.php?v2/players?name=${encodeURIComponent(query)}`
-    );
-    const players = Array.isArray(data?.players) ? data.players : Array.isArray(data) ? data : [];
-    return players.slice(0, 10).map((player: any) => ({
-      source: "ecf" as const,
-      id: String(player?.ECFCode ?? player?.ecf_code ?? ""),
-      name: player?.name ?? "",
-      rating: String(player?.ECF ?? player?.ecf ?? "").trim(),
-      location: player?.club ?? "",
-      extra: player?.category ?? "",
-    }));
-  } catch (error) {
-    console.warn("ECF lookup failed", error);
-    return [];
-  }
+function normalizeSearchParams(params: LocalSearchParams): LocalSearchParams {
+  const normalized: LocalSearchParams = {};
+  if (params.term) normalized.term = params.term;
+  if (params.lastName) normalized.lastName = params.lastName;
+  if (params.firstName) normalized.firstName = params.firstName;
+  if (params.id) normalized.id = params.id;
+  return normalized;
+}
+
+function parseLimitParam(value: unknown, fallback: number, max: number): number {
+  if (typeof value !== "string") return fallback;
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
+  return Math.min(parsed, max);
 }
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
@@ -553,18 +567,36 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/rating-lookup", async (req, res) => {
     try {
-      const query = typeof req.query.q === "string" ? req.query.q.trim() : undefined;
-      if (!query) {
-        return res.status(400).json({ message: "Query parameter 'q' is required" });
+      const params: LocalSearchParams = {
+        term: extractQueryParam(req.query.q),
+        lastName: extractQueryParam(req.query.lastName),
+        firstName: extractQueryParam(req.query.firstName),
+        id: extractQueryParam(req.query.id),
+      };
+
+      const normalizedParams = normalizeSearchParams(params);
+      const hasInput = Object.values(normalizedParams).some((value) => Boolean(value));
+      if (!hasInput) {
+        return res.status(400).json({ message: "At least one search parameter is required" });
       }
 
-      const [uscf, fide, ecf] = await Promise.all([
-        lookupUSCF(query),
-        lookupFide(query),
-        lookupECF(query),
-      ]);
+      const limit = parseLimitParam(req.query.limit, 30, 100);
+      const errors: Partial<Record<RatingSource, string>> = {};
 
-      res.json({ query, uscf, fide, ecf });
+      const [uscf, fide] = await Promise.all(["uscf", "fide"].map(async (source) => {
+        try {
+          if (source === "uscf") return await lookupUSCF(normalizedParams, limit);
+          if (source === "fide") return await lookupFide(normalizedParams, limit);
+          return [] as RatingLookupResult[];
+        } catch (error) {
+          const message = error instanceof Error ? error.message : "Lookup failed";
+          errors[source as RatingSource] = message;
+          console.warn(`${source.toUpperCase()} lookup failed`, error);
+          return [] as RatingLookupResult[];
+        }
+      }));
+
+      res.json({ query: normalizedParams, uscf, fide, errors });
     } catch (error) {
       console.error("Rating lookup error:", error);
       res.status(500).json({ message: "Failed to retrieve rating data" });

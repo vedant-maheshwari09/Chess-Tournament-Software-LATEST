@@ -14,7 +14,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { apiRequest } from "@/lib/queryClient";
@@ -22,12 +21,38 @@ import { useToast } from "@/hooks/use-toast";
 import type { Player, Tournament } from "@shared/schema";
 import { parseTournamentConfig } from "@/lib/tournament-config";
 import { Textarea } from "@/components/ui/textarea";
+import { Loader2 } from "lucide-react";
+
+type SourceKey = "uscf" | "fide";
+
+interface RatingLookupItem {
+  id: string;
+  name: string;
+  rating?: string;
+  ratingDisplay?: string;
+  location?: string;
+  extra?: string;
+  extraRatings?: Array<{
+    type: "quick" | "blitz" | "rapid";
+    label: string;
+    value?: string;
+    display?: string;
+  }>;
+  metadata?: Record<string, string | undefined>;
+  sex?: string;
+  birthYear?: string;
+}
 
 interface RatingLookupResponse {
-  query: string;
-  uscf: Array<{ id: string; name: string; rating?: string; location?: string; extra?: string }>;
-  fide: Array<{ id: string; name: string; rating?: string; location?: string; extra?: string }>;
-  ecf: Array<{ id: string; name: string; rating?: string; location?: string; extra?: string }>;
+  query: {
+    term?: string;
+    firstName?: string;
+    lastName?: string;
+    id?: string;
+  };
+  uscf?: RatingLookupItem[];
+  fide?: RatingLookupItem[];
+  errors?: Partial<Record<SourceKey, string>>;
 }
 
 interface PlayerManagerProps {
@@ -47,27 +72,76 @@ const FEDERATION_OPTIONS = [
   "Australia",
 ];
 
-const SOURCE_META = {
+const SOURCE_META: Record<SourceKey, { label: string; accent: string }> = {
   uscf: { label: "USCF", accent: "bg-blue-50 text-blue-700" },
   fide: { label: "FIDE", accent: "bg-purple-50 text-purple-700" },
-  ecf: { label: "ECF", accent: "bg-amber-50 text-amber-700" },
-} as const;
+};
 
 const FEDERATION_SEARCH_LINKS: Record<SourceKey, string> = {
   uscf: "https://www.uschess.org/msa/thin.php",
   fide: "https://ratings.fide.com/",
-  ecf: "https://www.ecfrating.org.uk/v2/new/search.php",
+};
+type TabKey = "basic" | "payments" | "notes";
+type RatingLookupEntry = RatingLookupItem;
+type ExtraRating = NonNullable<RatingLookupEntry["extraRatings"]>[number];
+
+const SEX_FORM_MAP: Record<string, "male" | "female" | "other"> = {
+  m: "male",
+  male: "male",
+  f: "female",
+  female: "female",
 };
 
-type SourceKey = keyof typeof SOURCE_META;
-type TabKey = "basic" | "payments" | "notes";
+const SEX_DISPLAY_MAP: Record<string, string> = {
+  m: "Male",
+  male: "Male",
+  f: "Female",
+  female: "Female",
+};
+
+const mapSexToFormValue = (sex?: string) => {
+  if (!sex) return undefined;
+  const normalized = sex.trim().toLowerCase();
+  return SEX_FORM_MAP[normalized] ?? undefined;
+};
+
+const formatSexDisplay = (sex?: string) => {
+  if (!sex) return undefined;
+  const normalized = sex.trim().toLowerCase();
+  if (normalized in SEX_DISPLAY_MAP) {
+    return SEX_DISPLAY_MAP[normalized];
+  }
+  if (sex.length === 1) {
+    return sex.toUpperCase();
+  }
+  return sex;
+};
+
+const extractRatingValue = (rating?: ExtraRating) => rating?.value ?? rating?.display ?? "";
+
+const FEDERATION_CODE_MAP: Record<string, string> = {
+  USA: "United States",
+  US: "United States",
+  ENG: "United Kingdom",
+  GBR: "United Kingdom",
+  SCO: "United Kingdom",
+  WLS: "United Kingdom",
+  CAN: "Canada",
+  FRA: "France",
+  GER: "Germany",
+  ESP: "Spain",
+  IND: "India",
+  CHN: "China",
+  AUS: "Australia",
+};
 
 export default function PlayerManager({ tournament, tournamentId }: PlayerManagerProps) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [searchTerm, setSearchTerm] = useState("");
   const [activeTab, setActiveTab] = useState<TabKey>("basic");
+  const [searchInputs, setSearchInputs] = useState({ lastName: "", firstName: "", id: "" });
+  const [debouncedSearchInputs, setDebouncedSearchInputs] = useState({ lastName: "", firstName: "", id: "" });
 
   const tournamentConfig = useMemo(() => parseTournamentConfig(tournament), [tournament]);
   const defaultFederation = tournamentConfig.basic.federation || "United States";
@@ -111,33 +185,58 @@ export default function PlayerManager({ tournament, tournamentId }: PlayerManage
     queryKey: [`/api/tournaments/${tournamentId}/players`],
   });
 
-  const [lookupQuery, setLookupQuery] = useState("");
   useEffect(() => {
     const handle = setTimeout(() => {
-      setLookupQuery(searchTerm.trim());
+      setDebouncedSearchInputs({
+        lastName: searchInputs.lastName.trim(),
+        firstName: searchInputs.firstName.trim(),
+        id: searchInputs.id.trim(),
+      });
     }, 350);
     return () => clearTimeout(handle);
-  }, [searchTerm]);
+  }, [searchInputs]);
 
-  const { data: lookupData, isFetching: lookupFetching } = useQuery<RatingLookupResponse | null>({
-    queryKey: ["rating-lookup", lookupQuery],
+  const hasSearchInput = useMemo(
+    () => Object.values(debouncedSearchInputs).some((value) => value.length > 0),
+    [debouncedSearchInputs],
+  );
+
+  const { data: lookupDataRaw, isFetching: lookupFetching, error: lookupError } = useQuery<
+    RatingLookupResponse | null,
+    Error
+  >({
+    queryKey: [
+      "rating-lookup",
+      debouncedSearchInputs.lastName,
+      debouncedSearchInputs.firstName,
+      debouncedSearchInputs.id,
+    ],
     queryFn: async () => {
-      if (!lookupQuery) return null;
-      try {
-        return await apiRequest(`/api/rating-lookup?q=${encodeURIComponent(lookupQuery)}`);
-      } catch (error) {
-        console.warn("lookup failed", error);
-        return null;
-      }
+      const params = new URLSearchParams();
+      if (debouncedSearchInputs.lastName) params.set("lastName", debouncedSearchInputs.lastName);
+      if (debouncedSearchInputs.firstName) params.set("firstName", debouncedSearchInputs.firstName);
+      if (debouncedSearchInputs.id) params.set("id", debouncedSearchInputs.id);
+      if (!params.toString()) return null;
+      return await apiRequest(`/api/rating-lookup?${params.toString()}`);
     },
+    enabled: hasSearchInput,
     staleTime: 1000 * 30,
+    retry: false,
   });
+
+  const lookupData = hasSearchInput ? lookupDataRaw : null;
+
+  useEffect(() => {
+    if (lookupError) {
+      console.warn("lookup failed", lookupError);
+    }
+  }, [lookupError]);
 
   useEffect(() => {
     if (!dialogOpen) {
       setActiveTab("basic");
-      setSearchTerm("");
-      setLookupQuery("");
+      setSearchInputs({ lastName: "", firstName: "", id: "" });
+      setDebouncedSearchInputs({ lastName: "", firstName: "", id: "" });
       setFormState(createEmptyForm());
     }
   }, [dialogOpen, createEmptyForm]);
@@ -170,37 +269,125 @@ export default function PlayerManager({ tournament, tournamentId }: PlayerManage
   });
 
   const lookupResults = useMemo(() => {
-    const empty = { uscf: [], fide: [], ecf: [] } as Record<SourceKey, any[]>;
-    if (!lookupData) return empty;
+    if (!lookupData || lookupError) {
+      return { uscf: [] as RatingLookupEntry[], fide: [] as RatingLookupEntry[] };
+    }
     return {
       uscf: lookupData.uscf ?? [],
       fide: lookupData.fide ?? [],
-      ecf: lookupData.ecf ?? [],
     };
+  }, [lookupData, lookupError]);
+
+  const totalLookupResults = useMemo(
+    () => lookupResults.uscf.length + lookupResults.fide.length,
+    [lookupResults],
+  );
+
+  const sourceErrors = useMemo(() => {
+    if (!lookupData?.errors) return [] as Array<{ source: SourceKey; label: string; message: string }>;
+    return (Object.entries(lookupData.errors) as Array<[SourceKey, string | undefined]> )
+      .filter((entry): entry is [SourceKey, string] => Boolean(entry[1]))
+      .map(([source, message]) => ({
+        source,
+        label: SOURCE_META[source]?.label ?? source.toUpperCase(),
+        message: message.trim(),
+      }));
   }, [lookupData]);
 
-  const combinedResults = useMemo(() => {
-    return (Object.keys(SOURCE_META) as SourceKey[]).map((source) => ({
-      source,
-      items: lookupResults[source] ?? [],
-    }));
-  }, [lookupResults]);
+  const hasLookupResults = totalLookupResults > 0;
 
-  const handleResultClick = (source: SourceKey, item: any) => {
-    const [lastName, firstName] = item.name.split(",");
-    setFormState((prev) => ({
-      ...prev,
-      firstName: (firstName ?? "").trim(),
-      lastName: (lastName ?? item.name).trim(),
-      rating: item.rating ?? prev.rating,
-      federation: item.location ?? prev.federation,
-      club: item.extra ?? prev.club,
-    }));
+  const matchingTournamentPlayers = useMemo(() => {
+    const tokens = [searchInputs.lastName, searchInputs.firstName]
+      .map((value) => value.trim().toLowerCase())
+      .filter((value) => value.length > 0);
+    if (tokens.length === 0) return [] as Player[];
+    return players
+      .filter((player) => {
+        const fullName = `${player.lastName ?? ""} ${player.firstName ?? ""}`.toLowerCase();
+        return tokens.every((token) => fullName.includes(token));
+      })
+      .slice(0, 6);
+  }, [players, searchInputs]);
+
+  const isSearchDirty = useMemo(
+    () => Object.values(searchInputs).some((value) => value.length > 0),
+    [searchInputs],
+  );
+
+  const handleClearSearch = () => {
+    setSearchInputs({ lastName: "", firstName: "", id: "" });
+    setDebouncedSearchInputs({ lastName: "", firstName: "", id: "" });
+  };
+
+  const handleResultClick = (source: SourceKey, item: RatingLookupEntry) => {
+    const [lastNameRaw, firstNameRaw] = item.name.split(",");
+    const cleanedFirst = (firstNameRaw ?? "").trim();
+    const cleanedLast = (lastNameRaw ?? item.name).trim();
+    const quickRating = item.extraRatings?.find((rating) => rating.type === "quick");
+    const rapidRating = item.extraRatings?.find((rating) => rating.type === "rapid");
+    const blitzRating = item.extraRatings?.find((rating) => rating.type === "blitz");
+    const formSex = mapSexToFormValue(item.sex);
+    setFormState((prev) => {
+      const next = { ...prev };
+      if (cleanedFirst) next.firstName = cleanedFirst;
+      if (cleanedLast) next.lastName = cleanedLast;
+
+      const mainRating = (item.rating ?? item.ratingDisplay ?? "").trim();
+      next.rating = mainRating;
+
+      const rapidValue = extractRatingValue(rapidRating) || extractRatingValue(quickRating);
+      next.ratingRapid = rapidValue ?? "";
+
+      const blitzValue = extractRatingValue(blitzRating);
+      next.ratingBlitz = blitzValue ?? "";
+
+      next.sex = formSex ?? "";
+
+      if (source === "uscf") {
+        next.federation = "United States";
+      } else if (item.location) {
+        const rawLocation = item.location.trim();
+        const mappedLocation = FEDERATION_CODE_MAP[rawLocation.toUpperCase()] ?? rawLocation;
+        if (mappedLocation && federationOptions.includes(mappedLocation)) {
+          next.federation = mappedLocation;
+        }
+      }
+
+      if (source === "fide") {
+        next.title = item.extra?.trim() ?? "";
+        next.club = "";
+      } else {
+        next.title = "";
+        next.club = item.extra?.trim() ?? "";
+      }
+
+      if (item.id) {
+        const idValue = item.id.trim();
+        if (source === "uscf") {
+          next.uscfId = idValue;
+          next.localId = "";
+        } else if (source === "fide") {
+          next.localId = idValue;
+          next.uscfId = "";
+        } else {
+          next.uscfId = "";
+          next.localId = idValue;
+        }
+      } else {
+        if (source === "uscf") {
+          next.uscfId = "";
+        } else {
+          next.localId = "";
+        }
+      }
+
+      return next;
+    });
     setActiveTab("basic");
   };
 
   return (
-    <div className="grid gap-6 lg:grid-cols-[260px,1fr]">
+    <div className="grid gap-4 lg:grid-cols-[240px,1fr]">
       <Card className="self-start">
         <CardHeader>
           <CardTitle className="text-lg">Player tools</CardTitle>
@@ -211,91 +398,223 @@ export default function PlayerManager({ tournament, tournamentId }: PlayerManage
             <DialogTrigger asChild>
               <Button className="w-full">Add Player</Button>
             </DialogTrigger>
-            <DialogContent className="sm:max-w-[1100px]">
-              <DialogHeader>
-                <DialogTitle>Add Player</DialogTitle>
-                <DialogDescription>Search federations or add a player manually.</DialogDescription>
-              </DialogHeader>
+            <DialogContent className="max-h-[90vh] max-w-[92vw] overflow-y-auto p-3 sm:p-5 lg:max-w-[1100px]">
+              <div className="mx-auto origin-top scale-95 transform-gpu space-y-4 sm:origin-center">
+                <DialogHeader>
+                  <DialogTitle>Add Player</DialogTitle>
+                  <DialogDescription>Search federations or add a player manually.</DialogDescription>
+                </DialogHeader>
 
-              <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as TabKey)} className="space-y-4">
-                <TabsList className="grid grid-cols-3 w-full">
-                  <TabsTrigger value="basic">Basic</TabsTrigger>
-                  <TabsTrigger value="payments">Payments</TabsTrigger>
-                  <TabsTrigger value="notes">Notes</TabsTrigger>
-                </TabsList>
+                <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as TabKey)} className="space-y-4">
+                  <TabsList className="grid grid-cols-3 w-full">
+                    <TabsTrigger value="basic">Basic</TabsTrigger>
+                    <TabsTrigger value="payments">Payments</TabsTrigger>
+                    <TabsTrigger value="notes">Notes</TabsTrigger>
+                  </TabsList>
 
-                <TabsContent value="basic" className="space-y-4">
-                  <div className="grid gap-6 lg:grid-cols-[320px,1fr]">
+                  <TabsContent value="basic" className="space-y-4">
+                  <div className="grid gap-4 lg:grid-cols-[280px,1fr]">
                     <div className="space-y-3">
                       <Label>Search national databases</Label>
-                      <Input
-                        value={searchTerm}
-                        onChange={(event) => setSearchTerm(event.target.value)}
-                        placeholder="e.g., Jack Finlay"
-                      />
-                      <div className="flex flex-wrap gap-2">
+                      {sourceErrors.length > 0 && (
+                        <div className="space-y-1 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+                          {sourceErrors.map(({ source, label, message }) => (
+                            <p key={source} className="font-medium">
+                              {label} lookup unavailable: <span className="font-normal">{message}</span>
+                            </p>
+                          ))}
+                        </div>
+                      )}
+                      <div className="space-y-3 rounded-md border p-3">
+                        <div className="grid gap-2">
+                          <div className="space-y-1">
+                            <Label className="text-xs font-semibold uppercase text-muted-foreground">Last name</Label>
+                            <Input
+                              value={searchInputs.lastName}
+                              onChange={(event) =>
+                                setSearchInputs((prev) => ({ ...prev, lastName: event.target.value }))
+                              }
+                              placeholder="e.g., Carlsen"
+                              autoComplete="off"
+                            />
+                          </div>
+                          <div className="space-y-1">
+                            <Label className="text-xs font-semibold uppercase text-muted-foreground">First name</Label>
+                            <Input
+                              value={searchInputs.firstName}
+                              onChange={(event) =>
+                                setSearchInputs((prev) => ({ ...prev, firstName: event.target.value }))
+                              }
+                              placeholder="e.g., Magnus"
+                              autoComplete="off"
+                            />
+                          </div>
+                          <div className="space-y-1">
+                            <Label className="text-xs font-semibold uppercase text-muted-foreground">Federation ID</Label>
+                            <Input
+                              value={searchInputs.id}
+                              onChange={(event) =>
+                                setSearchInputs((prev) => ({ ...prev, id: event.target.value }))
+                              }
+                              placeholder="USCF or FIDE ID"
+                              autoComplete="off"
+                            />
+                          </div>
+                        </div>
+                        <div className="flex items-center justify-between text-xs text-muted-foreground">
+                          <span>
+                            {hasSearchInput
+                              ? lookupFetching
+                                ? "Searching federation records…"
+                                : hasLookupResults
+                                  ? `${totalLookupResults} result${totalLookupResults === 1 ? "" : "s"} found. Click a row to autofill.`
+                                  : lookupError
+                                    ? "Lookup failed. Try again or use the official finder links."
+                                    : "No players found. Adjust your search or open the official finder."
+                              : "Enter any combination of last name, first name, or ID to search."}
+                          </span>
+                          <div className="flex items-center gap-2">
+                            {lookupFetching && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              onClick={handleClearSearch}
+                              disabled={!isSearchDirty}
+                            >
+                              Clear
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between">
+                          <p className="text-sm font-semibold">Results</p>
+                          {hasSearchInput && !lookupFetching && (
+                            <span className="text-xs text-muted-foreground">
+                              {hasLookupResults
+                                ? `${totalLookupResults} match${totalLookupResults === 1 ? "" : "es"}`
+                                : "No matches"}
+                            </span>
+                          )}
+                        </div>
+                        {hasSearchInput ? (
+                          hasLookupResults ? (
+                            <div className="overflow-hidden rounded-md border">
+                              <Table>
+                                <TableHeader>
+                                  <TableRow>
+                                    <TableHead className="w-[80px]">Source</TableHead>
+                                    <TableHead>Name</TableHead>
+                                    <TableHead className="w-[110px]">ID</TableHead>
+                                    <TableHead className="w-[140px]">Federation</TableHead>
+                                    <TableHead className="w-[110px]">Classic</TableHead>
+                                    <TableHead className="w-[120px]">Quick/Rapid</TableHead>
+                                    <TableHead className="w-[110px]">Blitz</TableHead>
+                                    <TableHead className="w-[140px]">Extra</TableHead>
+                                  </TableRow>
+                                </TableHeader>
+                                <TableBody>
+                                  {(Object.keys(SOURCE_META) as SourceKey[]).map((source) => {
+                                    const meta = SOURCE_META[source];
+                                    const items = lookupResults[source];
+                                    if (!items.length) return null;
+                                    return items.map((item) => {
+                                      const classicValue = (item.ratingDisplay ?? item.rating ?? "").trim();
+                                      const rapidRating =
+                                        item.extraRatings?.find((rating) => rating.type === "rapid") ??
+                                        item.extraRatings?.find((rating) => rating.type === "quick");
+                                      const blitzRating = item.extraRatings?.find((rating) => rating.type === "blitz");
+                                      const rapidValue = extractRatingValue(rapidRating);
+                                      const blitzValue = extractRatingValue(blitzRating);
+                                      const sexLabel = formatSexDisplay(item.sex);
+                                      const metadataBadges: string[] = [];
+                                      if (sexLabel) metadataBadges.push(sexLabel);
+                                      if (item.birthYear) metadataBadges.push(`Born ${item.birthYear}`);
+                                      if (item.metadata?.expiration) metadataBadges.push(`Expires ${item.metadata.expiration}`);
+
+                                      return (
+                                        <TableRow
+                                          key={`${source}-${item.id}-${item.name}`}
+                                          className="cursor-pointer hover:bg-muted/60"
+                                          onClick={() => handleResultClick(source, item)}
+                                        >
+                                          <TableCell className="align-top">
+                                            <Badge className={`${meta.accent}`}>{meta.label}</Badge>
+                                          </TableCell>
+                                          <TableCell className="align-top">
+                                            <div className="font-medium leading-none">{item.name}</div>
+                                            {metadataBadges.length > 0 && (
+                                              <div className="mt-1 flex flex-wrap gap-2 text-[11px] text-muted-foreground">
+                                                {metadataBadges.map((badge, index) => (
+                                                  <span key={`${item.id}-meta-${index}`}>{badge}</span>
+                                                ))}
+                                              </div>
+                                            )}
+                                          </TableCell>
+                                          <TableCell className="align-top font-mono text-sm">{item.id}</TableCell>
+                                          <TableCell className="align-top text-sm">{item.location ?? "—"}</TableCell>
+                                          <TableCell className="align-top text-sm">{classicValue || "—"}</TableCell>
+                                          <TableCell className="align-top text-sm">{rapidValue || "—"}</TableCell>
+                                          <TableCell className="align-top text-sm">{blitzValue || "—"}</TableCell>
+                                          <TableCell className="align-top text-sm">{item.extra ?? "—"}</TableCell>
+                                        </TableRow>
+                                      );
+                                    });
+                                  })}
+                                </TableBody>
+                              </Table>
+                            </div>
+                          ) : (
+                            <div className="rounded-md border border-dashed p-3 text-xs text-muted-foreground">
+                              {lookupError
+                                ? "Unable to reach federation services. Please try again or use the official finder."
+                                : "No players found. Adjust your search or open the official finder below."}
+                            </div>
+                          )
+                        ) : (
+                          <p className="text-xs text-muted-foreground">
+                            Enter a last name, first name, or federation ID to begin searching.
+                          </p>
+                        )}
+                      </div>
+
+                      {matchingTournamentPlayers.length > 0 && (
+                        <div className="space-y-2">
+                          <p className="text-xs font-semibold uppercase text-muted-foreground">Current tournament</p>
+                          <div className="space-y-1 rounded-md border border-dashed p-2">
+                            {matchingTournamentPlayers.map((player) => (
+                              <div
+                                key={`existing-${player.id}`}
+                                className="flex items-center justify-between text-xs text-muted-foreground"
+                              >
+                                <span className="font-medium text-slate-700 dark:text-slate-300">
+                                  {player.lastName}, {player.firstName}
+                                </span>
+                                <span className="font-mono">{player.rating ?? "-"}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      <div className="grid gap-2 sm:grid-cols-2">
                         {(Object.keys(SOURCE_META) as SourceKey[]).map((source) => (
                           <Button
                             key={source}
                             type="button"
                             variant="outline"
-                            size="sm"
+                            className="w-full"
                             onClick={() => window.open(FEDERATION_SEARCH_LINKS[source], "_blank")}
                           >
-                            Open {SOURCE_META[source].label} finder
+                            {SOURCE_META[source].label} Finder
                           </Button>
                         ))}
                       </div>
-                      <ScrollArea className="h-[360px] rounded-md border">
-                        {!searchTerm && !lookupFetching ? (
-                          <p className="p-3 text-sm text-muted-foreground">
-                            Enter a player name to search federation records.
-                          </p>
-                        ) : lookupFetching ? (
-                          <p className="p-3 text-sm text-muted-foreground">Searching federations…</p>
-                        ) : combinedResults.every((section) => section.items.length === 0) ? (
-                          <p className="p-3 text-sm text-muted-foreground">
-                            No players found. Try another spelling or open the official finder above.
-                          </p>
-                        ) : (
-                          <div className="divide-y">
-                            {combinedResults.map(({ source, items }) => {
-                              if (items.length === 0) return null;
-                              const meta = SOURCE_META[source];
-                              return (
-                                <div key={source}>
-                                  <div className="bg-slate-100 px-3 py-2 text-xs font-semibold uppercase text-slate-600">
-                                    {meta.label}
-                                  </div>
-                                  {items.map((item) => (
-                                    <button
-                                      key={`${source}-${item.id}-${item.name}`}
-                                      type="button"
-                                      className="flex w-full items-start gap-3 px-3 py-3 text-left transition hover:bg-slate-50"
-                                      onClick={() => handleResultClick(source, item)}
-                                    >
-                                      {source !== "uscf" && (
-                                        <Badge className={`${meta.accent}`}>{meta.label}</Badge>
-                                      )}
-                                      <div className="space-y-1">
-                                        <div className="font-medium leading-none">{item.name}</div>
-                                        <div className="flex flex-wrap gap-3 text-xs text-muted-foreground">
-                                          {item.rating && <span>Rating: {item.rating}</span>}
-                                          {item.location && <span>{item.location}</span>}
-                                          {item.extra && <span>{item.extra}</span>}
-                                        </div>
-                                      </div>
-                                    </button>
-                                  ))}
-                                </div>
-                              );
-                            })}
-                          </div>
-                        )}
-                      </ScrollArea>
                     </div>
 
-                    <div className="space-y-6">
+                    <div className="space-y-5">
                       <div className="grid gap-3 md:grid-cols-2">
                         <div className="space-y-1">
                           <Label>First name</Label>
@@ -511,6 +830,7 @@ export default function PlayerManager({ tournament, tournamentId }: PlayerManage
                 <Button onClick={() => addPlayerMutation.mutate()} disabled={addPlayerMutation.isPending}>
                   {addPlayerMutation.isPending ? "Adding..." : "Add Player"}
                 </Button>
+              </div>
               </div>
             </DialogContent>
           </Dialog>
