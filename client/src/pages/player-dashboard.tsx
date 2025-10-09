@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { useLocation } from "wouter";
 import { Trophy, Users, Eye, ArrowLeft, Medal, Info, Calculator } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -42,6 +43,7 @@ export default function PlayerDashboard() {
   const { user } = useAuth();
   const [selectedTournament, setSelectedTournament] = useState<Tournament | null>(null);
   const [activeTab, setActiveTab] = useState<string>("ongoing");
+  const [, setLocation] = useLocation();
 
   const { data: tournaments = [], isLoading } = useQuery<Tournament[]>({
     queryKey: ["/api/tournaments"],
@@ -241,13 +243,22 @@ export default function PlayerDashboard() {
         <td className="px-4 py-4 text-center align-middle text-sm text-slate-700 dark:text-slate-300">{formatDateRange(startDate, endDate)}</td>
         <td className="px-4 py-4 text-center align-middle text-sm text-slate-700 dark:text-slate-300">{sectionsCount ?? "—"}</td>
         <td className="px-4 py-4 align-middle text-right">
-          <Button variant="outline" size="sm" onClick={() => setSelectedTournament(tournament)} className="inline-flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setSelectedTournament(tournament)}
+            className="inline-flex items-center gap-2"
+          >
             <Eye className="h-4 w-4" />
             View
           </Button>
         </td>
         <td className="px-4 py-4 align-middle text-right">
-          <Button size="sm" disabled={registerDisabled} onClick={() => setSelectedTournament(tournament)}>
+          <Button
+            size="sm"
+            disabled={registerDisabled}
+            onClick={() => setLocation(`/tournaments/${tournament.id}/register`)}
+          >
             {registerLabel}
           </Button>
         </td>
@@ -405,6 +416,12 @@ export default function PlayerDashboard() {
               <Badge className={getStatusColor(selectedTournament.status)}>
                 {selectedTournament.status}
               </Badge>
+              <Button
+                variant="outline"
+                onClick={() => setLocation(`/tournaments/${selectedTournament.id}/register`)}
+              >
+                Register
+              </Button>
             </div>
           </div>
         </div>
