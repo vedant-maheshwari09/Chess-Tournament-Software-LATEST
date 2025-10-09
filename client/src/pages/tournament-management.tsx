@@ -350,36 +350,36 @@ export default function TournamentManagement({ tournamentId }: TournamentManagem
             value="dashboard"
             className="flex h-full w-full items-center justify-center gap-2 px-6 py-4 text-center text-sm font-medium text-slate-600 transition data-[state=active]:bg-indigo-50 data-[state=active]:text-indigo-900 data-[state=active]:shadow-none"
           >
-            <Trophy className="h-5 w-5 -translate-y-[2px]" />
-            <span className="capitalize -translate-y-[4px]">Dashboard</span>
+            <Trophy className="h-5 w-5 -translate-y-[4px]" />
+            <span className="capitalize -translate-y-[2px]">Dashboard</span>
           </TabsTrigger>
           <TabsTrigger
             value="tournamentPage"
             className="flex h-full w-full items-center justify-center gap-2 px-6 py-4 text-center text-sm font-medium text-slate-600 transition data-[state=active]:bg-indigo-50 data-[state=active]:text-indigo-900 data-[state=active]:shadow-none"
           >
-            <FileText className="h-5 w-5 -translate-y-[2px]" />
-            <span className="capitalize -translate-y-[4px]">Tournament Page</span>
+            <FileText className="h-5 w-5 -translate-y-[4px]" />
+            <span className="capitalize -translate-y-[2px]">Tournament Page</span>
           </TabsTrigger>
           <TabsTrigger
             value="players"
             className="flex h-full w-full items-center justify-center gap-2 px-6 py-4 text-center text-sm font-medium text-slate-600 transition data-[state=active]:bg-indigo-50 data-[state=active]:text-indigo-900 data-[state=active]:shadow-none"
           >
-            <Users className="h-5 w-5 -translate-y-[2px]" />
-            <span className="capitalize -translate-y-[4px]">Players</span>
+            <Users className="h-5 w-5 -translate-y-[4px]" />
+            <span className="capitalize -translate-y-[2px]">Players</span>
           </TabsTrigger>
           <TabsTrigger
             value="rounds"
             className="flex h-full w-full items-center justify-center gap-2 px-6 py-4 text-center text-sm font-medium text-slate-600 transition data-[state=active]:bg-indigo-50 data-[state=active]:text-indigo-900 data-[state=active]:shadow-none"
           >
-            <Calendar className="h-5 w-5 -translate-y-[2px]" />
-            <span className="capitalize -translate-y-[4px]">Rounds</span>
+            <Calendar className="h-5 w-5 -translate-y-[4px]" />
+            <span className="capitalize -translate-y-[2px]">Rounds</span>
           </TabsTrigger>
           <TabsTrigger
             value="standings"
             className="flex h-full w-full items-center justify-center gap-2 px-6 py-4 text-center text-sm font-medium text-slate-600 transition data-[state=active]:bg-indigo-50 data-[state=active]:text-indigo-900 data-[state=active]:shadow-none"
           >
-            <Trophy className="h-5 w-5 -translate-y-[2px]" />
-            <span className="capitalize -translate-y-[4px]">Standings</span>
+            <Trophy className="h-5 w-5 -translate-y-[4px]" />
+            <span className="capitalize -translate-y-[2px]">Standings</span>
           </TabsTrigger>
         </TabsList>
 

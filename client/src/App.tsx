@@ -17,6 +17,7 @@ import AddPlayerPage from "@/pages/add-player";
 import TournamentSettingsPage from "@/pages/tournament-settings";
 import TournamentActionsPage from "@/pages/tournament-actions";
 import TournamentRegistrationPage from "@/pages/tournament-registration";
+import TournamentRegistrationFormPage from "@/pages/tournament-registration-form";
 
 function AuthenticatedApp() {
   const { user, isLoading } = useAuth();
@@ -69,6 +70,9 @@ function AuthenticatedApp() {
             <Route path="/tournaments/:id/register">
               {(params) => <TournamentRegistrationPage tournamentId={parseInt(params.id)} />}
             </Route>
+            <Route path="/tournaments/:id/register/form">
+              {(params) => <TournamentRegistrationFormPage tournamentId={parseInt(params.id)} />}
+            </Route>
             <Route path="/tournaments/:id">
               {(params) => <TournamentView tournamentId={parseInt(params.id)} />}
             </Route>
@@ -79,6 +83,9 @@ function AuthenticatedApp() {
             <Route path="/dashboard" component={PlayerDashboard} />
             <Route path="/tournaments/:id/register">
               {(params) => <TournamentRegistrationPage tournamentId={parseInt(params.id)} />}
+            </Route>
+            <Route path="/tournaments/:id/register/form">
+              {(params) => <TournamentRegistrationFormPage tournamentId={parseInt(params.id)} />}
             </Route>
             <Route path="/tournaments/:id">
               {(params) => <TournamentView tournamentId={parseInt(params.id)} />}

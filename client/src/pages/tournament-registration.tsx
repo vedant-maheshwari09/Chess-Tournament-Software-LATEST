@@ -15,7 +15,6 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
-import PlayerRegistration from "@/components/player-registration";
 import { parseTournamentConfig } from "@/lib/tournament-config";
 import type { Tournament, Player, PlayerRegistration as PlayerRegistrationType } from "@shared/schema";
 
@@ -178,19 +177,15 @@ export default function TournamentRegistrationPage({ tournamentId }: TournamentR
                       Reserve your place in the tournament roster. You can update arrival info or withdraw later from your dashboard.
                     </p>
                   ) : (
-                    <p>You have already submitted a registration for this event. You can update your details below.</p>
+                    <p>Your registration is on file. Need to adjust details? Submit a new form and contact the director.</p>
                   )}
                 </div>
-                <Button onClick={() => {
-                  const form = document.getElementById("registration-form");
-                  if (form) {
-                    form.scrollIntoView({ behavior: "smooth" });
-                  }
-                }}
+                <Button
+                  onClick={() => setLocation(`/tournaments/${tournamentId}/register/form`)}
                   className="w-full"
                   size="lg"
                 >
-                  {existingRegistration ? "Update Registration" : "Register Now"}
+                  {existingRegistration ? "View Registration" : "Register Now"}
                 </Button>
                 <div className="text-xs text-slate-500">
                   Registration powered by Chess Tournament Manager. Confirmation arrives via email once the director approves your entry.
@@ -326,11 +321,18 @@ export default function TournamentRegistrationPage({ tournamentId }: TournamentR
 
         <Card>
           <CardHeader>
-            <CardTitle>Registration Form</CardTitle>
-            <CardDescription>Submit or update your entry details below.</CardDescription>
+            <CardTitle>How to register</CardTitle>
+            <CardDescription>Use the form button above to start the full registration flow.</CardDescription>
           </CardHeader>
-          <CardContent id="registration-form">
-            <PlayerRegistration tournament={tournament} existingRegistration={existingRegistration} />
+          <CardContent className="space-y-3 text-sm text-slate-600">
+            <p>
+              The registration experience has moved to a dedicated page. Follow the prompts to search your player record,
+              provide contact details, and confirm your entry.
+            </p>
+            <p>
+              Already registered players can review their status from the tournament dashboard. Contact the director if you need
+              to update critical information after submission.
+            </p>
           </CardContent>
         </Card>
       </div>
