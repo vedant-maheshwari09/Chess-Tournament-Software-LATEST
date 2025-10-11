@@ -105,6 +105,16 @@ export interface ContactEntry {
   email?: string;
 }
 
+export interface EntryFeeRule {
+  id: string;
+  section: string;
+  ratingMin: number | null;
+  ratingMax: number | null;
+  amount: number;
+  currency: string;
+  notes?: string;
+}
+
 export interface TournamentConfig {
   version: "v2";
   mode: TournamentMode;
@@ -127,6 +137,7 @@ export interface TournamentConfig {
     ratingType: string;
   };
   schedule: ScheduleEvent[];
+  entryFees: EntryFeeRule[];
   registers: RegistersConfig;
   fide: FideRegistrationData;
   uscf: UscfReportData;
@@ -198,6 +209,7 @@ export function createDefaultConfig(format: Tournament["format"], mode: Tourname
       ratingType: "standard",
     },
     schedule: createDefaultSchedule(defaultRounds),
+    entryFees: [],
     registers: {
       showOnCalendar: false,
       allowSignup: false,
@@ -295,6 +307,8 @@ export function parseTournamentConfig(tournament: Tournament): TournamentConfig 
           },
         ];
 
+    const sanitizedEntryFees = sanitizeEntryFees((parsed as any)?.entryFees);
+
     return {
       ...createDefaultConfig(tournament.format, normalizedMode ?? "rated"),
       ...parsed,
@@ -343,6 +357,7 @@ export function parseTournamentConfig(tournament: Tournament): TournamentConfig 
             ? parsed.chessResults.autoSyncIntervalMinutes
             : createDefaultConfig(tournament.format, normalizedMode ?? "rated").chessResults.autoSyncIntervalMinutes,
       },
+      entryFees: sanitizedEntryFees,
       mode: normalizedMode,
     };
   }
@@ -378,6 +393,7 @@ export function parseTournamentConfig(tournament: Tournament): TournamentConfig 
       ],
     },
     schedule: legacySchedule,
+    entryFees: [],
   };
 }
 
@@ -388,6 +404,7 @@ export function serializeTournamentConfig(config: TournamentConfig): TournamentC
     round: event.round ?? index + 1,
     id: event.id || `${index + 1}`,
   }));
+  const sanitizedEntryFees = sanitizeEntryFees(config.entryFees);
 
   return {
     ...config,
@@ -396,7 +413,61 @@ export function serializeTournamentConfig(config: TournamentConfig): TournamentC
       rounds,
     },
     schedule: adjustedSchedule,
+    entryFees: sanitizedEntryFees,
   };
+}
+
+function sanitizeEntryFees(value: unknown): EntryFeeRule[] {
+  if (!Array.isArray(value)) return [];
+  const result: EntryFeeRule[] = [];
+  for (const raw of value) {
+    const sanitized = sanitizeEntryFeeRule(raw);
+    if (!sanitized.section.trim()) continue;
+    if (result.some((existing) => existing.id === sanitized.id)) {
+      sanitized.id = generateEntryFeeId();
+    }
+    result.push(sanitized);
+  }
+  return result;
+}
+
+function sanitizeEntryFeeRule(raw: any): EntryFeeRule {
+  const id = typeof raw?.id === "string" && raw.id.trim() ? raw.id.trim() : generateEntryFeeId();
+  const section = typeof raw?.section === "string" ? raw.section.trim() : "";
+  const ratingMin = coerceNullableNumber(raw?.ratingMin);
+  const ratingMax = coerceNullableNumber(raw?.ratingMax);
+  const amount = coerceAmount(raw?.amount);
+  const currency = typeof raw?.currency === "string" && raw.currency.trim() ? raw.currency.trim().toUpperCase() : "USD";
+  const notes = typeof raw?.notes === "string" && raw.notes.trim() ? raw.notes.trim() : undefined;
+  return {
+    id,
+    section,
+    ratingMin,
+    ratingMax,
+    amount,
+    currency,
+    notes,
+  };
+}
+
+function coerceNullableNumber(value: unknown): number | null {
+  if (value === null || value === undefined || value === "") return null;
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : null;
+}
+
+function coerceAmount(value: unknown): number {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return 0;
+  return Math.max(0, Number(numeric.toFixed(2)));
+}
+
+function generateEntryFeeId(): string {
+  const globalCrypto = typeof globalThis !== "undefined" ? (globalThis as any).crypto : undefined;
+  if (globalCrypto && typeof globalCrypto.randomUUID === "function") {
+    return globalCrypto.randomUUID();
+  }
+  return `fee-${Math.random().toString(36).slice(2, 10)}`;
 }
 
 export function buildTournamentPayload(

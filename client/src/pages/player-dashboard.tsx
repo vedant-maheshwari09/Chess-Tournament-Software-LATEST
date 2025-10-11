@@ -257,7 +257,7 @@ export default function PlayerDashboard() {
           <Button
             size="sm"
             disabled={registerDisabled}
-            onClick={() => setLocation(`/tournaments/${tournament.id}/register`)}
+            onClick={() => setLocation(`/tournaments/${tournament.id}/register/form`)}
           >
             {registerLabel}
           </Button>
@@ -418,7 +418,7 @@ export default function PlayerDashboard() {
               </Badge>
               <Button
                 variant="outline"
-                onClick={() => setLocation(`/tournaments/${selectedTournament.id}/register`)}
+                onClick={() => setLocation(`/tournaments/${selectedTournament.id}/register/form`)}
               >
                 Register
               </Button>

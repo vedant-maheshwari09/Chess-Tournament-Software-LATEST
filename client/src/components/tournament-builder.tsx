@@ -17,6 +17,7 @@ import type { Tournament } from "@shared/schema";
 import {
   TournamentConfig,
   TournamentMode,
+  type EntryFeeRule,
   TimeControlDefinition,
   TimeAddonType,
   TimeControlType,
@@ -115,6 +116,8 @@ const RATING_TYPE_OPTIONS = [
   { value: "rapid", label: "Rapid" },
   { value: "blitz", label: "Blitz" },
 ];
+
+const ENTRY_FEE_CURRENCY_OPTIONS = ["USD", "CAD", "EUR"] as const;
 
 function fileToText(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -457,6 +460,21 @@ function StepTwo({ format, mode, config, onConfigChange, onBack: _onBack, onCanc
   const updateRegisters = (updates: Partial<TournamentConfig["registers"]>) =>
     onConfigChange({ ...config, registers: { ...config.registers, ...updates } });
 
+  const addEntryFee = () =>
+    onConfigChange({ ...config, entryFees: [...config.entryFees, createEntryFeeRow()] });
+
+  const updateEntryFee = (id: string, updates: Partial<EntryFeeRule>) =>
+    onConfigChange({
+      ...config,
+      entryFees: config.entryFees.map((fee) => (fee.id === id ? { ...fee, ...updates } : fee)),
+    });
+
+  const removeEntryFee = (id: string) =>
+    onConfigChange({
+      ...config,
+      entryFees: config.entryFees.filter((fee) => fee.id !== id),
+    });
+
   const [, setLocation] = useLocation();
   const [settingsShortcut, setSettingsShortcut] = useState<SettingsShortcutTab>("registers");
 
@@ -674,11 +692,11 @@ function StepTwo({ format, mode, config, onConfigChange, onBack: _onBack, onCanc
         <Card className="overflow-hidden">
           <CardContent className="p-0">
             <Tabs defaultValue="basic" className="w-full">
-              <TabsList className="grid w-full grid-cols-5">
+            <TabsList className="grid w-full grid-cols-5">
                 <TabsTrigger value="basic">Basic information</TabsTrigger>
                 <TabsTrigger value="details">Details</TabsTrigger>
                 <TabsTrigger value="schedule">Schedule</TabsTrigger>
-                <TabsTrigger value="contacts">Contacts</TabsTrigger>
+              <TabsTrigger value="entryFees">Entry fees</TabsTrigger>
                 <TabsTrigger value="playerSignup">Player sign up</TabsTrigger>
               </TabsList>
               <TabsContent value="basic" className="bg-white p-6 space-y-4">
@@ -940,107 +958,138 @@ function StepTwo({ format, mode, config, onConfigChange, onBack: _onBack, onCanc
                 {renderTabSaveButton()}
               </TabsContent>
 
-              <TabsContent value="contacts" className="bg-white p-6 space-y-4">
-                <div className="flex justify-between items-center">
-                  <h3 className="text-lg font-semibold">Contact Team</h3>
-                  <Button
-                    variant="outline"
-                    onClick={() =>
-                      onConfigChange({
-                        ...config,
-                        contacts: [
-                          ...config.contacts,
-                          {
-                            id: `${Date.now()}`,
-                            name: "",
-                            role: "Chief Arbiter",
-                            phone: "",
-                            email: "",
-                          },
-                        ],
-                      })
-                    }
-                  >
-                    Add Contact
+              <TabsContent value="entryFees" className="bg-white p-6 space-y-4">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <h3 className="text-lg font-semibold">Entry fees</h3>
+                    <p className="text-sm text-muted-foreground">
+                      Define pricing by section and rating range. These options appear in the player registration form.
+                    </p>
+                  </div>
+                  <Button variant="outline" onClick={addEntryFee}>
+                    Add entry fee
                   </Button>
                 </div>
 
-                <div className="space-y-3">
-                  {config.contacts.length === 0 && (
-                    <p className="text-sm text-muted-foreground">
-                      Add key staff members for quick reference.
-                    </p>
-                  )}
-                  {config.contacts.map((contact) => (
-                    <div key={contact.id} className="grid gap-3 md:grid-cols-4 items-center border rounded-lg p-3">
-                      <Input
-                        placeholder="Name"
-                        value={contact.name}
-                        onChange={(event) =>
-                          onConfigChange({
-                            ...config,
-                            contacts: config.contacts.map((item) =>
-                              item.id === contact.id ? { ...item, name: event.target.value } : item
-                            ),
-                          })
+                {(config.entryFees ?? []).length === 0 ? (
+                  <div className="rounded-lg border border-dashed border-slate-300 p-6 text-sm text-slate-600">
+                    No entry fees configured yet. Add rows to match each tournament section.
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {(config.entryFees ?? []).map((fee) => {
+                      const handleAmountChange = (raw: string) => {
+                        if (raw === "") {
+                          updateEntryFee(fee.id, { amount: 0 });
+                          return;
                         }
-                      />
-                      <Input
-                        placeholder="Role"
-                        value={contact.role}
-                        onChange={(event) =>
-                          onConfigChange({
-                            ...config,
-                            contacts: config.contacts.map((item) =>
-                              item.id === contact.id ? { ...item, role: event.target.value } : item
-                            ),
-                          })
-                        }
-                      />
-                      <Input
-                        placeholder="Phone"
-                        value={contact.phone ?? ""}
-                        onChange={(event) =>
-                          onConfigChange({
-                            ...config,
-                            contacts: config.contacts.map((item) =>
-                              item.id === contact.id ? { ...item, phone: event.target.value } : item
-                            ),
-                          })
-                        }
-                      />
-                      <div className="flex items-center gap-2">
-                        <Input
-                          placeholder="Email"
-                          value={contact.email ?? ""}
-                          onChange={(event) =>
-                            onConfigChange({
-                              ...config,
-                              contacts: config.contacts.map((item) =>
-                                item.id === contact.id ? { ...item, email: event.target.value } : item
-                              ),
-                            })
-                          }
-                        />
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          className="text-red-500"
-                          onClick={() =>
-                            onConfigChange({
-                              ...config,
-                              contacts: config.contacts.filter((item) => item.id !== contact.id),
-                            })
-                          }
-                        >
-                          Remove
-                        </Button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
+                        const parsed = Number(raw);
+                        updateEntryFee(fee.id, { amount: Number.isFinite(parsed) ? Math.max(0, parsed) : 0 });
+                      };
 
-                {renderTabSaveButton()}
+                      const handleRatingMinChange = (raw: string) => {
+                        if (raw === "") {
+                          updateEntryFee(fee.id, { ratingMin: null });
+                          return;
+                        }
+                        const parsed = Number(raw);
+                        updateEntryFee(fee.id, { ratingMin: Number.isFinite(parsed) ? parsed : null });
+                      };
+
+                      const handleRatingMaxChange = (raw: string) => {
+                        if (raw === "") {
+                          updateEntryFee(fee.id, { ratingMax: null });
+                          return;
+                        }
+                        const parsed = Number(raw);
+                        updateEntryFee(fee.id, { ratingMax: Number.isFinite(parsed) ? parsed : null });
+                      };
+
+                      return (
+                        <div key={fee.id} className="rounded-xl border border-slate-200 p-4">
+                          <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_auto] md:items-end">
+                            <div>
+                              <Label className="text-xs font-semibold uppercase text-slate-500">Section</Label>
+                              <Input
+                                value={fee.section}
+                                onChange={(event) => updateEntryFee(fee.id, { section: event.target.value })}
+                                placeholder="e.g., Championship"
+                              />
+                            </div>
+                            <div>
+                              <Label className="text-xs font-semibold uppercase text-slate-500">Rating floor</Label>
+                              <Input
+                                type="number"
+                                value={fee.ratingMin ?? ""}
+                                onChange={(event) => handleRatingMinChange(event.target.value)}
+                                placeholder="e.g., 1800"
+                              />
+                            </div>
+                            <div>
+                              <Label className="text-xs font-semibold uppercase text-slate-500">Rating ceiling</Label>
+                              <Input
+                                type="number"
+                                value={fee.ratingMax ?? ""}
+                                onChange={(event) => handleRatingMaxChange(event.target.value)}
+                                placeholder="Leave blank for open"
+                              />
+                            </div>
+                            <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
+                              <div>
+                                <Label className="text-xs font-semibold uppercase text-slate-500">Amount</Label>
+                                <Input
+                                  type="number"
+                                  step="0.01"
+                                  value={fee.amount ?? 0}
+                                  onChange={(event) => handleAmountChange(event.target.value)}
+                                  placeholder="e.g., 120"
+                                />
+                              </div>
+                              <div>
+                                <Label className="text-xs font-semibold uppercase text-slate-500">Currency</Label>
+                                <Select
+                                  value={fee.currency}
+                                  onValueChange={(value) => updateEntryFee(fee.id, { currency: value })}
+                                >
+                                  <SelectTrigger>
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {ENTRY_FEE_CURRENCY_OPTIONS.map((option) => (
+                                      <SelectItem key={option} value={option}>
+                                        {option}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                            </div>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              className="justify-self-end text-red-600"
+                              onClick={() => removeEntryFee(fee.id)}
+                            >
+                              Remove
+                            </Button>
+                          </div>
+                          <div className="mt-3">
+                            <Label className="text-xs font-semibold uppercase text-slate-500">Notes (optional)</Label>
+                            <Input
+                              value={fee.notes ?? ""}
+                              onChange={(event) => updateEntryFee(fee.id, { notes: event.target.value })}
+                              placeholder="e.g., Early bird until Oct 1"
+                            />
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                <div className="rounded-lg bg-slate-50 p-4 text-xs text-slate-500">
+                  Rating ranges are optional. Leave the fields blank to apply the fee to all players in the selected section.
+                </div>
               </TabsContent>
 
               <TabsContent value="playerSignup" className="bg-white p-6 space-y-4">
@@ -1366,6 +1415,25 @@ export function TournamentBuilder({ mode, format: initialFormat, tournament, onC
       tournament={tournament}
     />
   );
+}
+
+function createEntryFeeRow(): EntryFeeRule {
+  return {
+    id: generateEntryFeeId(),
+    section: "",
+    ratingMin: null,
+    ratingMax: null,
+    amount: 0,
+    currency: "USD",
+    notes: "",
+  };
+}
+
+function generateEntryFeeId(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return `fee-${Math.random().toString(36).slice(2, 10)}`;
 }
 
 export default TournamentBuilder;

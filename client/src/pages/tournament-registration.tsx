@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import {
@@ -17,6 +17,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Separator } from "@/components/ui/separator";
 import { parseTournamentConfig } from "@/lib/tournament-config";
 import type { Tournament, Player, PlayerRegistration as PlayerRegistrationType } from "@shared/schema";
+import { useAuth } from "@/hooks/useAuth";
 
 interface TournamentRegistrationPageProps {
   tournamentId: number;
@@ -48,6 +49,13 @@ const statusStyles: Record<string, string> = {
 
 export default function TournamentRegistrationPage({ tournamentId }: TournamentRegistrationPageProps) {
   const [, setLocation] = useLocation();
+  const { user, isLoading: authLoading } = useAuth();
+
+  useEffect(() => {
+    if (!authLoading && user?.role === "player") {
+      setLocation(`/tournaments/${tournamentId}/register/form`);
+    }
+  }, [authLoading, setLocation, tournamentId, user?.role]);
 
   const { data: tournament, isLoading: tournamentLoading } = useQuery<Tournament>({
     queryKey: [`/api/tournaments/${tournamentId}`],
