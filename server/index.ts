@@ -1,9 +1,32 @@
+import path from "path";
+import { config as loadEnv } from "dotenv";
 import express, { type Request, Response, NextFunction } from "express";
+
+const envLoaded = loadEnv();
+if (envLoaded.error) {
+  console.warn("Failed to load .env from process cwd", envLoaded.error);
+}
+
+if (!process.env.GEMINI_API_KEY) {
+  const fallbackPath = path.resolve(__dirname, "..", ".env");
+  const fallbackLoad = loadEnv({ path: fallbackPath, override: false });
+  if (fallbackLoad.error) {
+    console.warn(`Attempted fallback .env load at ${fallbackPath} but failed`, fallbackLoad.error);
+  }
+}
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 
 const app = express();
-app.use(express.json());
+app.use(
+  express.json({
+    verify: (req: Request, _res, buf) => {
+      if ((req.originalUrl ?? "").startsWith("/api/payments/stripe-webhook")) {
+        (req as any).rawBody = Buffer.from(buf);
+      }
+    },
+  }),
+);
 app.use(express.urlencoded({ extended: false }));
 
 // Add CORS headers for development

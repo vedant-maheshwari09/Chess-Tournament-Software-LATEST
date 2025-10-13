@@ -1,8 +1,9 @@
-import type { Express } from "express";
+import type { Express, Request, Response } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { setupVite, serveStatic, log } from "./vite";
 import { z } from "zod";
+import Stripe from "stripe";
 import { 
   insertTournamentSchema, 
   insertPlayerSchema, 
@@ -32,9 +33,18 @@ import {
   testChessResultsConnection,
   updateChessResultsScheduler,
 } from "./services/chessResults";
-import { parseTournamentConfig } from "@shared/tournament-config";
+import { parseTournamentConfig, type PaymentSettings, type EntryFeeRule } from "@shared/tournament-config";
 
 type RatingSource = "uscf" | "fide";
+
+const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY ?? "";
+const STRIPE_PUBLISHABLE_KEY = process.env.STRIPE_PUBLISHABLE_KEY ?? "";
+const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET ?? "";
+
+const stripe = STRIPE_SECRET_KEY ? new Stripe(STRIPE_SECRET_KEY) : null;
+
+const PAYMENT_STATUSES = ["unpaid", "processing", "paid", "failed", "refunded"] as const;
+type PaymentStatus = (typeof PAYMENT_STATUSES)[number];
 
 interface RatingLookupResult {
   source: RatingSource;
@@ -144,8 +154,35 @@ function parseLimitParam(value: unknown, fallback: number, max: number): number 
   return Math.min(parsed, max);
 }
 
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
-const GEMINI_MODEL = process.env.GEMINI_MODEL ?? "gemini-1.5-flash";
+function getGeminiConfig() {
+  return {
+    apiKey: process.env.GEMINI_API_KEY,
+    model: process.env.GEMINI_MODEL ?? "gemini-1.5-flash",
+  } as const;
+}
+
+function normalizeCurrency(input: unknown, fallback: string): string {
+  if (typeof input !== "string" || input.trim().length < 3) return fallback;
+  return input.trim().toUpperCase();
+}
+
+function computePaymentTotals(
+  entryFee: EntryFeeRule | null,
+  contribution: number,
+  paymentConfig: PaymentSettings,
+) {
+  const currency = normalizeCurrency(entryFee?.currency, paymentConfig.defaultCurrency ?? "USD");
+  const baseAmount = (entryFee?.amount ?? 0) + contribution;
+  const percent = Number(paymentConfig.processingFeePercent ?? 0);
+  const feeAmount = percent > 0 ? Number((baseAmount * (percent / 100)).toFixed(2)) : 0;
+  const total = Number((baseAmount + feeAmount).toFixed(2));
+  return {
+    subtotal: Number(baseAmount.toFixed(2)),
+    feeAmount,
+    total,
+    currency,
+  };
+}
 
 const geminiDraftSchema = z.object({
   config: z
@@ -198,6 +235,35 @@ const geminiDraftSchema = z.object({
     .passthrough(),
 });
 
+function formatCurrencyAmount(amount: unknown, currency: unknown): string {
+  const numeric = typeof amount === "number" ? amount : Number(amount);
+  const code = typeof currency === "string" && currency.trim().length === 3 ? currency.trim().toUpperCase() : "USD";
+  if (!Number.isFinite(numeric)) {
+    return typeof amount === "string" && amount ? amount : code;
+  }
+  try {
+    return new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency: code,
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(numeric);
+  } catch (error) {
+    return `${code} ${numeric.toFixed(2)}`;
+  }
+}
+
+function describeRatingWindow(min: unknown, max: unknown): string {
+  const low = Number(min);
+  const high = Number(max);
+  const hasLow = Number.isFinite(low);
+  const hasHigh = Number.isFinite(high);
+  if (hasLow && hasHigh) return `Rating ${low}-${high}`;
+  if (hasLow) return `Rating ${low}+`;
+  if (hasHigh) return `Rating ≤${high}`;
+  return "All ratings";
+}
+
 const updateNotificationPreferencesSchema = z.object({
   phoneNumber: z.string().trim().nullable().optional(),
   carrier: z.string().trim().nullable().optional(),
@@ -210,6 +276,32 @@ const tournamentNotificationSchema = z.object({
   message: z.string().min(1),
   sendEmail: z.boolean().optional(),
   sendSms: z.boolean().optional(),
+});
+
+const createPaymentIntentSchema = z.object({
+  entryFeeId: z.string().trim().optional(),
+  contribution: z.coerce.number().min(0).max(500).default(0),
+  currency: z.string().trim().optional(),
+  receiptEmail: z.string().trim().email().optional(),
+  playerName: z.string().trim().optional(),
+});
+
+const playerRegistrationSchema = z.object({
+  playerName: z.string().min(1, "Player name is required"),
+  uscfRating: z.coerce.number().optional(),
+  phoneNumber: z.string().trim().optional(),
+  email: z.string().email().optional(),
+  arrivalTime: z.string().trim().optional(),
+  entryFeeId: z.string().optional(),
+  currency: z.string().optional(),
+  amountDue: z.coerce.number().optional(),
+  amountPaid: z.coerce.number().optional(),
+  contribution: z.coerce.number().optional(),
+  paymentStatus: z.enum(PAYMENT_STATUSES).optional(),
+  paymentIntentId: z.string().trim().optional(),
+  paymentMethod: z.string().trim().optional(),
+  paymentReceiptUrl: z.string().url().optional(),
+  paymentNotes: z.string().trim().optional(),
 });
 
 export async function registerRoutes(app: Express): Promise<Server> {
@@ -611,7 +703,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   app.post("/api/tools/gemini-draft", requireAuth, async (req, res) => {
-    if (!GEMINI_API_KEY) {
+    const { apiKey, model } = getGeminiConfig();
+    const resolvedModel = (() => {
+      const raw = model && model.trim().length > 0 ? model.trim() : "gemini-1.5-flash";
+      return raw.startsWith("models/") ? raw : `models/${raw}`;
+    })();
+
+    if (!apiKey) {
       return res.status(503).json({ message: "Gemini integration is not configured" });
     }
 
@@ -625,6 +723,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const details = (config.details ?? {}) as Record<string, any>;
     const schedule = Array.isArray(config.schedule) ? config.schedule : [];
     const contacts = Array.isArray(config.contacts) ? config.contacts : [];
+    const entryFees = Array.isArray((config as any)?.entryFees) ? (config as any).entryFees : [];
+    const registers = (config as any)?.registers ?? {};
+    const fide = (config as any)?.fide ?? {};
 
     const scheduleLines = schedule
       .filter((item: any) => item && (item.label || item.date || item.time))
@@ -648,6 +749,70 @@ export async function registerRoutes(app: Express): Promise<Server> {
       })
       .join("\n");
 
+    const entryFeeLines = entryFees
+      .filter((fee: any) => fee && (fee.section || fee.amount))
+      .map((fee: any) => {
+        const amount = formatCurrencyAmount(fee.amount, fee.currency);
+        const ratingWindow = describeRatingWindow(fee.ratingMin, fee.ratingMax);
+        const ratingText = ratingWindow === "All ratings" ? "" : ` · ${ratingWindow}`;
+        const note = fee.notes ? ` — ${fee.notes}` : "";
+        const sectionName = fee.section ?? "Section";
+        return `• ${sectionName}: ${amount}${ratingText}${note}`;
+      })
+      .join("\n");
+
+    const highlightItems: string[] = [];
+    if (typeof fide?.prizeFund === "string" && fide.prizeFund.trim().length > 0) {
+      highlightItems.push(`Prize fund: ${fide.prizeFund.trim()}`);
+    }
+    if (typeof registers?.earlyBirdDetails === "string" && registers.earlyBirdDetails.trim().length > 0) {
+      highlightItems.push(`Early entry: ${registers.earlyBirdDetails.trim()}`);
+    }
+    if (typeof registers?.paymentDetails === "string" && registers.paymentDetails.trim().length > 0) {
+      highlightItems.push(`Payment info: ${registers.paymentDetails.trim()}`);
+    }
+    if (typeof registers?.playerLimit === "number" && Number.isFinite(registers.playerLimit) && registers.playerLimit > 0) {
+      highlightItems.push(`Entry cap: ${registers.playerLimit} players`);
+    }
+    if (typeof registers?.byeLimit === "number" && Number.isFinite(registers.byeLimit) && registers.byeLimit > 0) {
+      highlightItems.push(`Half-point byes available: up to ${registers.byeLimit}`);
+    }
+    const ratedTags: string[] = [];
+    if (registers?.fideRated) ratedTags.push("FIDE");
+    if (registers?.uscfRated) ratedTags.push("USCF");
+    if (ratedTags.length > 0) {
+      highlightItems.push(`Rated for ${ratedTags.join(" & ")}`);
+    }
+    if (registers?.allowSignup) {
+      highlightItems.push("Online registration is open through the player portal.");
+    }
+
+    const highlightLines = highlightItems.map((item) => `• ${item}`).join("\n");
+
+    const baseModel = (() => {
+      const raw = model && model.trim().length > 0 ? model.trim() : "gemini-1.5-flash";
+      return raw.replace(/^models\//, "");
+    })();
+    const primaryCandidates = [
+      baseModel,
+      baseModel.endsWith("-latest") ? baseModel : `${baseModel}-latest`,
+      "gemini-1.5-flash",
+      "gemini-1.5-flash-latest",
+      "gemini-1.5-pro",
+      "gemini-1.5-pro-latest",
+      "gemini-pro",
+      "gemini-pro-latest",
+    ];
+
+    const candidateModels = Array.from(
+      new Set(
+        primaryCandidates
+          .filter(Boolean)
+          .map((value) => value.replace(/^models\//, ""))
+          .map((value) => `models/${value}`),
+      ),
+    );
+
     const prompt = `You are assisting a chess tournament director by drafting the public tournament page copy.
 Use a professional but welcoming tone and produce concise Markdown with short headings and paragraphs.
 Include an Overview, Schedule, and Highlights section referencing the data below.
@@ -665,15 +830,27 @@ Tournament data:
 Schedule:
 ${scheduleLines || "No detailed schedule supplied."}
 
+Entry fees & sections:
+${entryFeeLines || "Entry fee menu will be confirmed soon."}
+
+Highlights & logistics:
+${highlightLines || "Additional logistics will be announced closer to the event."}
+
 Key contacts:
 ${contactLines || "Staff contact information will be announced."}
 
 Close with a friendly call-to-action for players or parents.`;
 
     try {
-      const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`,
-        {
+      let lastError: { status: number; payload: any; rawBody: string; model: string } | null = null;
+
+      for (const candidate of candidateModels) {
+        const url = new URL(
+          `https://generativelanguage.googleapis.com/v1beta/${candidate}:generateContent`,
+        );
+        url.searchParams.set("key", apiKey);
+
+        const response = await fetch(url.toString(), {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -690,25 +867,55 @@ Close with a friendly call-to-action for players or parents.`;
               maxOutputTokens: 800,
             },
           }),
-        },
-      );
+        });
 
-      const data = await response.json();
-      if (!response.ok) {
-        console.error("Gemini API error:", data);
-        return res.status(502).json({ message: "Gemini API request failed" });
+        const rawBody = await response.text();
+        let payload: any = null;
+
+        if (rawBody) {
+          try {
+            payload = JSON.parse(rawBody);
+          } catch (parseError) {
+            console.warn("Gemini response parsing failed", parseError);
+            payload = rawBody;
+          }
+        }
+
+        if (response.ok) {
+          const data = payload ?? {};
+          const content = (data?.candidates?.[0]?.content?.parts ?? [])
+            .map((part: any) => part?.text ?? "")
+            .join("\n")
+            .trim();
+
+          if (!content) {
+            return res.status(502).json({ message: "Gemini returned no content" });
+          }
+
+          return res.json({ content });
+        }
+
+        console.error("Gemini API error:", payload ?? rawBody, "(model:", candidate, ")");
+        lastError = { status: response.status, payload, rawBody, model: candidate };
+
+        if (response.status !== 404) {
+          break;
+        }
       }
 
-      const content = (data?.candidates?.[0]?.content?.parts ?? [])
-        .map((part: any) => part?.text ?? "")
-        .join("\n")
-        .trim();
+      if (lastError) {
+        const { status, payload, rawBody } = lastError;
+        const apiMessage =
+          (payload && typeof payload === "object" && "error" in payload && (payload as any).error?.message) ||
+          (payload && typeof payload === "object" && "message" in payload && (payload as any).message) ||
+          (typeof payload === "string" && payload) ||
+          rawBody ||
+          "Gemini API request failed";
 
-      if (!content) {
-        return res.status(502).json({ message: "Gemini returned no content" });
+        return res.status(status || 502).json({ message: apiMessage });
       }
 
-      res.json({ content });
+      return res.status(502).json({ message: "Gemini API request failed" });
     } catch (error) {
       console.error("Gemini draft error:", error);
       res.status(500).json({ message: "Failed to generate tournament copy" });
@@ -893,7 +1100,7 @@ Close with a friendly call-to-action for players or parents.`;
   // Start tournament
   app.post("/api/tournaments/:id/start", requireAuth, requireRole('tournament_director'), requireTournamentAccess, async (req, res) => {
     try {
-      const tournamentId = parseInt(req.params.id);
+      const tournamentId = Number.parseInt(req.params.id, 10);
       const tournament = await storage.getTournament(tournamentId);
 
       if (!tournament) {
@@ -1225,18 +1432,203 @@ Close with a friendly call-to-action for players or parents.`;
   });
 
   // Player registration routes
+  app.get("/api/tournaments/:id/payments/config", requireAuth, async (req, res) => {
+    try {
+      const tournamentId = Number.parseInt(req.params.id, 10);
+      if (!Number.isFinite(tournamentId)) {
+        return res.status(400).json({ message: "Invalid tournament id" });
+      }
+
+      const tournament = await storage.getTournament(tournamentId);
+      if (!tournament) {
+        return res.status(404).json({ message: "Tournament not found" });
+      }
+
+      const config = parseTournamentConfig(tournament);
+      const payments = config.payments;
+
+      res.json({
+        payments,
+        publishableKey: STRIPE_PUBLISHABLE_KEY || null,
+        onlineConfigured: Boolean(stripe && STRIPE_PUBLISHABLE_KEY) && payments.onlineEnabled,
+      });
+    } catch (error) {
+      console.error("Fetch payment config error:", error);
+      res.status(500).json({ message: "Failed to load payment settings" });
+    }
+  });
+
+  app.post("/api/tournaments/:id/payments/intent", requireAuth, async (req, res) => {
+    try {
+      if (!stripe || !STRIPE_PUBLISHABLE_KEY) {
+        return res.status(503).json({ message: "Online payments are not configured" });
+      }
+
+      const tournamentId = Number.parseInt(req.params.id, 10);
+      if (!Number.isFinite(tournamentId)) {
+        return res.status(400).json({ message: "Invalid tournament id" });
+      }
+
+      const tournament = await storage.getTournament(tournamentId);
+      if (!tournament) {
+        return res.status(404).json({ message: "Tournament not found" });
+      }
+
+      const config = parseTournamentConfig(tournament);
+      const payments = config.payments;
+
+      if (!payments.onlineEnabled) {
+        return res.status(400).json({ message: "Online payments are disabled for this tournament" });
+      }
+
+      const payload = createPaymentIntentSchema.parse(req.body ?? {});
+      const contribution = Number.isFinite(payload.contribution) ? Number(payload.contribution) : 0;
+      const entryFee = payload.entryFeeId
+        ? config.entryFees.find((fee) => fee.id === payload.entryFeeId) ?? null
+        : null;
+
+      if (!entryFee && payments.requirePaymentOnRegistration) {
+        return res.status(400).json({ message: "Select an entry fee before paying" });
+      }
+
+      const totals = computePaymentTotals(entryFee, contribution, payments);
+
+      if (totals.total <= 0) {
+        return res.status(400).json({ message: "Payment amount must be greater than zero" });
+      }
+
+      const amountInMinorUnits = Math.max(1, Math.round(totals.total * 100));
+      const description = `${tournament.name} registration`;
+      const receiptEmail = payload.receiptEmail ?? req.user?.email ?? undefined;
+
+      const descriptorSuffix = payments.payoutStatementDescriptor?.trim()
+        ? payments.payoutStatementDescriptor.trim().slice(0, 22)
+        : undefined;
+
+      const paymentIntent = await stripe.paymentIntents.create({
+        amount: amountInMinorUnits,
+        currency: totals.currency.toLowerCase(),
+        automatic_payment_methods: { enabled: true },
+        metadata: {
+          tournamentId: `${tournamentId}`,
+          tournamentName: tournament.name ?? "",
+          userId: `${req.user?.id ?? ""}`,
+          entryFeeId: payload.entryFeeId ?? "",
+          contribution: contribution.toFixed(2),
+        },
+        receipt_email: receiptEmail,
+        description: payload.playerName ? `${description} for ${payload.playerName}` : description,
+        ...(descriptorSuffix ? { statement_descriptor_suffix: descriptorSuffix } : {}),
+      });
+
+      res.json({
+        clientSecret: paymentIntent.client_secret,
+        paymentIntentId: paymentIntent.id,
+        amount: totals.total,
+        subtotal: totals.subtotal,
+        feeAmount: totals.feeAmount,
+        currency: totals.currency,
+        publishableKey: STRIPE_PUBLISHABLE_KEY,
+      });
+    } catch (error) {
+      console.error("Create payment intent error:", error);
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ message: "Invalid payment data" });
+      }
+      if (error instanceof Stripe.errors.StripeError) {
+        return res.status(400).json({ message: error.message });
+      }
+      res.status(500).json({ message: "Failed to create payment intent" });
+    }
+  });
+
+  app.post("/api/payments/stripe-webhook", async (req: Request, res: Response) => {
+    if (!stripe || !STRIPE_WEBHOOK_SECRET) {
+      return res.status(503).send("Stripe webhook not configured");
+    }
+
+    const signature = req.headers["stripe-signature"] as string | undefined;
+    const rawBody: Buffer | undefined = (req as any).rawBody;
+
+    if (!signature || !rawBody) {
+      return res.status(400).send("Missing Stripe signature");
+    }
+
+    let event: Stripe.Event;
+    try {
+      event = stripe.webhooks.constructEvent(rawBody, signature, STRIPE_WEBHOOK_SECRET);
+    } catch (error) {
+      console.error("Stripe webhook signature verification failed", error);
+      const message = error instanceof Error ? error.message : "Invalid signature";
+      return res.status(400).send(`Webhook Error: ${message}`);
+    }
+
+    try {
+      if (
+        event.type === "payment_intent.succeeded" ||
+        event.type === "payment_intent.processing" ||
+        event.type === "payment_intent.payment_failed" ||
+        event.type === "payment_intent.canceled"
+      ) {
+        const intent = event.data.object as Stripe.PaymentIntent;
+        const registration = await storage.getPlayerRegistrationByPaymentIntent(intent.id);
+        if (registration) {
+          const statusMap: Record<string, PaymentStatus> = {
+            succeeded: "paid",
+            processing: "processing",
+            requires_payment_method: "unpaid",
+            requires_action: "processing",
+            canceled: "failed",
+            payment_failed: "failed",
+          };
+
+          const mappedStatus = statusMap[intent.status] ?? "processing";
+          const fallbackAmountMinorUnits = Math.round(Number(String(registration.amountDue ?? "0")) * 100);
+          const amountReceived = Number(((intent.amount_received ?? 0) / 100).toFixed(2));
+          const amountTotal = Number(
+            (((intent.amount ?? fallbackAmountMinorUnits) as number) / 100).toFixed(2),
+          );
+          const currency = intent.currency ? intent.currency.toUpperCase() : registration.currency ?? "USD";
+          const intentWithCharges = intent as Stripe.PaymentIntent & {
+            charges?: Stripe.ApiList<Stripe.Charge>;
+          };
+          const latestCharge = intentWithCharges.charges?.data?.[0];
+          const notes =
+            intent.last_payment_error?.message ?? intent.cancellation_reason ?? registration.paymentNotes ?? null;
+
+          await storage.updatePlayerRegistration(registration.id, {
+            paymentStatus: mappedStatus,
+            amountPaid: amountReceived.toFixed(2),
+            amountDue: amountTotal.toFixed(2),
+            currency,
+            paymentMethod: latestCharge?.payment_method_details?.type ?? registration.paymentMethod ?? null,
+            paymentReceiptUrl: latestCharge?.receipt_url ?? registration.paymentReceiptUrl ?? null,
+            paymentNotes: notes,
+            paidAt: mappedStatus === "paid"
+              ? new Date((latestCharge?.created ?? Math.floor(Date.now() / 1000)) * 1000)
+              : null,
+          });
+        }
+      }
+    } catch (error) {
+      console.error("Stripe webhook handling error", error);
+      return res.status(500).send("Webhook processing failed");
+    }
+
+    res.json({ received: true });
+  });
   
   // Create player registration (for players to register for tournaments)
   app.post("/api/tournaments/:id/register", requireAuth, async (req, res) => {
     try {
-      const tournamentId = parseInt(req.params.id);
+      const tournamentId = Number.parseInt(req.params.id, 10);
+      if (!Number.isFinite(tournamentId)) {
+        return res.status(400).json({ error: "Invalid tournament id" });
+      }
       const user = req.user;
       if (!user) {
         return res.status(401).json({ error: "User not found" });
       }
-      const userId = user.id;
-      const { playerName, uscfRating, phoneNumber, email, arrivalTime } = req.body;
-
       // Check if tournament exists
       const tournament = await storage.getTournament(tournamentId);
       if (!tournament) {
@@ -1245,21 +1637,110 @@ Close with a friendly call-to-action for players or parents.`;
 
       // Check if user already registered for this tournament
       const existingRegistration = await storage.getPlayerRegistrationsByTournament(tournamentId);
-      const userAlreadyRegistered = existingRegistration.find(reg => reg.userId === userId);
-      if (userAlreadyRegistered) {
+      if (existingRegistration.some((registration) => registration.userId === user.id)) {
         return res.status(400).json({ error: "You are already registered for this tournament" });
+      }
+      const config = parseTournamentConfig(tournament);
+      const payments = config.payments;
+      const payload = playerRegistrationSchema.parse(req.body ?? {});
+      const offlineAllowed = (payments.acceptedOfflineMethods ?? []).length > 0;
+      const mustCompletePayment = payments.onlineEnabled && (payments.requirePaymentOnRegistration || !offlineAllowed);
+
+      const entryFee = payload.entryFeeId
+        ? config.entryFees.find((fee) => fee.id === payload.entryFeeId) ?? null
+        : null;
+      const contribution = Number.isFinite(payload.contribution) ? Number(payload.contribution) : 0;
+      const totals = computePaymentTotals(entryFee, contribution, payments);
+
+      let amountDue = Number.isFinite(payload.amountDue) ? Number(payload.amountDue) : totals.total;
+      if (!Number.isFinite(amountDue)) {
+        amountDue = totals.total || entryFee?.amount || 0;
+      }
+      amountDue = Number(amountDue.toFixed(2));
+
+      let amountPaid = Number.isFinite(payload.amountPaid) ? Number(payload.amountPaid) : 0;
+      amountPaid = Number(amountPaid.toFixed(2));
+
+      let paymentStatus: PaymentStatus = payload.paymentStatus ?? "unpaid";
+      let paymentMethod = payload.paymentMethod ?? null;
+      let paymentReceiptUrl = payload.paymentReceiptUrl ?? null;
+      let currency = normalizeCurrency(payload.currency ?? entryFee?.currency, payments.defaultCurrency ?? "USD");
+      let paidAt: Date | null = null;
+      let notes = payload.paymentNotes ?? null;
+
+      if (payments.onlineEnabled && payload.paymentIntentId) {
+        if (!stripe) {
+          return res.status(503).json({ error: "Online payments are not available" });
+        }
+
+        const paymentIntentRaw = await stripe.paymentIntents.retrieve(payload.paymentIntentId, {
+          expand: ["latest_charge"],
+        });
+        const paymentIntent = paymentIntentRaw as Stripe.PaymentIntent & {
+          latest_charge?: string | Stripe.Charge;
+          charges?: Stripe.ApiList<Stripe.Charge>;
+        };
+        amountDue = Number(((paymentIntent.amount ?? amountDue * 100) / 100).toFixed(2));
+        amountPaid = Number(((paymentIntent.amount_received ?? 0) / 100).toFixed(2));
+        currency = paymentIntent.currency ? paymentIntent.currency.toUpperCase() : currency;
+
+        const latestCharge = ((): Stripe.Charge | null => {
+          if (paymentIntent.latest_charge && typeof paymentIntent.latest_charge !== "string") {
+            return paymentIntent.latest_charge;
+          }
+          const charges = paymentIntent.charges?.data ?? [];
+          return charges[0] ?? null;
+        })();
+
+        if (latestCharge?.receipt_url && !paymentReceiptUrl) {
+          paymentReceiptUrl = latestCharge.receipt_url;
+        }
+        if (latestCharge?.payment_method_details?.type && !paymentMethod) {
+          paymentMethod = latestCharge.payment_method_details.type;
+        }
+
+        switch (paymentIntent.status) {
+          case "succeeded":
+            paymentStatus = "paid";
+            paidAt = latestCharge?.created ? new Date(latestCharge.created * 1000) : new Date();
+            break;
+          case "processing":
+          case "requires_capture":
+            paymentStatus = "processing";
+            break;
+          case "requires_payment_method":
+            paymentStatus = "unpaid";
+            break;
+          default:
+            paymentStatus = paymentStatus ?? "unpaid";
+        }
+
+        if (mustCompletePayment && paymentIntent.status !== "succeeded") {
+          return res.status(400).json({ error: "Payment must be completed before submitting registration" });
+        }
+      } else if (mustCompletePayment) {
+        return res.status(400).json({ error: "Online payment is required for this tournament" });
       }
 
       const registration = await storage.createPlayerRegistration({
         tournamentId,
-        userId,
-        playerName,
-        uscfRating,
-        phoneNumber,
-        email,
-        arrivalTime,
-        status: "pending"
-      });
+        userId: user.id,
+        playerName: payload.playerName,
+        uscfRating: payload.uscfRating ?? null,
+        phoneNumber: payload.phoneNumber ?? null,
+        email: payload.email ?? user.email ?? null,
+        arrivalTime: payload.arrivalTime ?? "",
+        status: "pending",
+        paymentStatus,
+        paymentIntentId: payload.paymentIntentId ?? null,
+        paymentMethod,
+        paymentReceiptUrl,
+        paymentNotes: notes,
+        amountDue,
+        amountPaid,
+        currency,
+        paidAt,
+      } as any);
 
       res.json(registration);
     } catch (error) {

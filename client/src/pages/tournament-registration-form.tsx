@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { useLocation } from "wouter";
 import { useForm, FormProvider, useFormContext } from "react-hook-form";
 import type { UseFormReturn } from "react-hook-form";
@@ -31,8 +31,13 @@ import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { parseTournamentConfig } from "@/lib/tournament-config";
-import type { EntryFeeRule } from "@/lib/tournament-config";
+import type { EntryFeeRule, PaymentSettings, OfflinePaymentMethod, SectionDefinition } from "@/lib/tournament-config";
 import type { Tournament, Player, PlayerRegistration } from "@shared/schema";
+import { loadStripe } from "@stripe/stripe-js";
+import type { Stripe, StripeElements } from "@stripe/stripe-js";
+import { Elements, PaymentElement, useStripe, useElements } from "@stripe/react-stripe-js";
+
+const PAYMENT_STATUS_VALUES = ["unpaid", "processing", "paid", "failed", "refunded"] as const;
 
 const registrationSchema = z.object({
   lookupMode: z.enum(["profile", "manual"]).default("profile"),
@@ -71,9 +76,38 @@ const registrationSchema = z.object({
   arrivalTime: z.string().optional(),
   prizeEmail: z.string().email().optional(),
   notes: z.string().optional(),
+  paymentIntentId: z.string().optional(),
+  paymentStatus: z.enum(PAYMENT_STATUS_VALUES).optional(),
+  paymentReceiptUrl: z.string().url().optional(),
+  paymentMethod: z.string().optional(),
+  currency: z.string().optional(),
+  amountDue: z.number().optional(),
+  amountPaid: z.number().optional(),
 });
 
 type RegistrationFormValues = z.infer<typeof registrationSchema>;
+
+interface PaymentsConfigResponse {
+  payments: PaymentSettings;
+  publishableKey: string | null;
+  onlineConfigured: boolean;
+}
+
+interface PaymentIntentResponse {
+  clientSecret: string;
+  paymentIntentId: string;
+  amount: number;
+  subtotal: number;
+  feeAmount: number;
+  currency: string;
+}
+
+interface PaymentTotals {
+  subtotal: number;
+  feeAmount: number;
+  total: number;
+  currency: string;
+}
 
 interface TournamentRegistrationFormProps {
   tournamentId: number;
@@ -117,6 +151,10 @@ const COUNTRY_OPTIONS = [
   "Other",
 ];
 
+type SectionOption = Pick<SectionDefinition, "name" | "ratingMin" | "ratingMax"> & {
+  id: string;
+};
+
 export default function TournamentRegistrationFormPage({ tournamentId }: TournamentRegistrationFormProps) {
   const [, setLocation] = useLocation();
   const queryClient = useQueryClient();
@@ -136,6 +174,11 @@ export default function TournamentRegistrationFormPage({ tournamentId }: Tournam
     queryKey: ["/api/my-registrations"],
   });
 
+  const { data: paymentsConfigResponse } = useQuery<PaymentsConfigResponse>({
+    queryKey: [`/api/tournaments/${tournamentId}/payments/config`],
+    enabled: Boolean(tournament),
+  });
+
   const existingRegistration = registrations.find((entry) => entry.tournamentId === tournamentId);
   const config = useMemo(
     () => (tournament ? parseTournamentConfig(tournament) : null),
@@ -143,21 +186,51 @@ export default function TournamentRegistrationFormPage({ tournamentId }: Tournam
   );
 
   const entryFees = useMemo(() => config?.entryFees ?? [], [config]);
-  const sections = useMemo(() => {
-    if (entryFees.length > 0) {
-      return Array.from(
-        new Set(
-          entryFees
-            .map((fee) => fee.section)
-            .filter((section): section is string => Boolean(section && section.trim())),
-        ),
-      );
-    }
-    const registerSections = config?.registers?.playerLimit ? ["Premier", "Championship"] : undefined;
-    if (registerSections?.length) return registerSections;
-    return Object.values(SECTION_FALLBACKS);
-  }, [config?.registers?.playerLimit, entryFees]);
+  const sections = useMemo<SectionOption[]>(() => {
+    const map = new Map<string, SectionOption>();
+    const ensureId = (name: string, id?: string | null) => {
+      const key = name.trim().toLowerCase();
+      if (!key) return `section-${Math.random().toString(36).slice(2, 8)}`;
+      return id?.trim() || `section-${key}`;
+    };
+    const upsert = (
+      name: string | null | undefined,
+      ratingMin: number | null | undefined,
+      ratingMax: number | null | undefined,
+      id?: string | null,
+    ) => {
+      if (!name || !name.trim()) return;
+      const key = name.trim().toLowerCase();
+      const normalizedMin = typeof ratingMin === "number" && Number.isFinite(ratingMin) ? ratingMin : null;
+      const normalizedMax = typeof ratingMax === "number" && Number.isFinite(ratingMax) ? ratingMax : null;
+      const existing = map.get(key);
+      map.set(key, {
+        id: existing?.id ?? ensureId(name, id),
+        name: existing?.name ?? name.trim(),
+        ratingMin: existing?.ratingMin ?? normalizedMin,
+        ratingMax: existing?.ratingMax ?? normalizedMax,
+      });
+    };
 
+    if (config?.sections?.length) {
+      for (const section of config.sections) {
+        upsert(section.name, section.ratingMin, section.ratingMax, section.id);
+      }
+    }
+
+    if (entryFees.length > 0) {
+      for (const fee of entryFees) {
+        upsert(fee.section, fee.ratingMin, fee.ratingMax, fee.sectionId);
+      }
+    }
+
+    if (map.size === 0) {
+      const fallback = config?.registers?.playerLimit ? ["Premier", "Championship"] : Object.values(SECTION_FALLBACKS);
+      fallback.forEach((name) => upsert(name, null, null));
+    }
+
+    return Array.from(map.values());
+  }, [config?.sections, config?.registers?.playerLimit, entryFees]);
   const form = useForm<RegistrationFormValues>({
     resolver: zodResolver(registrationSchema),
     defaultValues: {
@@ -188,9 +261,70 @@ export default function TournamentRegistrationFormPage({ tournamentId }: Tournam
       arrivalTime: "",
       prizeEmail: "",
       notes: "",
+      paymentIntentId: undefined,
+      paymentStatus: "unpaid",
+      paymentReceiptUrl: undefined,
+      paymentMethod: undefined,
+      currency: undefined,
+      amountDue: undefined,
+      amountPaid: undefined,
     },
   });
-  const paymentAcknowledged = form.watch("paymentAcknowledgement");
+  const paymentSubmitRef = useRef<(() => Promise<boolean>) | null>(null);
+  const paymentIntentRequestKeyRef = useRef<string | null>(null);
+  const [clientSecret, setClientSecret] = useState<string | null>(null);
+  const [isPaymentBusy, setIsPaymentBusy] = useState(false);
+  const [isPaymentElementReady, setIsPaymentElementReady] = useState(false);
+  const stripePromise = useMemo(() => {
+    if (!paymentsConfigResponse?.publishableKey) {
+      return null;
+    }
+    return loadStripe(paymentsConfigResponse.publishableKey);
+  }, [paymentsConfigResponse?.publishableKey]);
+  const paymentSettings = paymentsConfigResponse?.payments ?? config?.payments ?? null;
+  const canProcessOnline = Boolean(paymentSettings?.onlineEnabled && paymentsConfigResponse?.onlineConfigured && stripePromise);
+  const offlineMethodsConfigured = paymentSettings?.acceptedOfflineMethods ?? [];
+  const offlineAllowed = offlineMethodsConfigured.length > 0;
+  const requiresPayment = Boolean(
+    canProcessOnline && (paymentSettings?.requirePaymentOnRegistration || !offlineAllowed),
+  );
+
+  const [watchEntryFeeId, watchContribution, watchFirstName, watchLastName, watchEmail] = form.watch([
+    "entryFeeId",
+    "processingContribution",
+    "firstName",
+    "lastName",
+    "email",
+  ]);
+
+  const selectedEntryFeeId = (watchEntryFeeId as string) ?? "";
+  const selectedEntryFee = useMemo(
+    () => entryFees.find((fee) => fee.id === selectedEntryFeeId) ?? null,
+    [entryFees, selectedEntryFeeId],
+  );
+  const processingContributionValue = useMemo(() => parseContribution(watchContribution), [watchContribution]);
+  const paymentTotals = useMemo(
+    () => computePaymentTotals(selectedEntryFee, processingContributionValue, paymentSettings),
+    [selectedEntryFee, processingContributionValue, paymentSettings],
+  );
+
+  useEffect(() => {
+    if (!canProcessOnline) {
+      setClientSecret(null);
+      paymentIntentRequestKeyRef.current = null;
+      form.setValue("paymentIntentId", undefined, { shouldDirty: false });
+      form.setValue("paymentStatus", "unpaid", { shouldDirty: false });
+      form.setValue("currency", paymentTotals.currency, { shouldDirty: false });
+      form.setValue("amountDue", paymentTotals.total, { shouldDirty: false });
+      setIsPaymentElementReady(true);
+    }
+  }, [canProcessOnline, form, paymentTotals.currency, paymentTotals.total]);
+
+  useEffect(() => {
+    if (currentStep !== 3) {
+      setIsPaymentElementReady(false);
+    }
+  }, [currentStep]);
 
   const registerMutation = useMutation({
     mutationFn: async (values: RegistrationFormValues) => {
@@ -200,6 +334,15 @@ export default function TournamentRegistrationFormPage({ tournamentId }: Tournam
         phoneNumber: values.phoneNumber,
         email: values.email,
         arrivalTime: buildArrivalNotes(values, entryFees),
+        entryFeeId: values.entryFeeId,
+        processingContribution: parseContribution(values.processingContribution),
+        paymentIntentId: values.paymentIntentId,
+        paymentStatus: values.paymentStatus,
+        paymentReceiptUrl: values.paymentReceiptUrl,
+        paymentMethod: values.paymentMethod,
+        currency: values.currency,
+        amountDue: typeof values.amountDue === "number" ? values.amountDue : undefined,
+        amountPaid: typeof values.amountPaid === "number" ? values.amountPaid : undefined,
       };
 
       return apiRequest(`/api/tournaments/${tournamentId}/register`, {
@@ -215,6 +358,9 @@ export default function TournamentRegistrationFormPage({ tournamentId }: Tournam
       queryClient.invalidateQueries({ queryKey: ["/api/my-registrations"] });
       queryClient.invalidateQueries({ queryKey: [`/api/tournaments/${tournamentId}/players`] });
       setCurrentStep(3);
+      paymentSubmitRef.current = null;
+      setClientSecret(null);
+      paymentIntentRequestKeyRef.current = null;
     },
     onError: (error: Error) => {
       toast({
@@ -224,6 +370,142 @@ export default function TournamentRegistrationFormPage({ tournamentId }: Tournam
       });
     },
   });
+
+  const createPaymentIntent = useMutation({
+    mutationFn: async (body: { entryFeeId?: string; contribution: number; receiptEmail?: string; playerName?: string }) => {
+      const response = await apiRequest(`/api/tournaments/${tournamentId}/payments/intent`, {
+        method: "POST",
+        body: JSON.stringify(body),
+      });
+      return response as PaymentIntentResponse;
+    },
+    onSuccess: (data) => {
+      setClientSecret(data.clientSecret);
+      form.setValue("paymentIntentId", data.paymentIntentId, { shouldDirty: false });
+      form.setValue("currency", data.currency, { shouldDirty: false });
+      form.setValue("amountDue", data.amount, { shouldDirty: false });
+      form.setValue("amountPaid", 0, { shouldDirty: false });
+      form.setValue("paymentStatus", "unpaid", { shouldDirty: false });
+      setIsPaymentElementReady(false);
+      const entryFeeId = form.getValues("entryFeeId");
+      const contribution = parseContribution(form.getValues("processingContribution"));
+      const email = (form.getValues("email") ?? "").trim().toLowerCase();
+      const playerName = `${form.getValues("firstName") ?? ""} ${form.getValues("lastName") ?? ""}`
+        .trim()
+        .toLowerCase();
+      const normalizedEntryFeeKey = entryFeeId && entryFeeId !== NO_ENTRY_FEE_ID ? entryFeeId : "offline";
+      paymentIntentRequestKeyRef.current = `${normalizedEntryFeeKey}|${contribution.toFixed(2)}|${email}|${playerName}`;
+    },
+    onError: (error: Error) => {
+      paymentIntentRequestKeyRef.current = null;
+      toast({
+        title: "Payment setup failed",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  const ensurePaymentIntent = useCallback(async () => {
+    if (!canProcessOnline || createPaymentIntent.isPending) {
+      return;
+    }
+
+    const entryFeeIdRaw = form.getValues("entryFeeId");
+    const normalizedEntryFeeId = entryFeeIdRaw && entryFeeIdRaw !== NO_ENTRY_FEE_ID ? entryFeeIdRaw : undefined;
+
+    if (!normalizedEntryFeeId && requiresPayment) {
+      paymentIntentRequestKeyRef.current = null;
+      toast({
+        title: "Confirm entry fee",
+        description: "Select the entry option for your section before continuing to payment.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const contribution = parseContribution(form.getValues("processingContribution"));
+    const receiptEmail = (form.getValues("email") ?? "").trim();
+    const playerName = `${form.getValues("firstName") ?? ""} ${form.getValues("lastName") ?? ""}`.trim();
+
+    const requestKey = `${normalizedEntryFeeId ?? "offline"}|${contribution.toFixed(2)}|${receiptEmail.toLowerCase()}|${playerName.toLowerCase()}`;
+
+    if (paymentIntentRequestKeyRef.current === requestKey && clientSecret) {
+      return;
+    }
+
+    paymentIntentRequestKeyRef.current = requestKey;
+    try {
+      await createPaymentIntent.mutateAsync({
+        entryFeeId: normalizedEntryFeeId,
+        contribution,
+        receiptEmail: receiptEmail || undefined,
+        playerName: playerName || undefined,
+      });
+    } catch {
+      paymentIntentRequestKeyRef.current = null;
+    }
+  }, [canProcessOnline, createPaymentIntent, form, clientSecret, requiresPayment, toast]);
+
+  useEffect(() => {
+    if (currentStep !== 3) {
+      return;
+    }
+    if (!canProcessOnline) {
+      setIsPaymentElementReady(true);
+      return;
+    }
+    ensurePaymentIntent();
+  }, [
+    currentStep,
+    canProcessOnline,
+    ensurePaymentIntent,
+    watchEntryFeeId,
+    watchContribution,
+    watchFirstName,
+    watchLastName,
+    watchEmail,
+  ]);
+
+  const paymentAcknowledged = form.watch("paymentAcknowledgement");
+
+  const setPaymentSubmitHandler = useCallback((fn: (() => Promise<boolean>) | null) => {
+    paymentSubmitRef.current = fn;
+  }, []);
+
+  const handleFinalSubmit = useCallback(async () => {
+    const valid = await form.trigger(undefined, { shouldFocus: true });
+    if (!valid) {
+      return;
+    }
+    if (paymentSubmitRef.current) {
+      const proceed = await paymentSubmitRef.current();
+      if (!proceed) {
+        return;
+      }
+    }
+    const values = form.getValues();
+    registerMutation.mutate(values);
+  }, [form, registerMutation]);
+
+  const paymentIntentErrorMessage = createPaymentIntent.error
+    ? createPaymentIntent.error instanceof Error
+      ? createPaymentIntent.error.message
+      : "Unable to prepare payment session"
+    : null;
+
+  const submitButtonLabel = registerMutation.isPending
+    ? "Submitting..."
+    : isPaymentBusy
+    ? "Processing payment..."
+    : requiresPayment
+    ? "Pay & submit"
+    : "Submit registration";
+
+  const disableSubmitButton =
+    registerMutation.isPending ||
+    isPaymentBusy ||
+    (requiresPayment && canProcessOnline && (!clientSecret || createPaymentIntent.isPending || !isPaymentElementReady));
 
   if (isLoading) {
     return (
@@ -343,10 +625,34 @@ export default function TournamentRegistrationFormPage({ tournamentId }: Tournam
     if (currentStep === 1) {
       fields = ["firstName", "lastName", "email", "sectionChoice"];
     } else if (currentStep === 2 && entryFees.length > 0) {
-      fields = ["entryFeeId"];
+      const selectedSection = form.getValues("sectionChoice");
+      const sectionEntryFees = filterEntryFeesBySection(entryFees, selectedSection);
+      const selectedEntryFeeId = form.getValues("entryFeeId");
+
+      if (sectionEntryFees.length === 0) {
+        if (!selectedEntryFeeId) {
+          form.setValue("entryFeeId", NO_ENTRY_FEE_ID, { shouldDirty: false, shouldValidate: false });
+        }
+      } else {
+        fields = ["entryFeeId"];
+      }
     }
-    const valid = await form.trigger(fields.length ? fields : undefined);
-    if (!valid) return;
+
+    let valid = true;
+    if (fields.length > 0) {
+      valid = await form.trigger(fields, { shouldFocus: true });
+    }
+
+    if (!valid) {
+      if (fields.includes("entryFeeId")) {
+        toast({
+          title: "Select an entry fee",
+          description: "Pick the entry option that matches your section before continuing.",
+          variant: "destructive",
+        });
+      }
+      return;
+    }
     setCurrentStep((prev) => Math.min(prev + 1, 3));
   };
 
@@ -354,9 +660,6 @@ export default function TournamentRegistrationFormPage({ tournamentId }: Tournam
     setCurrentStep((prev) => Math.max(prev - 1, 1));
   };
 
-  const onSubmit = (values: RegistrationFormValues) => {
-    registerMutation.mutate(values);
-  };
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-50 via-white to-white">
@@ -407,12 +710,12 @@ export default function TournamentRegistrationFormPage({ tournamentId }: Tournam
               </div>
             </div>
 
-            <Card className="overflow-hidden border-0 bg-white/80 shadow-xl backdrop-blur">
-              <CardHeader className="pb-4">
+            <Card className="overflow-hidden border-0 bg-white/80 shadow-xl ring-1 ring-indigo-100/70 backdrop-blur">
+              <CardHeader className="border-b border-indigo-100/70 bg-gradient-to-r from-indigo-50/80 to-white pb-4">
                 <CardTitle className="text-lg font-semibold">Registration progress</CardTitle>
                 <CardDescription>Follow the steps below to complete your entry.</CardDescription>
               </CardHeader>
-              <CardContent className="space-y-5">
+              <CardContent className="space-y-5 bg-white/70 p-6">
                 <div className="relative h-2 rounded-full bg-slate-200">
                   <div
                     className="absolute left-0 top-0 h-2 rounded-full bg-gradient-to-r from-indigo-500 via-indigo-500 to-emerald-500 transition-all duration-300"
@@ -464,13 +767,56 @@ export default function TournamentRegistrationFormPage({ tournamentId }: Tournam
 
       <div className="mx-auto max-w-6xl space-y-12 px-4 py-12 sm:px-6 lg:px-8">
         <FormProvider {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-10">
-            {currentStep === 1 && <StepOne players={players} sections={sections} />}
+          <form onSubmit={(event) => event.preventDefault()} className="space-y-10">
+            {currentStep === 1 && <StepOne players={players} sections={sections} entryFees={entryFees} />}
 
-            {currentStep === 2 && <StepTwo config={config} entryFees={entryFees} />}
+            {currentStep === 2 && (
+              <StepTwo
+                config={config}
+                entryFees={entryFees}
+                paymentSettings={paymentSettings ?? null}
+                sections={sections}
+              />
+            )}
 
             {currentStep === 3 && (
-              <StepThree entryFees={entryFees} paymentDetails={config?.registers?.paymentDetails} />
+              canProcessOnline && clientSecret && stripePromise ? (
+                <Elements key={clientSecret} stripe={stripePromise} options={{ clientSecret }}>
+                  <StepThree
+                    paymentDetails={config?.registers?.paymentDetails}
+                    paymentSettings={paymentSettings ?? null}
+                    paymentTotals={paymentTotals}
+                    selectedEntryFee={selectedEntryFee}
+                    requiresPayment={requiresPayment}
+                    onlineConfigured={Boolean(canProcessOnline)}
+                    clientSecret={clientSecret}
+                    registerPaymentHandler={setPaymentSubmitHandler}
+                    setPaymentBusy={setIsPaymentBusy}
+                    onPaymentElementReady={setIsPaymentElementReady}
+                    paymentIntentLoading={createPaymentIntent.isPending}
+                    paymentIntentError={paymentIntentErrorMessage}
+                    canAcceptOnlinePayment={true}
+                    tournamentId={tournamentId}
+                  />
+                </Elements>
+              ) : (
+                <StepThree
+                  paymentDetails={config?.registers?.paymentDetails}
+                  paymentSettings={paymentSettings ?? null}
+                  paymentTotals={paymentTotals}
+                  selectedEntryFee={selectedEntryFee}
+                  requiresPayment={requiresPayment}
+                  onlineConfigured={Boolean(canProcessOnline)}
+                  clientSecret={clientSecret}
+                  registerPaymentHandler={setPaymentSubmitHandler}
+                  setPaymentBusy={setIsPaymentBusy}
+                  onPaymentElementReady={setIsPaymentElementReady}
+                  paymentIntentLoading={createPaymentIntent.isPending}
+                  paymentIntentError={paymentIntentErrorMessage}
+                  canAcceptOnlinePayment={false}
+                  tournamentId={tournamentId}
+                />
+              )
             )}
 
             <div className="flex flex-col gap-3 border-t border-slate-200 pt-6 sm:flex-row sm:items-center sm:justify-between">
@@ -486,8 +832,12 @@ export default function TournamentRegistrationFormPage({ tournamentId }: Tournam
                     Continue
                   </Button>
                 ) : (
-                  <Button type="submit" disabled={registerMutation.isPending || !paymentAcknowledged}>
-                    {registerMutation.isPending ? "Submitting..." : "Submit Registration"}
+                  <Button
+                    type="button"
+                    disabled={disableSubmitButton || !paymentAcknowledged}
+                    onClick={handleFinalSubmit}
+                  >
+                    {submitButtonLabel}
                   </Button>
                 )}
               </div>
@@ -526,13 +876,72 @@ interface RatingLookupResponse {
   errors?: Partial<Record<RatingLookupSource, string>>;
 }
 
-function StepOne({ players, sections }: { players: Player[]; sections: string[] }) {
+function StepOne({
+  players,
+  sections,
+  entryFees,
+}: {
+  players: Player[];
+  sections: SectionOption[];
+  entryFees: EntryFeeRule[];
+}) {
   const form = useFormContext<RegistrationFormValues>();
   const lookupMode = form.watch("lookupMode");
+  const ratingProvider = form.watch("ratingProvider");
+  const uscfRatingValue = form.watch("uscfRating");
+  const fideRatingValue = form.watch("fideRating");
   const [searchTerm, setSearchTerm] = useState("");
   const [remoteResults, setRemoteResults] = useState<RatingLookupResult[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
+
+  const numericRating = useMemo(
+    () => derivePlayerRating(ratingProvider, uscfRatingValue, fideRatingValue),
+    [ratingProvider, uscfRatingValue, fideRatingValue],
+  );
+
+  const sectionDetails = useMemo(
+    () =>
+      sections.map((section) => {
+        const options = filterEntryFeesBySection(entryFees, section.name);
+        const primaryFee = options[0] ?? null;
+        const label = primaryFee
+          ? `${section.name} (${formatCurrency(primaryFee.amount, primaryFee.currency)})`
+          : `${section.name} (TBD)`;
+        return {
+          ...section,
+          entryFee: primaryFee,
+          label,
+        };
+      }),
+    [sections, entryFees],
+  );
+
+  useEffect(() => {
+    if (sectionDetails.length === 0) return;
+    const current = form.getValues("sectionChoice");
+    if (current && sectionDetails.some((section) => section.name === current)) {
+      return;
+    }
+    const fallback =
+      numericRating !== null
+        ? sectionDetails.find((section) => ratingWithinSectionRange(numericRating, section))
+        : sectionDetails[0];
+    if (fallback) {
+      form.setValue("sectionChoice", fallback.name, { shouldDirty: false, shouldValidate: true });
+    }
+  }, [sectionDetails, form, numericRating]);
+
+  useEffect(() => {
+    if (numericRating === null) return;
+    const current = form.getValues("sectionChoice");
+    if (!current) return;
+    const active = sectionDetails.find((section) => section.name === current);
+    if (active && !ratingWithinSectionRange(numericRating, active)) {
+      const fallback = sectionDetails.find((section) => ratingWithinSectionRange(numericRating, section));
+      form.setValue("sectionChoice", fallback ? fallback.name : "", { shouldDirty: true, shouldValidate: true });
+    }
+  }, [numericRating, sectionDetails, form]);
 
   useEffect(() => {
     if (lookupMode !== "profile") {
@@ -626,12 +1035,12 @@ function StepOne({ players, sections }: { players: Player[]; sections: string[] 
   };
 
   return (
-    <Card className="border-0 bg-white/90 shadow-lg ring-1 ring-slate-100 backdrop-blur-sm">
-      <CardHeader>
+    <Card className="border-0 bg-white/90 shadow-xl ring-1 ring-indigo-100/70 backdrop-blur">
+      <CardHeader className="border-b border-indigo-100/70 bg-gradient-to-r from-indigo-50/80 to-white">
         <CardTitle>Step 1: Player Lookup</CardTitle>
         <CardDescription>Search national databases or enter your information manually.</CardDescription>
       </CardHeader>
-      <CardContent className="space-y-6">
+      <CardContent className="space-y-6 bg-white/60 p-6">
         <RadioGroup
           value={lookupMode}
           onValueChange={(value) =>
@@ -690,7 +1099,7 @@ function StepOne({ players, sections }: { players: Player[]; sections: string[] 
                           key={`${result.source}-${result.id}`}
                           type="button"
                           onClick={() => handleSelectLookupResult(result)}
-                          className="w-full rounded-lg border border-slate-200 p-3 text-left transition hover:border-indigo-300 hover:bg-indigo-50"
+                          className="w-full rounded-lg border border-indigo-100/80 bg-indigo-50/70 p-3 text-left shadow-sm transition hover:border-indigo-300 hover:bg-indigo-100/80"
                         >
                           <div className="flex items-center justify-between gap-3">
                             <div className="space-y-1">
@@ -722,7 +1131,7 @@ function StepOne({ players, sections }: { players: Player[]; sections: string[] 
                           key={player.id}
                           type="button"
                           onClick={() => handleSelectRosterPlayer(player)}
-                          className="w-full rounded-lg border border-slate-200 p-3 text-left transition hover:border-indigo-300 hover:bg-indigo-50"
+                          className="w-full rounded-lg border border-indigo-100/80 bg-emerald-50/70 p-3 text-left shadow-sm transition hover:border-emerald-300 hover:bg-emerald-100/80"
                         >
                           <div className="flex items-center justify-between gap-3">
                             <div>
@@ -770,11 +1179,39 @@ function StepOne({ players, sections }: { players: Player[]; sections: string[] 
                 <SelectValue placeholder="Choose a section" />
               </SelectTrigger>
               <SelectContent>
-                {sections.map((section) => (
-                  <SelectItem key={section} value={section}>
-                    {section}
+                {sectionDetails.length === 0 ? (
+                  <SelectItem value="" disabled>
+                    Sections will be announced soon
                   </SelectItem>
-                ))}
+                ) : (
+                  sectionDetails.map((section) => {
+                    const eligible = ratingWithinSectionRange(numericRating, section);
+                    const showEligibilityWarning = numericRating !== null && !eligible;
+                    return (
+                      <SelectItem
+                        key={section.id}
+                        value={section.name}
+                        disabled={showEligibilityWarning}
+                        className={cn(
+                          "flex flex-col items-start gap-1",
+                          showEligibilityWarning && "opacity-45 text-slate-400",
+                        )}
+                      >
+                        <span className="font-medium text-slate-900">{section.label}</span>
+                        {(section.ratingMin !== null || section.ratingMax !== null) && (
+                          <span className="text-xs text-slate-500">
+                            Rating {section.ratingMin ?? "Unrated"} – {section.ratingMax ?? "Open"}
+                          </span>
+                        )}
+                        {showEligibilityWarning && numericRating !== null && (
+                          <span className="text-[11px] text-amber-600">
+                            Not eligible with rating {numericRating}.
+                          </span>
+                        )}
+                      </SelectItem>
+                    );
+                  })
+                )}
               </SelectContent>
             </Select>
             {form.formState.errors.sectionChoice && (
@@ -830,9 +1267,13 @@ function splitName(fullName: string): { firstName: string; lastName: string } {
 function StepTwo({
   config,
   entryFees,
+  paymentSettings,
+  sections,
 }: {
   config: ReturnType<typeof parseTournamentConfig> | null;
   entryFees: EntryFeeRule[];
+  paymentSettings: PaymentSettings | null;
+  sections: SectionOption[];
 }) {
   const form = useFormContext<RegistrationFormValues>();
   const byePreference = form.watch("byePreference");
@@ -847,10 +1288,58 @@ function StepTwo({
     [fideRatingValue, ratingProvider, uscfRatingValue],
   );
 
+  const sectionDetails = useMemo(
+    () =>
+      sections.map((section) => {
+        const options = filterEntryFeesBySection(entryFees, section.name);
+        const primaryFee = options[0] ?? null;
+        const label = primaryFee
+          ? `${section.name} (${formatCurrency(primaryFee.amount, primaryFee.currency)})`
+          : `${section.name} (TBD)`;
+        return {
+          ...section,
+          entryFee: primaryFee,
+          label,
+        };
+      }),
+    [sections, entryFees],
+  );
+
+  useEffect(() => {
+    if (sectionDetails.length === 0) return;
+    const current = form.getValues("sectionChoice");
+    if (current && sectionDetails.some((section) => section.name === current)) {
+      return;
+    }
+    const fallback =
+      numericRating !== null
+        ? sectionDetails.find((section) => ratingWithinSectionRange(numericRating, section))
+        : sectionDetails[0];
+    if (fallback) {
+      form.setValue("sectionChoice", fallback.name, { shouldDirty: false, shouldValidate: true });
+    }
+  }, [sectionDetails, form, numericRating]);
+
+  useEffect(() => {
+    if (numericRating === null) return;
+    if (!selectedSection) return;
+    const current = sectionDetails.find((section) => section.name === selectedSection);
+    if (current && !ratingWithinSectionRange(numericRating, current)) {
+      const fallback = sectionDetails.find((section) => ratingWithinSectionRange(numericRating, section));
+      form.setValue("sectionChoice", fallback ? fallback.name : "", { shouldDirty: true, shouldValidate: true });
+    }
+  }, [numericRating, selectedSection, sectionDetails, form]);
+
   const entryFeeOptions = useMemo(
     () => filterEntryFeesBySection(entryFees, selectedSection),
     [entryFees, selectedSection],
   );
+  const contributionAllowed = paymentSettings?.allowProcessingContribution !== false;
+  useEffect(() => {
+    if (!contributionAllowed) {
+      form.setValue("processingContribution", "0", { shouldDirty: false, shouldValidate: true });
+    }
+  }, [contributionAllowed, form]);
 
   const recommendedEntryFee = useMemo(
     () => findRecommendedEntryFee(entryFeeOptions, numericRating),
@@ -865,7 +1354,7 @@ function StepTwo({
       return;
     }
     if (entryFeeOptions.length === 0) {
-      form.setValue("entryFeeId", "", { shouldDirty: true });
+      form.setValue("entryFeeId", NO_ENTRY_FEE_ID, { shouldDirty: false });
       return;
     }
     const current = form.getValues("entryFeeId");
@@ -881,24 +1370,24 @@ function StepTwo({
   }, [config?.details.rounds]);
 
   return (
-    <Card className="border-0 bg-white/90 shadow-lg ring-1 ring-slate-100 backdrop-blur-sm">
-      <CardHeader>
+    <Card className="border-0 bg-white/90 shadow-xl ring-1 ring-indigo-100/70 backdrop-blur">
+      <CardHeader className="border-b border-indigo-100/70 bg-gradient-to-r from-indigo-50/80 to-white">
         <CardTitle>Step 2: Details & Preferences</CardTitle>
         <CardDescription>Provide contact information, arrival plans, and bye selections.</CardDescription>
       </CardHeader>
-      <CardContent className="space-y-8">
+      <CardContent className="space-y-8 bg-white/60 p-6">
         <div className="space-y-4">
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <Label className="text-sm font-medium text-slate-700">Entry fee</Label>
               <p className="text-xs text-slate-500">Choose the option that matches your section and rating.</p>
             </div>
-            <Badge variant="outline" className="w-fit border-slate-300 text-slate-600">
+            <Badge variant="outline" className="w-fit border-indigo-200 bg-indigo-50/70 text-indigo-700">
               {numericRating !== null ? `Rating: ${numericRating}` : "Rating: Unrated"}
             </Badge>
           </div>
           {entryFees.length === 0 ? (
-            <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-4 text-sm text-slate-600">
+            <div className="rounded-lg border border-dashed border-indigo-200 bg-indigo-50/70 p-4 text-sm text-indigo-700">
               Entry fees will be confirmed by the tournament director. Continue to acknowledge payment on the next step.
             </div>
           ) : entryFeeOptions.length === 0 ? (
@@ -923,7 +1412,9 @@ function StepTwo({
                       htmlFor={`entry-fee-${fee.id}`}
                       className={cn(
                         "relative flex cursor-pointer flex-col gap-2 rounded-lg border p-4 transition",
-                        isSelected ? "border-indigo-500 bg-indigo-50" : "border-slate-200 hover:border-indigo-300",
+                        isSelected
+                          ? "border-indigo-500 bg-indigo-100/80 shadow-md"
+                          : "border-indigo-100/70 bg-white/80 hover:border-indigo-300 hover:bg-indigo-50/60",
                       )}
                     >
                       <RadioGroupItem id={`entry-fee-${fee.id}`} value={fee.id} className="sr-only" />
@@ -937,13 +1428,15 @@ function StepTwo({
                       {fee.notes && <p className="text-xs text-slate-500">{fee.notes}</p>}
                       <div className="flex flex-wrap gap-2 pt-2">
                         {isRecommended && (
-                          <Badge className="border-emerald-200 bg-emerald-50 text-emerald-700">Recommended</Badge>
+                          <Badge className="border-emerald-200 bg-emerald-50/80 text-emerald-700">Recommended</Badge>
                         )}
                         <Badge
                           variant="outline"
                           className={cn(
                             "border text-xs",
-                            eligible ? "border-emerald-200 text-emerald-600" : "border-amber-200 text-amber-600",
+                            eligible
+                              ? "border-emerald-200 bg-emerald-50/70 text-emerald-700"
+                              : "border-amber-200 bg-amber-50/70 text-amber-700",
                           )}
                         >
                           {eligible ? "Matches rating" : "Director review required"}
@@ -1060,7 +1553,9 @@ function StepTwo({
                       onClick={() => toggleArrayValue(form, "byeRounds", label)}
                       className={cn(
                         "flex items-center justify-between rounded-lg border px-3 py-2 text-sm transition",
-                        checked ? "border-indigo-500 bg-indigo-50 text-indigo-600" : "border-slate-200 text-slate-600",
+                        checked
+                          ? "border-indigo-500 bg-indigo-100/80 text-indigo-700 shadow-sm"
+                          : "border-slate-200 bg-white/70 text-slate-600 hover:border-indigo-200 hover:bg-indigo-50/60",
                       )}
                     >
                       <span>{label}</span>
@@ -1087,58 +1582,333 @@ function StepTwo({
   );
 }
 
-function StepThree({
-  entryFees,
-  paymentDetails,
-}: {
-  entryFees: EntryFeeRule[];
+const OFFLINE_METHOD_LABELS: Record<OfflinePaymentMethod, string> = {
+  cash: "Cash",
+  check: "Check",
+  venmo: "Venmo",
+  zelle: "Zelle",
+  paypal: "PayPal",
+  other: "Other",
+};
+
+type PaymentStatusKey = "unpaid" | "processing" | "paid" | "failed" | "refunded";
+
+interface StepThreeProps {
   paymentDetails?: string | null;
-}) {
+  paymentSettings: PaymentSettings | null;
+  paymentTotals: PaymentTotals;
+  selectedEntryFee: EntryFeeRule | null;
+  requiresPayment: boolean;
+  onlineConfigured: boolean;
+  clientSecret: string | null;
+  registerPaymentHandler: (fn: (() => Promise<boolean>) | null) => void;
+  setPaymentBusy: (busy: boolean) => void;
+  onPaymentElementReady: (ready: boolean) => void;
+  paymentIntentLoading: boolean;
+  paymentIntentError: string | null;
+  canAcceptOnlinePayment: boolean;
+  tournamentId: number;
+}
+
+function StepThree(props: StepThreeProps) {
+  if (props.canAcceptOnlinePayment) {
+    return <StepThreeStripe {...props} />;
+  }
+  return <StepThreeContent {...props} stripe={null} elements={null} />;
+}
+
+function StepThreeStripe(props: StepThreeProps) {
+  const stripe = useStripe();
+  const elements = useElements();
+  return <StepThreeContent {...props} stripe={stripe} elements={elements} />;
+}
+
+interface StepThreeContentProps extends StepThreeProps {
+  stripe: Stripe | null;
+  elements: StripeElements | null;
+}
+
+function StepThreeContent({
+  paymentDetails,
+  paymentSettings,
+  paymentTotals,
+  selectedEntryFee,
+  requiresPayment,
+  onlineConfigured,
+  clientSecret,
+  registerPaymentHandler,
+  setPaymentBusy,
+  onPaymentElementReady,
+  paymentIntentLoading,
+  paymentIntentError,
+  canAcceptOnlinePayment,
+  tournamentId,
+  stripe,
+  elements,
+}: StepThreeContentProps) {
   const form = useFormContext<RegistrationFormValues>();
-  const values = form.getValues();
-  const selectedEntryFee = entryFees.find((fee) => fee.id === values.entryFeeId) ?? null;
-  const contribution = parseContribution(values.processingContribution);
-  const totalDue = (selectedEntryFee?.amount ?? 0) + contribution;
+  const { toast } = useToast();
+
+  const contributionAllowed = paymentSettings?.allowProcessingContribution !== false;
+  const entryFeeId = form.watch("entryFeeId");
+  const processingContributionRaw = form.watch("processingContribution");
+  const processingContribution = contributionAllowed ? parseContribution(processingContributionRaw) : 0;
+  const paymentStatus = (form.watch("paymentStatus") ?? "unpaid") as PaymentStatusKey;
+  const acknowledgementChecked = form.watch("paymentAcknowledgement");
+  const paymentMethod = form.watch("paymentMethod") ?? undefined;
   const acknowledgementError = form.formState.errors.paymentAcknowledgement?.message as string | undefined;
   const contributionError = form.formState.errors.processingContribution?.message as string | undefined;
 
+  const firstName = form.watch("firstName");
+  const lastName = form.watch("lastName");
+  const sectionChoice = form.watch("sectionChoice");
+  const email = form.watch("email");
+  const phoneNumber = form.watch("phoneNumber");
+  const arrivalTime = form.watch("arrivalTime");
+  const prizeEmail = form.watch("prizeEmail");
+  const notes = form.watch("notes");
+
+  const offlineMethods = paymentSettings?.acceptedOfflineMethods ?? [];
+  const offlineAllowed = offlineMethods.length > 0;
+  const offlineInstructions = paymentSettings?.offlineInstructions;
+  const offlineInfoBlocks = ((offlineAllowed || !requiresPayment) ? [offlineInstructions, paymentDetails] : []) as Array<
+    string | null | undefined
+  >;
+  const isOfflineEntry = entryFeeId === NO_ENTRY_FEE_ID || !selectedEntryFee;
+
+  const statusStyles: Record<PaymentStatusKey, string> = {
+    unpaid: "bg-slate-100 text-slate-700",
+    processing: "bg-amber-100 text-amber-700",
+    paid: "bg-emerald-100 text-emerald-700",
+    failed: "bg-red-100 text-red-700",
+    refunded: "bg-blue-100 text-blue-700",
+  };
+
+  const statusLabels: Record<PaymentStatusKey, string> = {
+    unpaid: "Unpaid",
+    processing: "Processing",
+    paid: "Paid",
+    failed: "Failed",
+    refunded: "Refunded",
+  };
+
+  const acknowledgementLabel = requiresPayment
+    ? "I authorize the tournament to charge the payment method above and confirm these details are accurate."
+    : "I will complete payment using the offline instructions provided by the tournament director.";
+
   const summary: { label: string; value?: string }[] = [
-    { label: "Player name", value: `${values.firstName} ${values.lastName}`.trim() },
-    { label: "Section", value: values.sectionChoice },
+    { label: "Player name", value: `${firstName ?? ""} ${lastName ?? ""}`.trim() || undefined },
+    { label: "Section", value: sectionChoice },
     {
       label: "Entry fee",
       value: selectedEntryFee
         ? `${formatCurrency(selectedEntryFee.amount, selectedEntryFee.currency)} · ${selectedEntryFee.section}`
-        : entryFees.length === 0
+        : isOfflineEntry
         ? "To be confirmed offline"
         : undefined,
     },
     {
       label: "Contribution",
-      value: contribution > 0 ? formatCurrency(contribution, selectedEntryFee?.currency ?? "USD") : undefined,
+      value:
+        contributionAllowed && processingContribution > 0
+          ? formatCurrency(processingContribution, selectedEntryFee?.currency ?? paymentTotals.currency)
+          : undefined,
     },
-    { label: "Email", value: values.email },
-    { label: "Phone", value: values.phoneNumber },
-    { label: "Arrival", value: values.arrivalTime },
-    { label: "Prize email", value: values.prizeEmail },
+    { label: "Email", value: email },
+    { label: "Phone", value: phoneNumber },
+    { label: "Arrival", value: arrivalTime },
+    { label: "Prize email", value: prizeEmail },
   ];
 
+  useEffect(() => {
+    if (!canAcceptOnlinePayment) {
+      onPaymentElementReady(true);
+    }
+  }, [canAcceptOnlinePayment, onPaymentElementReady]);
+
+  const handlePaymentConfirmation = useCallback(async () => {
+    if (!canAcceptOnlinePayment || !requiresPayment) {
+      return true;
+    }
+    if (!stripe || !elements) {
+      toast({
+        title: "Payment unavailable",
+        description: "Stripe Checkout is still loading. Please wait a moment and try again.",
+        variant: "destructive",
+      });
+      return false;
+    }
+
+    setPaymentBusy(true);
+    try {
+      const { error: submitError } = await elements.submit();
+      if (submitError) {
+        toast({
+          title: "Payment details incomplete",
+          description: submitError.message ?? "Fill out the payment form before continuing.",
+          variant: "destructive",
+        });
+        return false;
+      }
+
+      const trimmedName = `${firstName ?? ""} ${lastName ?? ""}`.trim() || undefined;
+      const returnUrl =
+        typeof window !== "undefined"
+          ? `${window.location.origin}/tournaments/${tournamentId}/register/form?payment=complete`
+          : undefined;
+
+      const result = await stripe.confirmPayment({
+        elements,
+        redirect: "if_required",
+        confirmParams: {
+          return_url: returnUrl,
+          payment_method_data: {
+            billing_details: {
+              name: trimmedName,
+              email: email || undefined,
+              phone: phoneNumber || undefined,
+            },
+          },
+        },
+      });
+
+      if (result.error) {
+        form.setValue("paymentStatus", "failed", { shouldDirty: true });
+        toast({
+          title: "Payment failed",
+          description: result.error.message ?? "Your payment method was declined. Please try again.",
+          variant: "destructive",
+        });
+        return false;
+      }
+
+      const intent = result.paymentIntent;
+      if (!intent) {
+        toast({
+          title: "Payment failed",
+          description: "Stripe did not return a payment status. Please try again.",
+          variant: "destructive",
+        });
+        return false;
+      }
+
+      const mappedStatus = mapStripeStatus(intent.status);
+      form.setValue("paymentStatus", mappedStatus, { shouldDirty: false });
+      form.setValue("paymentIntentId", intent.id, { shouldDirty: false });
+      const amountReceivedCents =
+        typeof (intent as any).amount_received === "number"
+          ? (intent as any).amount_received
+          : typeof (intent as any).amountReceived === "number"
+          ? (intent as any).amountReceived
+          : 0;
+      const amountCents =
+        typeof intent.amount === "number"
+          ? intent.amount
+          : typeof (intent as any).amount === "number"
+          ? (intent as any).amount
+          : Math.round(paymentTotals.total * 100);
+      form.setValue("amountPaid", Number((amountReceivedCents / 100).toFixed(2)), { shouldDirty: false });
+      form.setValue("amountDue", Number((amountCents / 100).toFixed(2)), { shouldDirty: false });
+      form.setValue(
+        "currency",
+        intent.currency ? intent.currency.toUpperCase() : paymentTotals.currency,
+        { shouldDirty: false },
+      );
+      form.setValue(
+        "paymentMethod",
+        intent.payment_method_types?.[0] ?? form.getValues("paymentMethod") ?? undefined,
+        { shouldDirty: false },
+      );
+      const receiptUrl =
+        (intent as any)?.charges?.data?.[0]?.receipt_url ??
+        (intent as any)?.latest_charge?.receipt_url ??
+        undefined;
+      form.setValue("paymentReceiptUrl", receiptUrl, { shouldDirty: false });
+
+      if (mappedStatus !== "paid") {
+        toast({
+          title: "Payment processing",
+          description: "Stripe is still processing this transaction. Please wait a moment and submit again.",
+          variant: "destructive",
+        });
+        return false;
+      }
+
+      form.setValue("paymentAcknowledgement", true, { shouldDirty: true, shouldValidate: true });
+      toast({
+        title: "Payment confirmed",
+        description: "Your payment was processed successfully.",
+      });
+      return true;
+    } catch (error) {
+      toast({
+        title: "Payment failed",
+        description: error instanceof Error ? error.message : "Unable to confirm the payment.",
+        variant: "destructive",
+      });
+      return false;
+    } finally {
+      setPaymentBusy(false);
+    }
+  }, [
+    canAcceptOnlinePayment,
+    requiresPayment,
+    stripe,
+    elements,
+    toast,
+    setPaymentBusy,
+    form,
+    paymentTotals.total,
+    paymentTotals.currency,
+    firstName,
+    lastName,
+    email,
+    phoneNumber,
+    tournamentId,
+  ]);
+
+  useEffect(() => {
+    if (!paymentSettings?.onlineEnabled || !requiresPayment || !onlineConfigured || !canAcceptOnlinePayment) {
+      registerPaymentHandler(async () => true);
+      return () => registerPaymentHandler(null);
+    }
+
+    registerPaymentHandler(handlePaymentConfirmation);
+    return () => registerPaymentHandler(null);
+  }, [
+    registerPaymentHandler,
+    handlePaymentConfirmation,
+    paymentSettings?.onlineEnabled,
+    requiresPayment,
+    onlineConfigured,
+    canAcceptOnlinePayment,
+  ]);
+
   return (
-    <Card className="border-0 bg-white/90 shadow-lg ring-1 ring-slate-100 backdrop-blur-sm">
-      <CardHeader>
+    <Card className="border-0 bg-white/90 shadow-xl ring-1 ring-indigo-100/70 backdrop-blur">
+      <CardHeader className="border-b border-indigo-100/70 bg-gradient-to-r from-indigo-50/80 to-white">
         <CardTitle>Step 3: Payment & Review</CardTitle>
-        <CardDescription>Confirm your offline payment plan and verify contact details.</CardDescription>
+        <CardDescription>
+          {requiresPayment
+            ? "Secure checkout is required to complete your registration."
+            : "Review your details and confirm how you will complete payment."}
+        </CardDescription>
       </CardHeader>
-      <CardContent className="space-y-6">
-        <div className="rounded-lg border border-slate-200 p-4">
-          <h3 className="text-sm font-semibold text-slate-900">Payment summary</h3>
+      <CardContent className="space-y-6 bg-white/60 p-6">
+        <div className="rounded-xl border border-indigo-100/70 bg-white/80 p-4 shadow-sm">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h3 className="text-sm font-semibold text-slate-900">Payment summary</h3>
+            <span className={cn("rounded-full px-3 py-1 text-xs font-semibold", statusStyles[paymentStatus])}>
+              {statusLabels[paymentStatus]}
+            </span>
+          </div>
           <div className="mt-3 space-y-3 text-sm text-slate-600">
             <div className="flex items-center justify-between">
               <span>Entry fee</span>
-              <span className="font-medium text-slate-900">
+              <span className="font-medium text-indigo-700">
                 {selectedEntryFee
                   ? formatCurrency(selectedEntryFee.amount, selectedEntryFee.currency)
-                  : entryFees.length === 0
+                  : isOfflineEntry
                   ? "To be confirmed"
                   : "Select an entry fee"}
               </span>
@@ -1148,88 +1918,159 @@ function StepThree({
                 Section: {selectedEntryFee.section} · {formatEntryFeeRange(selectedEntryFee)}
               </p>
             )}
-            <div className="flex items-center justify-between border-t border-dashed border-slate-200 pt-3">
-              <label htmlFor="processing-contribution" className="text-sm">
-                Optional processing contribution
-              </label>
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-slate-500">{selectedEntryFee?.currency ?? "USD"}</span>
-                <Input
-                  id="processing-contribution"
-                  type="number"
-                  step="0.01"
-                  min={0}
-                  max={500}
-                  value={values.processingContribution ?? "0"}
-                  onChange={(event) =>
-                    form.setValue("processingContribution", event.target.value, {
-                      shouldDirty: true,
-                      shouldValidate: true,
-                    })
-                  }
-                  className="w-28"
-                />
+            {contributionAllowed ? (
+              <div className="flex items-center justify-between border-t border-dashed border-slate-200 pt-3">
+                <label htmlFor="processing-contribution" className="text-sm">
+                  Optional processing contribution
+                </label>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-slate-500">{selectedEntryFee?.currency ?? paymentTotals.currency}</span>
+                  <Input
+                    id="processing-contribution"
+                    type="number"
+                    step="0.01"
+                    min={0}
+                    max={500}
+                    value={processingContributionRaw ?? "0"}
+                    onChange={(event) =>
+                      form.setValue("processingContribution", event.target.value, {
+                        shouldDirty: true,
+                        shouldValidate: true,
+                      })
+                    }
+                    className="w-28"
+                  />
+                </div>
               </div>
-            </div>
+            ) : (
+              <div className="flex items-center justify-between border-t border-dashed border-slate-200 pt-3 text-xs text-slate-500">
+                <span>Processing contributions</span>
+                <span>Disabled by director</span>
+              </div>
+            )}
             {contributionError && <p className="text-xs text-red-500">{contributionError}</p>}
-            <div className="flex items-center justify-between border-t border-slate-200 pt-3 text-sm font-semibold text-slate-900">
-              <span>Total due (offline)</span>
-              <span>{formatCurrency(totalDue, selectedEntryFee?.currency ?? "USD")}</span>
+            {paymentTotals.feeAmount > 0 && (
+              <div className="flex items-center justify-between border-t border-dashed border-slate-200 pt-3">
+                <span>Processing fee</span>
+                <span>{formatCurrency(paymentTotals.feeAmount, paymentTotals.currency)}</span>
+              </div>
+            )}
+            <div className="flex items-center justify-between border-t border-slate-200 pt-3 text-sm font-semibold text-indigo-700">
+              <span>Total due</span>
+              <span>{formatCurrency(paymentTotals.total, paymentTotals.currency)}</span>
             </div>
+            {paymentMethod && <p className="text-xs text-slate-500">Payment method: {paymentMethod.toUpperCase()}</p>}
           </div>
         </div>
 
-        {paymentDetails ? (
-          <div className="rounded-lg border border-indigo-200 bg-indigo-50 p-4 text-sm text-indigo-700">
-            <p className="font-medium">Director payment instructions</p>
-            <p className="mt-1 whitespace-pre-line text-xs leading-5 text-indigo-600">{paymentDetails}</p>
+        <div className="space-y-3 rounded-xl border border-indigo-100/70 bg-white/80 p-4 shadow-sm">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-semibold text-slate-900">Payment method</h3>
+            {requiresPayment && <Badge variant="outline">Required</Badge>}
           </div>
-        ) : (
-          <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
-            The tournament director will follow up with offline payment instructions once your registration is reviewed.
-          </div>
-        )}
+          {canAcceptOnlinePayment ? (
+            <div className="space-y-3">
+              {paymentIntentLoading ? (
+                <div className="flex items-center justify-center gap-2 rounded-lg border border-dashed border-indigo-200 bg-indigo-50/60 p-4 text-sm text-indigo-600">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Preparing secure checkout...
+                </div>
+              ) : (
+                <div className="rounded-lg border border-indigo-200 bg-white p-4">
+                  <PaymentElement
+                    options={{ layout: "tabs" }}
+                    onReady={() => onPaymentElementReady(!requiresPayment)}
+                    onChange={(event) => onPaymentElementReady(!requiresPayment || Boolean(event.complete))}
+                  />
+                </div>
+              )}
+              {paymentIntentError && (
+                <div className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 p-3 text-xs text-red-600">
+                  <AlertCircle className="mt-0.5 h-4 w-4" />
+                  <span>{paymentIntentError}</span>
+                </div>
+              )}
+              <p className="text-xs text-slate-500">
+                Payments are securely processed by Stripe. Your receipt will be sent to {email || "your email"} when the payment succeeds.
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-3 rounded-lg border border-dashed border-slate-200 bg-slate-50/70 p-4 text-xs text-slate-600">
+              {requiresPayment ? (
+                <p className="font-medium text-slate-700">
+                  Stripe checkout is unavailable right now. Please contact the tournament director to arrange payment.
+                </p>
+              ) : (
+                <p>Online checkout is disabled. Follow the offline instructions below to complete payment.</p>
+              )}
+            </div>
+          )}
+        </div>
 
-        <div className="space-y-2 rounded-lg border border-slate-200 p-4">
+        <div className="space-y-3 rounded-xl border border-indigo-100/70 bg-white/80 p-4 shadow-sm">
+          <h3 className="text-sm font-semibold text-slate-900">Offline payment options</h3>
+          {offlineAllowed ? (
+            <div className="flex flex-wrap gap-2">
+              {offlineMethods.map((method) => (
+                <span key={method} className="rounded-full bg-indigo-100 px-3 py-1 text-xs font-semibold text-indigo-700">
+                  {OFFLINE_METHOD_LABELS[method] ?? method}
+                </span>
+              ))}
+            </div>
+          ) : (
+            <div className="rounded-lg border border-dashed border-red-200 bg-red-50 p-3 text-xs text-red-600">
+              Offline payments are disabled for this tournament. Players must pay online to finalize registration.
+            </div>
+          )}
+          {offlineInfoBlocks
+            .filter((block): block is string => Boolean(block && block.trim()))
+            .map((block, index) => (
+              <div
+                key={`${index}-${block.slice(0, 12)}`}
+                className="rounded-lg border border-indigo-200 bg-indigo-50/70 p-3 text-xs leading-5 text-indigo-700"
+              >
+                {block}
+              </div>
+            ))}
+        </div>
+
+        <div className="space-y-2 rounded-lg border border-indigo-100/70 bg-indigo-50/60 p-4">
           <label className="flex items-start gap-3 text-sm text-slate-700">
             <input
               type="checkbox"
-              className="mt-1 h-4 w-4 border-slate-300 text-indigo-600"
-              checked={form.watch("paymentAcknowledgement") ?? false}
+              checked={Boolean(acknowledgementChecked)}
               onChange={(event) =>
                 form.setValue("paymentAcknowledgement", event.target.checked, {
                   shouldDirty: true,
                   shouldValidate: true,
                 })
               }
+              className="mt-1 h-4 w-4 rounded border-slate-300 text-indigo-500 focus:ring-indigo-500"
             />
-            <span>
-              I understand that payment is handled outside of this form and will complete it promptly once the tournament director
-              follows up.
-            </span>
+            <span>{acknowledgementLabel}</span>
           </label>
           {acknowledgementError && <p className="text-xs text-red-500">{acknowledgementError}</p>}
         </div>
 
-        <Separator />
-
-        <div className="grid gap-4 sm:grid-cols-2">
-          {summary
-            .filter((item) => item.value)
-            .map((item) => (
-              <div key={item.label} className="rounded-lg border border-slate-200 p-4">
-                <p className="text-xs uppercase tracking-wide text-slate-500">{item.label}</p>
-                <p className="mt-1 text-sm font-medium text-slate-900">{item.value}</p>
-              </div>
-            ))}
-        </div>
-
-        {values.notes && (
-          <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
-            <p className="text-xs uppercase tracking-wide text-slate-500">Notes</p>
-            <p className="mt-1 leading-6">{values.notes}</p>
+        <div className="rounded-lg border border-slate-200 bg-white/80 p-4 shadow-sm">
+          <h3 className="text-sm font-semibold text-slate-900">Review your information</h3>
+          <div className="mt-3 grid gap-3 text-sm text-slate-600 sm:grid-cols-2">
+            {summary
+              .filter((item) => Boolean(item.value))
+              .map((item) => (
+                <div key={item.label}>
+                  <p className="text-xs uppercase tracking-wide text-slate-400">{item.label}</p>
+                  <p className="font-medium text-slate-800">{item.value}</p>
+                </div>
+              ))}
           </div>
-        )}
+          {notes && (
+            <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50/70 p-3 text-sm text-slate-700">
+              <p className="text-xs uppercase tracking-wide text-slate-500">Notes</p>
+              <p className="mt-1 leading-6">{notes}</p>
+            </div>
+          )}
+        </div>
       </CardContent>
     </Card>
   );
@@ -1362,6 +2203,16 @@ function ratingWithinEntryFee(rating: number | null, fee: EntryFeeRule): boolean
   return true;
 }
 
+function ratingWithinSectionRange(
+  rating: number | null,
+  section: { ratingMin: number | null; ratingMax: number | null },
+): boolean {
+  if (rating === null) return true;
+  if (section.ratingMin !== null && rating < section.ratingMin) return false;
+  if (section.ratingMax !== null && rating > section.ratingMax) return false;
+  return true;
+}
+
 function formatEntryFeeRange(fee: EntryFeeRule): string {
   const { ratingMin, ratingMax } = fee;
   if (ratingMin !== null && ratingMax !== null) {
@@ -1400,6 +2251,51 @@ function parseContribution(value: unknown): number {
     return Number.isFinite(numeric) ? Math.max(0, Math.round(numeric * 100) / 100) : 0;
   }
   return 0;
+}
+
+function computePaymentTotals(
+  entryFee: EntryFeeRule | null,
+  contribution: number,
+  paymentSettings: PaymentSettings | null,
+): PaymentTotals {
+  const allowContribution = paymentSettings?.allowProcessingContribution !== false;
+  const baseContribution = allowContribution ? contribution : 0;
+  const baseAmount = entryFee?.amount ?? 0;
+  const currency = (entryFee?.currency ?? paymentSettings?.defaultCurrency ?? "USD").toUpperCase();
+  const subtotal = Number((baseAmount + baseContribution).toFixed(2));
+  const percent = typeof paymentSettings?.processingFeePercent === "number" ? paymentSettings.processingFeePercent : 0;
+  const feeRate = Math.max(0, Math.min(10, percent));
+  const feeAmount = Number(((subtotal * feeRate) / 100).toFixed(2));
+  const total = Number((subtotal + feeAmount).toFixed(2));
+
+  return {
+    subtotal,
+    feeAmount,
+    total,
+    currency,
+  };
+}
+
+function mapStripeStatus(status: string | null | undefined): PaymentStatusKey {
+  switch (status) {
+    case "succeeded":
+      return "paid";
+    case "processing":
+    case "requires_capture":
+    case "requires_action":
+    case "requires_confirmation":
+      return "processing";
+    case "canceled":
+      return "failed";
+    case "requires_payment_method":
+      return "unpaid";
+    case "requires_customer_action":
+      return "processing";
+    case "refunded":
+      return "refunded";
+    default:
+      return "processing";
+  }
 }
 
 function truncate(value: string, length: number): string {

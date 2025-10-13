@@ -230,6 +230,7 @@ export interface IStorage {
 
   createPlayerRegistration(registration: InsertPlayerRegistration): Promise<PlayerRegistration>;
   getPlayerRegistration(id: number): Promise<PlayerRegistration | undefined>;
+  getPlayerRegistrationByPaymentIntent(paymentIntentId: string): Promise<PlayerRegistration | undefined>;
   getPlayerRegistrationsByTournament(tournamentId: number): Promise<PlayerRegistration[]>;
   getPlayerRegistrationsByUser(userId: number): Promise<PlayerRegistration[]>;
   updatePlayerRegistration(id: number, registration: Partial<PlayerRegistration>): Promise<PlayerRegistration | undefined>;
@@ -458,11 +459,26 @@ class SupabaseStorage implements IStorage {
   }
 
   async createPlayerRegistration(registration: InsertPlayerRegistration): Promise<PlayerRegistration> {
-    return insertOne<PlayerRegistration>("player_registrations", registration as AnyRecord);
+    const amountDue = (registration as AnyRecord).amountDue ?? 0;
+    const amountPaid = (registration as AnyRecord).amountPaid ?? 0;
+    const payload: AnyRecord = {
+      ...registration,
+      paymentStatus: (registration as AnyRecord).paymentStatus ?? "unpaid",
+      currency: (registration as AnyRecord).currency ?? "USD",
+      amountDue: typeof amountDue === "string" ? amountDue : Number(amountDue ?? 0).toFixed(2),
+      amountPaid: typeof amountPaid === "string" ? amountPaid : Number(amountPaid ?? 0).toFixed(2),
+      paymentNotes: (registration as AnyRecord).paymentNotes ?? null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+    return insertOne<PlayerRegistration>("player_registrations", payload);
   }
 
   async getPlayerRegistration(id: number): Promise<PlayerRegistration | undefined> {
     return fetchOne<PlayerRegistration>("player_registrations", { id });
+  }
+  async getPlayerRegistrationByPaymentIntent(paymentIntentId: string): Promise<PlayerRegistration | undefined> {
+    return fetchOne<PlayerRegistration>("player_registrations", { paymentIntentId });
   }
 
   async getPlayerRegistrationsByTournament(tournamentId: number): Promise<PlayerRegistration[]> {
@@ -474,11 +490,21 @@ class SupabaseStorage implements IStorage {
   }
 
   async updatePlayerRegistration(id: number, registration: Partial<PlayerRegistration>): Promise<PlayerRegistration | undefined> {
-    return updateOne<PlayerRegistration>(
-      "player_registrations",
-      { id },
-      { ...registration, updatedAt: new Date() } as AnyRecord,
-    );
+    const amountDue = (registration as AnyRecord)?.amountDue;
+    const amountPaid = (registration as AnyRecord)?.amountPaid;
+    const payload: AnyRecord = {
+      ...registration,
+      updatedAt: new Date(),
+    };
+
+    if (amountDue !== undefined) {
+      payload.amountDue = typeof amountDue === "string" ? amountDue : Number(amountDue ?? 0).toFixed(2);
+    }
+    if (amountPaid !== undefined) {
+      payload.amountPaid = typeof amountPaid === "string" ? amountPaid : Number(amountPaid ?? 0).toFixed(2);
+    }
+
+    return updateOne<PlayerRegistration>("player_registrations", { id }, payload);
   }
 
   async deletePlayerRegistration(id: number): Promise<boolean> {

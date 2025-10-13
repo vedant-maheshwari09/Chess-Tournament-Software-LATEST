@@ -107,12 +107,37 @@ export interface ContactEntry {
 
 export interface EntryFeeRule {
   id: string;
+  sectionId?: string;
   section: string;
   ratingMin: number | null;
   ratingMax: number | null;
   amount: number;
   currency: string;
   notes?: string;
+}
+
+export interface SectionDefinition {
+  id: string;
+  name: string;
+  ratingMin: number | null;
+  ratingMax: number | null;
+  description?: string;
+}
+
+export type PaymentProvider = "stripe";
+export type OfflinePaymentMethod = "cash" | "check" | "venmo" | "zelle" | "paypal" | "other";
+
+export interface PaymentSettings {
+  defaultCurrency: string;
+  provider: PaymentProvider;
+  onlineEnabled: boolean;
+  requirePaymentOnRegistration: boolean;
+  allowProcessingContribution: boolean;
+  processingFeePercent: number | null;
+  stripeAccountId?: string;
+  payoutStatementDescriptor?: string;
+  acceptedOfflineMethods: OfflinePaymentMethod[];
+  offlineInstructions: string;
 }
 
 export interface TournamentConfig {
@@ -137,7 +162,9 @@ export interface TournamentConfig {
     ratingType: string;
   };
   schedule: ScheduleEvent[];
+  sections: SectionDefinition[];
   entryFees: EntryFeeRule[];
+  payments: PaymentSettings;
   registers: RegistersConfig;
   fide: FideRegistrationData;
   uscf: UscfReportData;
@@ -209,7 +236,20 @@ export function createDefaultConfig(format: Tournament["format"], mode: Tourname
       ratingType: "standard",
     },
     schedule: createDefaultSchedule(defaultRounds),
+    sections: [],
     entryFees: [],
+    payments: {
+      defaultCurrency: "USD",
+      provider: "stripe",
+      onlineEnabled: false,
+      requirePaymentOnRegistration: false,
+      allowProcessingContribution: true,
+      processingFeePercent: 0,
+      stripeAccountId: "",
+      payoutStatementDescriptor: "",
+      acceptedOfflineMethods: ["cash", "check"],
+      offlineInstructions: "Pay at the venue before round 1.",
+    },
     registers: {
       showOnCalendar: false,
       allowSignup: false,
@@ -308,6 +348,24 @@ export function parseTournamentConfig(tournament: Tournament): TournamentConfig 
         ];
 
     const sanitizedEntryFees = sanitizeEntryFees((parsed as any)?.entryFees);
+    const sanitizedSections = sanitizeSections((parsed as any)?.sections, sanitizedEntryFees);
+    const normalizedEntryFees = sanitizedEntryFees.map((fee) => {
+      const sectionName = (fee.section ?? "").trim();
+      const linkedSection =
+        (fee.sectionId && sanitizedSections.find((section) => section.id === fee.sectionId)) ??
+        sanitizedSections.find((section) => section.name.trim().toLowerCase() === sectionName.toLowerCase());
+      if (!linkedSection) {
+        return fee;
+      }
+      return {
+        ...fee,
+        sectionId: linkedSection.id,
+        section: linkedSection.name,
+        ratingMin: linkedSection.ratingMin,
+        ratingMax: linkedSection.ratingMax,
+      };
+    });
+    const sanitizedPayments = sanitizePaymentSettings((parsed as any)?.payments);
 
     return {
       ...createDefaultConfig(tournament.format, normalizedMode ?? "rated"),
@@ -357,7 +415,9 @@ export function parseTournamentConfig(tournament: Tournament): TournamentConfig 
             ? parsed.chessResults.autoSyncIntervalMinutes
             : createDefaultConfig(tournament.format, normalizedMode ?? "rated").chessResults.autoSyncIntervalMinutes,
       },
-      entryFees: sanitizedEntryFees,
+      sections: sanitizedSections,
+      entryFees: normalizedEntryFees,
+      payments: sanitizedPayments,
       mode: normalizedMode,
     };
   }
@@ -393,6 +453,7 @@ export function parseTournamentConfig(tournament: Tournament): TournamentConfig 
       ],
     },
     schedule: legacySchedule,
+    sections: [],
     entryFees: [],
   };
 }
@@ -405,6 +466,24 @@ export function serializeTournamentConfig(config: TournamentConfig): TournamentC
     id: event.id || `${index + 1}`,
   }));
   const sanitizedEntryFees = sanitizeEntryFees(config.entryFees);
+  const sanitizedSections = sanitizeSections(config.sections, sanitizedEntryFees);
+  const normalizedEntryFees = sanitizedEntryFees.map((fee) => {
+    const sectionName = (fee.section ?? "").trim();
+    const linkedSection =
+      (fee.sectionId && sanitizedSections.find((section) => section.id === fee.sectionId)) ??
+      sanitizedSections.find((section) => section.name.trim().toLowerCase() === sectionName.toLowerCase());
+    if (!linkedSection) {
+      return fee;
+    }
+    return {
+      ...fee,
+      sectionId: linkedSection.id,
+      section: linkedSection.name,
+      ratingMin: linkedSection.ratingMin,
+      ratingMax: linkedSection.ratingMax,
+    };
+  });
+  const sanitizedPayments = sanitizePaymentSettings(config.payments);
 
   return {
     ...config,
@@ -413,7 +492,9 @@ export function serializeTournamentConfig(config: TournamentConfig): TournamentC
       rounds,
     },
     schedule: adjustedSchedule,
-    entryFees: sanitizedEntryFees,
+    sections: sanitizedSections,
+    entryFees: normalizedEntryFees,
+    payments: sanitizedPayments,
   };
 }
 
@@ -433,6 +514,7 @@ function sanitizeEntryFees(value: unknown): EntryFeeRule[] {
 
 function sanitizeEntryFeeRule(raw: any): EntryFeeRule {
   const id = typeof raw?.id === "string" && raw.id.trim() ? raw.id.trim() : generateEntryFeeId();
+  const sectionId = typeof raw?.sectionId === "string" && raw.sectionId.trim() ? raw.sectionId.trim() : undefined;
   const section = typeof raw?.section === "string" ? raw.section.trim() : "";
   const ratingMin = coerceNullableNumber(raw?.ratingMin);
   const ratingMax = coerceNullableNumber(raw?.ratingMax);
@@ -441,6 +523,7 @@ function sanitizeEntryFeeRule(raw: any): EntryFeeRule {
   const notes = typeof raw?.notes === "string" && raw.notes.trim() ? raw.notes.trim() : undefined;
   return {
     id,
+    sectionId,
     section,
     ratingMin,
     ratingMax,
@@ -468,6 +551,120 @@ function generateEntryFeeId(): string {
     return globalCrypto.randomUUID();
   }
   return `fee-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function sanitizeSections(value: unknown, fallbackEntryFees: EntryFeeRule[] = []): SectionDefinition[] {
+  const fromArray = Array.isArray(value) ? value : [];
+  const result: SectionDefinition[] = [];
+
+  for (const raw of fromArray) {
+    const section = sanitizeSectionDefinition(raw);
+    if (!section.name.trim()) continue;
+    if (result.some((existing) => existing.id === section.id)) {
+      section.id = generateSectionId();
+    }
+    result.push(section);
+  }
+
+  if (result.length === 0 && fallbackEntryFees.length > 0) {
+    return deriveSectionsFromEntryFees(fallbackEntryFees);
+  }
+
+  return result;
+}
+
+function sanitizeSectionDefinition(raw: any): SectionDefinition {
+  const id = typeof raw?.id === "string" && raw.id.trim() ? raw.id.trim() : generateSectionId();
+  const name = typeof raw?.name === "string" ? raw.name.trim() : "";
+  const ratingMin = coerceNullableNumber(raw?.ratingMin);
+  const ratingMax = coerceNullableNumber(raw?.ratingMax);
+  const description = typeof raw?.description === "string" && raw.description.trim() ? raw.description.trim() : undefined;
+  return {
+    id,
+    name,
+    ratingMin,
+    ratingMax,
+    description,
+  };
+}
+
+function deriveSectionsFromEntryFees(entryFees: EntryFeeRule[]): SectionDefinition[] {
+  const map = new Map<string, SectionDefinition>();
+  for (const fee of entryFees) {
+    const key = fee.section?.trim().toLowerCase();
+    if (!key) continue;
+    if (!map.has(key)) {
+      map.set(key, {
+        id: generateSectionId(),
+        name: fee.section.trim(),
+        ratingMin: fee.ratingMin ?? null,
+        ratingMax: fee.ratingMax ?? null,
+        description: undefined,
+      });
+    }
+  }
+  return Array.from(map.values());
+}
+
+function generateSectionId(): string {
+  const globalCrypto = typeof globalThis !== "undefined" ? (globalThis as any).crypto : undefined;
+  if (globalCrypto && typeof globalCrypto.randomUUID === "function") {
+    return globalCrypto.randomUUID();
+  }
+  return `section-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function sanitizePaymentSettings(raw: any): PaymentSettings {
+  const defaults = createDefaultConfig("swiss").payments;
+  const defaultCurrency = typeof raw?.defaultCurrency === "string" && raw.defaultCurrency.trim()
+    ? raw.defaultCurrency.trim().toUpperCase()
+    : defaults.defaultCurrency;
+  const provider: PaymentProvider = "stripe";
+  const onlineEnabled = Boolean(raw?.onlineEnabled);
+  const requirePaymentOnRegistration = raw?.requirePaymentOnRegistration === true;
+  const allowProcessingContribution = raw?.allowProcessingContribution !== false;
+  const processingFeePercent = coerceNullableNumber(raw?.processingFeePercent);
+  const stripeAccountId = typeof raw?.stripeAccountId === "string" ? raw.stripeAccountId.trim() : "";
+  const payoutStatementDescriptor = typeof raw?.payoutStatementDescriptor === "string"
+    ? raw.payoutStatementDescriptor.trim()
+    : "";
+  const offlineMethodWhitelist: OfflinePaymentMethod[] = [
+    "cash",
+    "check",
+    "venmo",
+    "zelle",
+    "paypal",
+    "other",
+  ];
+  const acceptedOfflineMethods: OfflinePaymentMethod[] = Array.isArray(raw?.acceptedOfflineMethods)
+    ? Array.from(
+        new Set(
+          (raw.acceptedOfflineMethods as unknown[])
+            .map((method): OfflinePaymentMethod | null => {
+              if (typeof method !== "string" || !method.trim()) return null;
+              const normalized = method.trim().toLowerCase() as OfflinePaymentMethod;
+              return offlineMethodWhitelist.includes(normalized) ? normalized : null;
+            })
+            .filter((method): method is OfflinePaymentMethod => method !== null),
+        ),
+      )
+    : defaults.acceptedOfflineMethods;
+  const offlineInstructions = typeof raw?.offlineInstructions === "string"
+    ? raw.offlineInstructions.trim()
+    : defaults.offlineInstructions;
+
+  return {
+    defaultCurrency,
+    provider,
+    onlineEnabled,
+    requirePaymentOnRegistration,
+    allowProcessingContribution,
+    processingFeePercent: processingFeePercent ?? defaults.processingFeePercent,
+    stripeAccountId,
+    payoutStatementDescriptor,
+    acceptedOfflineMethods,
+    offlineInstructions,
+  };
 }
 
 export function buildTournamentPayload(

@@ -137,9 +137,27 @@ export default function TournamentPagePanel({ tournament, onUpdated }: Tournamen
       }
     },
     onError: (error: any) => {
+      const rawMessage = error?.message ?? "Unable to generate content.";
+      let friendlyMessage = rawMessage;
+
+      const [, jsonPortion] = rawMessage.split(/:(.+)/); // split on first colon
+      if (jsonPortion) {
+        try {
+          const parsed = JSON.parse(jsonPortion.trim());
+          if (parsed && typeof parsed === "object" && typeof parsed.message === "string") {
+            friendlyMessage = parsed.message;
+          }
+        } catch (parseError) {
+          const cleaned = jsonPortion.replace(/^["']|["']$/g, "").trim();
+          if (cleaned.length > 0) {
+            friendlyMessage = cleaned;
+          }
+        }
+      }
+
       toast({
         title: "Draft failed",
-        description: error?.message ?? "Unable to generate content.",
+        description: friendlyMessage.trim() || "Unable to generate content.",
         variant: "destructive",
       });
     },

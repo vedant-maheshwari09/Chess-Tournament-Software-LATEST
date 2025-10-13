@@ -13,11 +13,14 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { useLocation } from "wouter";
+import { cn } from "@/lib/utils";
 import type { Tournament } from "@shared/schema";
 import {
   TournamentConfig,
   TournamentMode,
   type EntryFeeRule,
+  type SectionDefinition,
+  type OfflinePaymentMethod,
   TimeControlDefinition,
   TimeAddonType,
   TimeControlType,
@@ -118,6 +121,14 @@ const RATING_TYPE_OPTIONS = [
 ];
 
 const ENTRY_FEE_CURRENCY_OPTIONS = ["USD", "CAD", "EUR"] as const;
+const OFFLINE_METHOD_OPTIONS: Array<{ id: OfflinePaymentMethod; label: string; hint?: string }> = [
+  { id: "cash", label: "Cash" },
+  { id: "check", label: "Check" },
+  { id: "venmo", label: "Venmo" },
+  { id: "zelle", label: "Zelle" },
+  { id: "paypal", label: "PayPal" },
+  { id: "other", label: "Other" },
+];
 
 function fileToText(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -454,26 +465,147 @@ interface StepTwoProps {
 
 function StepTwo({ format, mode, config, onConfigChange, onBack: _onBack, onCancel, onSave, saving, tournament }: StepTwoProps) {
   const scheduleTemplateOptions = SCHEDULE_EVENT_OPTIONS;
+  const { toast } = useToast();
+  const sections = config.sections ?? [];
   const updateDetails = (updates: Partial<TournamentConfig["details"]>) =>
     onConfigChange({ ...config, details: { ...config.details, ...updates } });
 
   const updateRegisters = (updates: Partial<TournamentConfig["registers"]>) =>
     onConfigChange({ ...config, registers: { ...config.registers, ...updates } });
 
-  const addEntryFee = () =>
-    onConfigChange({ ...config, entryFees: [...config.entryFees, createEntryFeeRow()] });
+  const updatePayments = (updates: Partial<TournamentConfig["payments"]>) =>
+    onConfigChange({ ...config, payments: { ...config.payments, ...updates } });
 
-  const updateEntryFee = (id: string, updates: Partial<EntryFeeRule>) =>
+  const addSection = () => {
+    const nextSection = createSectionDefinition();
     onConfigChange({
       ...config,
-      entryFees: config.entryFees.map((fee) => (fee.id === id ? { ...fee, ...updates } : fee)),
+      sections: [...sections, nextSection],
     });
+  };
+
+  const updateSection = (id: string, updates: Partial<SectionDefinition>) => {
+    const nextSections = sections.map((section) => (section.id === id ? { ...section, ...updates } : section));
+    let nextEntryFees = config.entryFees;
+    if (updates.name !== undefined || updates.ratingMin !== undefined || updates.ratingMax !== undefined) {
+      const target = nextSections.find((section) => section.id === id);
+      if (target) {
+        nextEntryFees = nextEntryFees.map((fee) =>
+          fee.sectionId === id
+            ? {
+                ...fee,
+                section: target.name,
+                ratingMin: target.ratingMin,
+                ratingMax: target.ratingMax,
+              }
+            : fee,
+        );
+      }
+    }
+    onConfigChange({
+      ...config,
+      sections: nextSections,
+      entryFees: nextEntryFees,
+    });
+  };
+
+  const removeSection = (id: string) => {
+    const nextSections = sections.filter((section) => section.id !== id);
+    const nextEntryFees = config.entryFees.filter((fee) => fee.sectionId !== id);
+    onConfigChange({
+      ...config,
+      sections: nextSections,
+      entryFees: nextEntryFees,
+    });
+  };
+
+  const addEntryFee = () => {
+    if (sections.length === 0) {
+      toast({
+        title: "Add a section first",
+        description: "Create sections under Details before configuring pricing.",
+        variant: "destructive",
+      });
+      return;
+    }
+    const usedSectionIds = new Set(
+      config.entryFees
+        .map((fee) => fee.sectionId)
+        .filter((value): value is string => typeof value === "string" && value.trim().length > 0),
+    );
+    const availableSections = sections.filter((section) => !usedSectionIds.has(section.id));
+    if (availableSections.length === 0) {
+      toast({
+        title: "All sections priced",
+        description: "Edit an existing price or add another section to create more entry fees.",
+      });
+      return;
+    }
+    const targetSection = availableSections[0];
+    onConfigChange({
+      ...config,
+      entryFees: [
+        ...config.entryFees,
+        createEntryFeeRow(targetSection, config.payments.defaultCurrency ?? "USD"),
+      ],
+    });
+  };
+
+  const updateEntryFee = (id: string, updates: Partial<EntryFeeRule>) => {
+    const nextEntryFees = config.entryFees.map((fee) => {
+      if (fee.id !== id) return fee;
+      let nextFee: EntryFeeRule = { ...fee, ...updates };
+      if (updates.sectionId) {
+        const linked = sections.find((section) => section.id === updates.sectionId);
+        if (linked) {
+          nextFee = {
+            ...nextFee,
+            sectionId: linked.id,
+            section: linked.name,
+            ratingMin: linked.ratingMin,
+            ratingMax: linked.ratingMax,
+          };
+        }
+      }
+      return nextFee;
+    });
+    onConfigChange({
+      ...config,
+      entryFees: nextEntryFees,
+    });
+  };
 
   const removeEntryFee = (id: string) =>
     onConfigChange({
       ...config,
       entryFees: config.entryFees.filter((fee) => fee.id !== id),
     });
+
+  const handleSectionRatingChange = (id: string, field: "ratingMin" | "ratingMax", raw: string) => {
+    const trimmed = raw.trim();
+    if (trimmed.length === 0) {
+      updateSection(id, { [field]: null } as Partial<SectionDefinition>);
+      return;
+    }
+    const numeric = Number(trimmed);
+    updateSection(id, { [field]: Number.isFinite(numeric) ? numeric : null } as Partial<SectionDefinition>);
+  };
+
+  const handleEntryFeeAmountChange = (id: string, raw: string) => {
+    const trimmed = raw.trim();
+    if (trimmed.length === 0) {
+      updateEntryFee(id, { amount: 0 });
+      return;
+    }
+    const parsed = Number(trimmed);
+    updateEntryFee(id, { amount: Number.isFinite(parsed) ? Math.max(0, parsed) : 0 });
+  };
+
+  const entryFees = config.entryFees ?? [];
+  const unpricedSections = sections.filter(
+    (section) => !entryFees.some((fee) => fee.sectionId === section.id),
+  );
+  const canAddEntryFee = sections.length > 0 && unpricedSections.length > 0;
 
   const [, setLocation] = useLocation();
   const [settingsShortcut, setSettingsShortcut] = useState<SettingsShortcutTab>("registers");
@@ -696,7 +828,7 @@ function StepTwo({ format, mode, config, onConfigChange, onBack: _onBack, onCanc
                 <TabsTrigger value="basic">Basic information</TabsTrigger>
                 <TabsTrigger value="details">Details</TabsTrigger>
                 <TabsTrigger value="schedule">Schedule</TabsTrigger>
-              <TabsTrigger value="entryFees">Entry fees</TabsTrigger>
+              <TabsTrigger value="payments">Payments</TabsTrigger>
                 <TabsTrigger value="playerSignup">Player sign up</TabsTrigger>
               </TabsList>
               <TabsContent value="basic" className="bg-white p-6 space-y-4">
@@ -887,6 +1019,87 @@ function StepTwo({ format, mode, config, onConfigChange, onBack: _onBack, onCanc
                   </Select>
                 </div>
 
+                <div className="space-y-3 rounded-lg border border-slate-200 bg-slate-50/70 p-4">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <h3 className="text-base font-semibold text-slate-900">Sections & rating bands</h3>
+                      <p className="text-xs text-slate-600">
+                        Define the sections players can enter. Rating bounds are enforced throughout registration and pricing.
+                      </p>
+                    </div>
+                    <Button variant="outline" onClick={addSection}>
+                      Add section
+                    </Button>
+                  </div>
+
+                  {sections.length === 0 ? (
+                    <div className="rounded-lg border border-dashed border-slate-300 bg-white p-4 text-xs text-slate-600">
+                      No sections configured yet. Create at least one section to enable payment configuration and registration flows.
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      {sections.map((section) => {
+                        const ratingLabel =
+                          section.ratingMin === null && section.ratingMax === null
+                            ? "Open to all ratings"
+                            : `${section.ratingMin ?? "Unrated"} – ${section.ratingMax ?? "Open"}`;
+
+                        return (
+                          <div key={section.id} className="space-y-3 rounded-lg border border-slate-200 bg-white p-4">
+                            <div className="grid gap-3 md:grid-cols-[minmax(0,1.6fr)_repeat(2,minmax(0,1fr))_auto] md:items-end">
+                              <div>
+                                <Label className="text-xs font-semibold uppercase text-slate-500">Section name</Label>
+                                <Input
+                                  value={section.name}
+                                  onChange={(event) => updateSection(section.id, { name: event.target.value })}
+                                  placeholder="e.g., Championship"
+                                />
+                              </div>
+                              <div>
+                                <Label className="text-xs font-semibold uppercase text-slate-500">Rating floor</Label>
+                                <Input
+                                  type="number"
+                                  value={section.ratingMin ?? ""}
+                                  onChange={(event) =>
+                                    handleSectionRatingChange(section.id, "ratingMin", event.target.value)
+                                  }
+                                  placeholder="e.g., 1800"
+                                />
+                              </div>
+                              <div>
+                                <Label className="text-xs font-semibold uppercase text-slate-500">Rating ceiling</Label>
+                                <Input
+                                  type="number"
+                                  value={section.ratingMax ?? ""}
+                                  onChange={(event) =>
+                                    handleSectionRatingChange(section.id, "ratingMax", event.target.value)
+                                  }
+                                  placeholder="Leave blank for open"
+                                />
+                              </div>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                className="justify-self-end text-red-600"
+                                onClick={() => removeSection(section.id)}
+                              >
+                                Remove
+                              </Button>
+                            </div>
+                            <p className="text-[11px] uppercase tracking-wide text-slate-400">{ratingLabel}</p>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {sections.length > 0 && (
+                    <p className="text-xs text-slate-500">
+                      Tip: After defining sections, configure required entry fees in the Payments tab.
+                    </p>
+                  )}
+                </div>
+
                 {renderTabSaveButton()}
               </TabsContent>
 
@@ -957,98 +1170,216 @@ function StepTwo({ format, mode, config, onConfigChange, onBack: _onBack, onCanc
 
                 {renderTabSaveButton()}
               </TabsContent>
-
-              <TabsContent value="entryFees" className="bg-white p-6 space-y-4">
-                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                  <div>
-                    <h3 className="text-lg font-semibold">Entry fees</h3>
-                    <p className="text-sm text-muted-foreground">
-                      Define pricing by section and rating range. These options appear in the player registration form.
-                    </p>
+              <TabsContent value="payments" className="bg-white p-6 space-y-5">
+                <div className="rounded-lg border border-indigo-100 bg-indigo-50/80 px-4 py-3">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-semibold text-slate-900">Online payments</p>
+                      <p className="text-xs text-slate-600">
+                        Enable Stripe-powered checkout inside the player registration flow.
+                      </p>
+                    </div>
+                    <Switch
+                      checked={config.payments.onlineEnabled}
+                      onCheckedChange={(checked) => updatePayments({ onlineEnabled: checked })}
+                    />
                   </div>
-                  <Button variant="outline" onClick={addEntryFee}>
-                    Add entry fee
-                  </Button>
+                  {!config.payments.onlineEnabled && (
+                    <p className="mt-3 text-xs text-indigo-700">
+                      Players will acknowledge offline payment instructions during registration. Toggle this on once your Stripe API keys are active.
+                    </p>
+                  )}
                 </div>
 
-                {(config.entryFees ?? []).length === 0 ? (
-                  <div className="rounded-lg border border-dashed border-slate-300 p-6 text-sm text-slate-600">
-                    No entry fees configured yet. Add rows to match each tournament section.
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label htmlFor="payment-currency">Default currency</Label>
+                    <Select
+                      value={config.payments.defaultCurrency ?? "USD"}
+                      onValueChange={(value) => updatePayments({ defaultCurrency: value })}
+                    >
+                      <SelectTrigger id="payment-currency">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {ENTRY_FEE_CURRENCY_OPTIONS.map((currency) => (
+                          <SelectItem key={currency} value={currency}>
+                            {currency}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
-                ) : (
-                  <div className="space-y-3">
-                    {(config.entryFees ?? []).map((fee) => {
-                      const handleAmountChange = (raw: string) => {
-                        if (raw === "") {
-                          updateEntryFee(fee.id, { amount: 0 });
-                          return;
-                        }
-                        const parsed = Number(raw);
-                        updateEntryFee(fee.id, { amount: Number.isFinite(parsed) ? Math.max(0, parsed) : 0 });
-                      };
+                  <div className="space-y-2">
+                    <Label htmlFor="payment-descriptor">Statement descriptor (optional)</Label>
+                    <Input
+                      id="payment-descriptor"
+                      value={config.payments.payoutStatementDescriptor ?? ""}
+                      onChange={(event) => updatePayments({ payoutStatementDescriptor: event.target.value })}
+                      placeholder="e.g., SD CHESS CLUB"
+                    />
+                  </div>
 
-                      const handleRatingMinChange = (raw: string) => {
-                        if (raw === "") {
-                          updateEntryFee(fee.id, { ratingMin: null });
-                          return;
-                        }
-                        const parsed = Number(raw);
-                        updateEntryFee(fee.id, { ratingMin: Number.isFinite(parsed) ? parsed : null });
-                      };
+                  {config.payments.onlineEnabled && (
+                    <>
+                      <div className="space-y-2">
+                        <Label className="flex items-center gap-2">
+                          Require payment on registration
+                          <Badge variant="outline" className="text-xs">Recommended</Badge>
+                        </Label>
+                        <div className="flex items-center justify-between rounded-lg border border-slate-200 bg-white px-4 py-3">
+                          <p className="text-xs text-slate-600 pr-6">
+                            Players must complete Stripe checkout before their registration is submitted.
+                          </p>
+                          <Switch
+                            checked={config.payments.requirePaymentOnRegistration}
+                            onCheckedChange={(checked) => updatePayments({ requirePaymentOnRegistration: checked })}
+                          />
+                        </div>
+                      </div>
 
-                      const handleRatingMaxChange = (raw: string) => {
-                        if (raw === "") {
-                          updateEntryFee(fee.id, { ratingMax: null });
-                          return;
-                        }
-                        const parsed = Number(raw);
-                        updateEntryFee(fee.id, { ratingMax: Number.isFinite(parsed) ? parsed : null });
-                      };
+                      <div className="space-y-2">
+                        <Label>Processing contribution</Label>
+                        <div className="flex items-center justify-between rounded-lg border border-slate-200 bg-white px-4 py-3">
+                          <p className="text-xs text-slate-600 pr-6">
+                            Allow players to add an optional amount to help cover Stripe fees.
+                          </p>
+                          <Switch
+                            checked={config.payments.allowProcessingContribution}
+                            onCheckedChange={(checked) => updatePayments({ allowProcessingContribution: checked })}
+                          />
+                        </div>
+                      </div>
 
-                      return (
-                        <div key={fee.id} className="rounded-xl border border-slate-200 p-4">
-                          <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_auto] md:items-end">
-                            <div>
-                              <Label className="text-xs font-semibold uppercase text-slate-500">Section</Label>
-                              <Input
-                                value={fee.section}
-                                onChange={(event) => updateEntryFee(fee.id, { section: event.target.value })}
-                                placeholder="e.g., Championship"
-                              />
-                            </div>
-                            <div>
-                              <Label className="text-xs font-semibold uppercase text-slate-500">Rating floor</Label>
-                              <Input
-                                type="number"
-                                value={fee.ratingMin ?? ""}
-                                onChange={(event) => handleRatingMinChange(event.target.value)}
-                                placeholder="e.g., 1800"
-                              />
-                            </div>
-                            <div>
-                              <Label className="text-xs font-semibold uppercase text-slate-500">Rating ceiling</Label>
-                              <Input
-                                type="number"
-                                value={fee.ratingMax ?? ""}
-                                onChange={(event) => handleRatingMaxChange(event.target.value)}
-                                placeholder="Leave blank for open"
-                              />
-                            </div>
-                            <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
+                      <div className="space-y-2">
+                        <Label htmlFor="processing-fee">Processing fee (%)</Label>
+                        <Input
+                          id="processing-fee"
+                          type="number"
+                          min={0}
+                          max={10}
+                          step={0.1}
+                          value={
+                            typeof config.payments.processingFeePercent === "number"
+                              ? String(config.payments.processingFeePercent)
+                              : ""
+                          }
+                          onChange={(event) => {
+                            const raw = event.target.value;
+                            const trimmed = raw.trim();
+                            if (!trimmed) {
+                              updatePayments({ processingFeePercent: null });
+                              return;
+                            }
+                            const numeric = Number(trimmed);
+                            if (Number.isFinite(numeric)) {
+                              const clamped = Math.max(0, Math.min(10, Number(numeric.toFixed(2))));
+                              updatePayments({ processingFeePercent: clamped });
+                            }
+                          }}
+                          placeholder="0"
+                        />
+                        <p className="text-xs text-muted-foreground">
+                          Applied on top of the entry fee total when the checkout session is created.
+                        </p>
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label htmlFor="stripe-account">Stripe Connect account (optional)</Label>
+                        <Input
+                          id="stripe-account"
+                          value={config.payments.stripeAccountId ?? ""}
+                          onChange={(event) => updatePayments({ stripeAccountId: event.target.value })}
+                          placeholder="acct_1234"
+                        />
+                        <p className="text-xs text-muted-foreground">
+                          Provide a connected account ID if payouts route to a tournament sub-account.
+                        </p>
+                      </div>
+                    </>
+                  )}
+                </div>
+
+                <div className="space-y-3 rounded-xl border border-slate-200 bg-white p-4">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <h3 className="text-sm font-semibold text-slate-900">Section pricing</h3>
+                      <p className="text-xs text-slate-600">
+                        Assign a required entry fee to each section. Players will see these prices during registration.
+                      </p>
+                    </div>
+                    <Button variant="outline" onClick={addEntryFee} disabled={!canAddEntryFee}>
+                      Add pricing
+                    </Button>
+                  </div>
+
+                  {sections.length === 0 ? (
+                    <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-4 text-xs text-slate-600">
+                      Create sections under the Details tab before configuring pricing.
+                    </div>
+                  ) : entryFees.length === 0 ? (
+                    <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-4 text-xs text-slate-600">
+                      No pricing configured yet. Add a pricing row for each section to open registration.
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      {entryFees.map((fee) => {
+                        const activeSection =
+                          sections.find((section) => section.id === fee.sectionId) ??
+                          sections.find(
+                            (section) =>
+                              section.name.trim().toLowerCase() === (fee.section ?? "").trim().toLowerCase(),
+                          );
+                        const otherUsedSectionIds = new Set(
+                          entryFees
+                            .filter((other) => other.id !== fee.id)
+                            .map((other) => other.sectionId)
+                            .filter((value): value is string => typeof value === "string" && value.trim().length > 0),
+                        );
+                        const ratingLabel = activeSection
+                          ? `Rating ${activeSection.ratingMin ?? "Unrated"} – ${activeSection.ratingMax ?? "Open"}`
+                          : "Select a section to inherit its rating range.";
+
+                        return (
+                          <div key={fee.id} className="space-y-3 rounded-lg border border-slate-200 bg-slate-50/60 p-4">
+                            <div className="grid gap-3 md:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)_minmax(0,1fr)_auto] md:items-end">
+                              <div>
+                                <Label className="text-xs font-semibold uppercase text-slate-500">Section</Label>
+                                <Select
+                                  value={activeSection?.id ?? fee.sectionId ?? ""}
+                                  onValueChange={(value) => updateEntryFee(fee.id, { sectionId: value })}
+                                >
+                                  <SelectTrigger>
+                                    <SelectValue placeholder="Select section" />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {sections.map((section) => (
+                                      <SelectItem
+                                        key={section.id}
+                                        value={section.id}
+                                        disabled={otherUsedSectionIds.has(section.id)}
+                                      >
+                                        {section.name || "Unnamed section"}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                                <p className="mt-1 text-[11px] text-slate-500">{ratingLabel}</p>
+                              </div>
                               <div>
                                 <Label className="text-xs font-semibold uppercase text-slate-500">Amount</Label>
                                 <Input
                                   type="number"
                                   step="0.01"
-                                  value={fee.amount ?? 0}
-                                  onChange={(event) => handleAmountChange(event.target.value)}
+                                  value={typeof fee.amount === "number" ? String(fee.amount) : ""}
+                                  onChange={(event) => handleEntryFeeAmountChange(fee.id, event.target.value)}
                                   placeholder="e.g., 120"
                                 />
                               </div>
                               <div>
                                 <Label className="text-xs font-semibold uppercase text-slate-500">Currency</Label>
                                 <Select
-                                  value={fee.currency}
+                                  value={fee.currency || config.payments.defaultCurrency || "USD"}
                                   onValueChange={(value) => updateEntryFee(fee.id, { currency: value })}
                                 >
                                   <SelectTrigger>
@@ -1063,33 +1394,85 @@ function StepTwo({ format, mode, config, onConfigChange, onBack: _onBack, onCanc
                                   </SelectContent>
                                 </Select>
                               </div>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                className="justify-self-end text-red-600"
+                                onClick={() => removeEntryFee(fee.id)}
+                              >
+                                Remove
+                              </Button>
                             </div>
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              className="justify-self-end text-red-600"
-                              onClick={() => removeEntryFee(fee.id)}
-                            >
-                              Remove
-                            </Button>
+                            <div>
+                              <Label className="text-xs font-semibold uppercase text-slate-500">Notes (optional)</Label>
+                              <Input
+                                value={fee.notes ?? ""}
+                                onChange={(event) => updateEntryFee(fee.id, { notes: event.target.value })}
+                                placeholder="e.g., Early bird until Oct 1"
+                              />
+                            </div>
                           </div>
-                          <div className="mt-3">
-                            <Label className="text-xs font-semibold uppercase text-slate-500">Notes (optional)</Label>
-                            <Input
-                              value={fee.notes ?? ""}
-                              onChange={(event) => updateEntryFee(fee.id, { notes: event.target.value })}
-                              placeholder="e.g., Early bird until Oct 1"
-                            />
-                          </div>
-                        </div>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {sections.length > 0 && unpricedSections.length > 0 && (
+                    <div className="rounded-lg border border-dashed border-amber-200 bg-amber-50 p-3 text-xs text-amber-700">
+                      {unpricedSections.length === 1
+                        ? `${unpricedSections[0].name || "Unnamed section"} still needs a price.`
+                        : `The following sections still need pricing: ${unpricedSections
+                            .map((section) => section.name || "Unnamed section")
+                            .join(", ")}.`}
+                    </div>
+                  )}
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Accepted offline payment methods</Label>
+                  <div className="flex flex-wrap gap-2">
+                    {OFFLINE_METHOD_OPTIONS.map((option) => {
+                      const active = config.payments.acceptedOfflineMethods?.includes(option.id) ?? false;
+                      return (
+                        <button
+                          key={option.id}
+                          type="button"
+                          onClick={() => {
+                            const current = config.payments.acceptedOfflineMethods ?? [];
+                            const next = active
+                              ? current.filter((method) => method !== option.id)
+                              : [...current, option.id];
+                            updatePayments({ acceptedOfflineMethods: next });
+                          }}
+                          className={cn(
+                            "rounded-full border px-3 py-1 text-xs font-medium transition",
+                            active
+                              ? "border-indigo-500 bg-indigo-500 text-white shadow-sm"
+                              : "border-slate-200 bg-white text-slate-600 hover:border-indigo-300 hover:text-indigo-600",
+                          )}
+                        >
+                          {option.label}
+                        </button>
                       );
                     })}
                   </div>
-                )}
-
-                <div className="rounded-lg bg-slate-50 p-4 text-xs text-slate-500">
-                  Rating ranges are optional. Leave the fields blank to apply the fee to all players in the selected section.
+                  <p className="text-xs text-muted-foreground">
+                    These options display on the review step so players know how to pay if they skip online checkout.
+                  </p>
                 </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="offline-instructions">Offline payment instructions</Label>
+                  <Textarea
+                    id="offline-instructions"
+                    rows={4}
+                    value={config.payments.offlineInstructions ?? ""}
+                    onChange={(event) => updatePayments({ offlineInstructions: event.target.value })}
+                    placeholder="Include on-site payment windows, who to Venmo, or mailing addresses for checks."
+                  />
+                </div>
+
+                {renderTabSaveButton()}
               </TabsContent>
 
               <TabsContent value="playerSignup" className="bg-white p-6 space-y-4">
@@ -1417,14 +1800,25 @@ export function TournamentBuilder({ mode, format: initialFormat, tournament, onC
   );
 }
 
-function createEntryFeeRow(): EntryFeeRule {
+function createSectionDefinition(): SectionDefinition {
   return {
-    id: generateEntryFeeId(),
-    section: "",
+    id: generateSectionId(),
+    name: "",
     ratingMin: null,
     ratingMax: null,
+    description: undefined,
+  };
+}
+
+function createEntryFeeRow(section?: SectionDefinition, defaultCurrency = "USD"): EntryFeeRule {
+  return {
+    id: generateEntryFeeId(),
+    sectionId: section?.id,
+    section: section?.name ?? "",
+    ratingMin: section?.ratingMin ?? null,
+    ratingMax: section?.ratingMax ?? null,
     amount: 0,
-    currency: "USD",
+    currency: defaultCurrency,
     notes: "",
   };
 }
@@ -1434,6 +1828,13 @@ function generateEntryFeeId(): string {
     return crypto.randomUUID();
   }
   return `fee-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function generateSectionId(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return `section-${Math.random().toString(36).slice(2, 10)}`;
 }
 
 export default TournamentBuilder;
