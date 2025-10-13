@@ -1,15 +1,29 @@
-import { useEffect, useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
 import { AlertTriangle, Mail, Share2, Trash2 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
+import {
+  parseTournamentConfig,
+  buildTournamentPayload,
+  serializeTournamentConfig,
+} from "@/lib/tournament-config";
+import {
+  TOURNAMENT_TEMPLATE_OPTIONS,
+  applyTournamentTemplateSnapshot,
+  buildTournamentTemplateSnapshot,
+  isTournamentTemplateSnapshot,
+  type TemplateSectionKey,
+  type TournamentTemplateSnapshot,
+} from "@/lib/tournament-templates";
 import type { Tournament } from "@shared/schema";
 
 interface TournamentActionsPageProps {
@@ -20,13 +34,21 @@ export default function TournamentActionsPage({ tournamentId }: TournamentAction
   const { user, isLoading: authLoading } = useAuth();
   const { toast } = useToast();
   const [, setLocation] = useLocation();
+  const queryClient = useQueryClient();
   const [deleting, setDeleting] = useState(false);
   const [shareEmails, setShareEmails] = useState("");
   const [shareMessage, setShareMessage] = useState("");
+  const [templateSelections, setTemplateSelections] = useState<TemplateSectionKey[]>(() =>
+    TOURNAMENT_TEMPLATE_OPTIONS.map((option) => option.id),
+  );
+  const [templateSaving, setTemplateSaving] = useState(false);
+  const templateImportInputRef = useRef<HTMLInputElement | null>(null);
 
   const { data: tournament, isLoading: tournamentLoading } = useQuery<Tournament>({
     queryKey: [`/api/tournaments/${tournamentId}`],
   });
+
+  const parsedConfig = useMemo(() => (tournament ? parseTournamentConfig(tournament) : null), [tournament]);
 
   const canManageTournament = useMemo(() => {
     if (!user || !tournament) return false;
@@ -44,6 +66,10 @@ export default function TournamentActionsPage({ tournamentId }: TournamentAction
     }
   }, [authLoading, canManageTournament, tournament, tournamentId, tournamentLoading, user, setLocation]);
 
+  useEffect(() => {
+    setTemplateSelections(TOURNAMENT_TEMPLATE_OPTIONS.map((option) => option.id));
+  }, [tournamentId]);
+
   if (authLoading || tournamentLoading || !tournament) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-slate-50">
@@ -58,6 +84,102 @@ export default function TournamentActionsPage({ tournamentId }: TournamentAction
   if (!canManageTournament) {
     return null;
   }
+
+  const updateTemplateSelection = (key: TemplateSectionKey, checked: boolean) => {
+    setTemplateSelections((prev) => {
+      if (checked) {
+        if (prev.includes(key)) return prev;
+        return [...prev, key];
+      }
+      return prev.filter((value) => value !== key);
+    });
+  };
+
+  const handleTemplateSelectAll = () => {
+    setTemplateSelections(TOURNAMENT_TEMPLATE_OPTIONS.map((option) => option.id));
+  };
+
+  const handleTemplateClear = () => {
+    setTemplateSelections([]);
+  };
+
+  const handleTemplateExport = () => {
+    if (!parsedConfig) {
+      toast({ title: "Tournament not ready", variant: "destructive" });
+      return;
+    }
+    if (templateSelections.length === 0) {
+      toast({ title: "Select sections to export", variant: "destructive" });
+      return;
+    }
+
+    const format = parsedConfig.format ?? tournament.format;
+    const mode = parsedConfig.mode ?? "rated";
+    const snapshot = buildTournamentTemplateSnapshot(parsedConfig, format, mode, templateSelections);
+    const blob = new Blob([JSON.stringify(snapshot, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const slug = tournament.name
+      ? tournament.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "")
+      : `tournament-${tournament.id}`;
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `${slug || "tournament"}-template.json`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    toast({ title: "Template exported", description: "Download complete." });
+  };
+
+  const handleTemplateImport = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    try {
+      const text = await file.text();
+      const parsed = JSON.parse(text);
+      if (!isTournamentTemplateSnapshot(parsed)) {
+        throw new Error("File is not a valid tournament template.");
+      }
+      if (!parsedConfig) {
+        throw new Error("Tournament configuration unavailable.");
+      }
+
+      const snapshot: TournamentTemplateSnapshot = {
+        ...parsed,
+        selected:
+          parsed.selected && parsed.selected.length > 0
+            ? (parsed.selected as TemplateSectionKey[])
+            : TOURNAMENT_TEMPLATE_OPTIONS.map((option) => option.id),
+      };
+
+      const mergedConfig = applyTournamentTemplateSnapshot(parsedConfig, snapshot);
+      const format = mergedConfig.format ?? tournament.format;
+      const payload = buildTournamentPayload(mergedConfig, { format });
+      payload.roundTimings = serializeTournamentConfig({ ...mergedConfig, format });
+      (payload as any).status = tournament.status;
+
+      setTemplateSaving(true);
+      await apiRequest(`/api/tournaments/${tournamentId}`, {
+        method: "PUT",
+        body: JSON.stringify(payload),
+      });
+      setTemplateSelections(snapshot.selected);
+      queryClient.invalidateQueries({ queryKey: [`/api/tournaments/${tournamentId}`] });
+      toast({ title: "Template applied", description: "Tournament configuration updated." });
+    } catch (error) {
+      toast({
+        title: "Template import failed",
+        description: error instanceof Error ? error.message : "Unable to load template file.",
+        variant: "destructive",
+      });
+    } finally {
+      setTemplateSaving(false);
+      if (event.target) {
+        event.target.value = "";
+      }
+    }
+  };
 
   const handleDelete = async () => {
     if (!window.confirm("Are you sure you want to delete this tournament? This action cannot be undone.")) {
@@ -108,7 +230,7 @@ export default function TournamentActionsPage({ tournamentId }: TournamentAction
       <div className="mx-auto max-w-4xl space-y-6 p-6">
         <div className="flex flex-wrap items-center justify-between gap-4 border-b pb-4">
           <div>
-            <Button variant="outline" onClick={() => setLocation(`/tournaments/${tournamentId}`)}>
+            <Button variant="outline" onClick={() => setLocation(`/tournaments/${tournamentId}/manage`)}>
               Back to tournament
             </Button>
             <h1 className="mt-4 text-2xl font-semibold text-slate-900">Tournament actions</h1>
@@ -135,6 +257,62 @@ export default function TournamentActionsPage({ tournamentId }: TournamentAction
             <Button variant="destructive" onClick={handleDelete} disabled={deleting}>
               {deleting ? "Deleting..." : "Delete tournament"}
             </Button>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              Templates
+            </CardTitle>
+            <CardDescription>
+              Export selected configuration areas or apply a saved template to this tournament.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
+              <Button type="button" variant="ghost" size="sm" onClick={handleTemplateSelectAll}>
+                Select all
+              </Button>
+              <Button type="button" variant="ghost" size="sm" onClick={handleTemplateClear}>
+                Clear
+              </Button>
+            </div>
+            <div className="grid gap-3 md:grid-cols-2">
+              {TOURNAMENT_TEMPLATE_OPTIONS.map((option) => {
+                const checked = templateSelections.includes(option.id);
+                return (
+                  <label
+                    key={option.id}
+                    className="flex items-start gap-3 rounded-lg border border-slate-200 bg-white px-4 py-3 text-left shadow-sm"
+                  >
+                    <Checkbox
+                      checked={checked}
+                      onCheckedChange={(value) => updateTemplateSelection(option.id, value === true)}
+                    />
+                    <div>
+                      <p className="text-sm font-medium text-slate-900">{option.label}</p>
+                      <p className="text-xs text-slate-500">{option.description}</p>
+                    </div>
+                  </label>
+                );
+              })}
+            </div>
+            <div className="flex flex-wrap items-center gap-3">
+              <Button variant="outline" onClick={() => templateImportInputRef.current?.click()} disabled={templateSaving}>
+                {templateSaving ? "Applying template..." : "Import template"}
+              </Button>
+              <Button onClick={handleTemplateExport} disabled={templateSelections.length === 0}>
+                Export template
+              </Button>
+              <input
+                ref={templateImportInputRef}
+                type="file"
+                accept="application/json"
+                className="hidden"
+                onChange={handleTemplateImport}
+              />
+            </div>
           </CardContent>
         </Card>
 

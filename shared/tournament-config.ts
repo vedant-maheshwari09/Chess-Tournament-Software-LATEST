@@ -32,6 +32,7 @@ export interface RegistersConfig {
   byeLimit?: number | null;
   earlyBirdDetails?: string;
   paymentDetails?: string;
+  enablePairingPredictor: boolean;
 }
 
 export interface FideRegistrationData {
@@ -114,6 +115,17 @@ export interface EntryFeeRule {
   amount: number;
   currency: string;
   notes?: string;
+  effectiveAfter: string | null;
+}
+
+export interface PrizeRule {
+  id: string;
+  sectionId?: string;
+  section: string;
+  ratingCap: number | null;
+  amount: number;
+  currency: string;
+  notes?: string;
 }
 
 export interface SectionDefinition {
@@ -164,6 +176,7 @@ export interface TournamentConfig {
   schedule: ScheduleEvent[];
   sections: SectionDefinition[];
   entryFees: EntryFeeRule[];
+  prizes: PrizeRule[];
   payments: PaymentSettings;
   registers: RegistersConfig;
   fide: FideRegistrationData;
@@ -238,6 +251,7 @@ export function createDefaultConfig(format: Tournament["format"], mode: Tourname
     schedule: createDefaultSchedule(defaultRounds),
     sections: [],
     entryFees: [],
+    prizes: [],
     payments: {
       defaultCurrency: "USD",
       provider: "stripe",
@@ -263,6 +277,7 @@ export function createDefaultConfig(format: Tournament["format"], mode: Tourname
       byeLimit: null,
       earlyBirdDetails: "",
       paymentDetails: "",
+      enablePairingPredictor: false,
     },
     fide: {
       prizeFund: "",
@@ -348,7 +363,8 @@ export function parseTournamentConfig(tournament: Tournament): TournamentConfig 
         ];
 
     const sanitizedEntryFees = sanitizeEntryFees((parsed as any)?.entryFees);
-    const sanitizedSections = sanitizeSections((parsed as any)?.sections, sanitizedEntryFees);
+    const sanitizedPrizes = sanitizePrizes((parsed as any)?.prizes);
+    const sanitizedSections = sanitizeSections((parsed as any)?.sections, sanitizedEntryFees, sanitizedPrizes);
     const normalizedEntryFees = sanitizedEntryFees.map((fee) => {
       const sectionName = (fee.section ?? "").trim();
       const linkedSection =
@@ -361,8 +377,23 @@ export function parseTournamentConfig(tournament: Tournament): TournamentConfig 
         ...fee,
         sectionId: linkedSection.id,
         section: linkedSection.name,
-        ratingMin: linkedSection.ratingMin,
-        ratingMax: linkedSection.ratingMax,
+        ratingMin: fee.ratingMin ?? linkedSection.ratingMin ?? null,
+        ratingMax: fee.ratingMax ?? linkedSection.ratingMax ?? null,
+      };
+    });
+    const normalizedPrizes = sanitizedPrizes.map((prize) => {
+      const sectionName = (prize.section ?? "").trim();
+      const linkedSection =
+        (prize.sectionId && sanitizedSections.find((section) => section.id === prize.sectionId)) ??
+        sanitizedSections.find((section) => section.name.trim().toLowerCase() === sectionName.toLowerCase());
+      if (!linkedSection) {
+        return prize;
+      }
+      return {
+        ...prize,
+        sectionId: linkedSection.id,
+        section: linkedSection.name,
+        ratingCap: prize.ratingCap ?? linkedSection.ratingMax ?? null,
       };
     });
     const sanitizedPayments = sanitizePaymentSettings((parsed as any)?.payments);
@@ -417,6 +448,7 @@ export function parseTournamentConfig(tournament: Tournament): TournamentConfig 
       },
       sections: sanitizedSections,
       entryFees: normalizedEntryFees,
+      prizes: normalizedPrizes,
       payments: sanitizedPayments,
       mode: normalizedMode,
     };
@@ -455,6 +487,7 @@ export function parseTournamentConfig(tournament: Tournament): TournamentConfig 
     schedule: legacySchedule,
     sections: [],
     entryFees: [],
+    prizes: [],
   };
 }
 
@@ -466,7 +499,8 @@ export function serializeTournamentConfig(config: TournamentConfig): TournamentC
     id: event.id || `${index + 1}`,
   }));
   const sanitizedEntryFees = sanitizeEntryFees(config.entryFees);
-  const sanitizedSections = sanitizeSections(config.sections, sanitizedEntryFees);
+  const sanitizedPrizes = sanitizePrizes(config.prizes);
+  const sanitizedSections = sanitizeSections(config.sections, sanitizedEntryFees, sanitizedPrizes);
   const normalizedEntryFees = sanitizedEntryFees.map((fee) => {
     const sectionName = (fee.section ?? "").trim();
     const linkedSection =
@@ -479,8 +513,23 @@ export function serializeTournamentConfig(config: TournamentConfig): TournamentC
       ...fee,
       sectionId: linkedSection.id,
       section: linkedSection.name,
-      ratingMin: linkedSection.ratingMin,
-      ratingMax: linkedSection.ratingMax,
+      ratingMin: fee.ratingMin ?? linkedSection.ratingMin ?? null,
+      ratingMax: fee.ratingMax ?? linkedSection.ratingMax ?? null,
+    };
+  });
+  const normalizedPrizes = sanitizedPrizes.map((prize) => {
+    const sectionName = (prize.section ?? "").trim();
+    const linkedSection =
+      (prize.sectionId && sanitizedSections.find((section) => section.id === prize.sectionId)) ??
+      sanitizedSections.find((section) => section.name.trim().toLowerCase() === sectionName.toLowerCase());
+    if (!linkedSection) {
+      return prize;
+    }
+    return {
+      ...prize,
+      sectionId: linkedSection.id,
+      section: linkedSection.name,
+      ratingCap: prize.ratingCap ?? linkedSection.ratingMax ?? null,
     };
   });
   const sanitizedPayments = sanitizePaymentSettings(config.payments);
@@ -494,6 +543,7 @@ export function serializeTournamentConfig(config: TournamentConfig): TournamentC
     schedule: adjustedSchedule,
     sections: sanitizedSections,
     entryFees: normalizedEntryFees,
+    prizes: normalizedPrizes,
     payments: sanitizedPayments,
   };
 }
@@ -521,12 +571,47 @@ function sanitizeEntryFeeRule(raw: any): EntryFeeRule {
   const amount = coerceAmount(raw?.amount);
   const currency = typeof raw?.currency === "string" && raw.currency.trim() ? raw.currency.trim().toUpperCase() : "USD";
   const notes = typeof raw?.notes === "string" && raw.notes.trim() ? raw.notes.trim() : undefined;
+  const effectiveAfter = coerceDateString(raw?.effectiveAfter);
   return {
     id,
     sectionId,
     section,
     ratingMin,
     ratingMax,
+    amount,
+    currency,
+    notes,
+    effectiveAfter,
+  };
+}
+
+function sanitizePrizes(value: unknown): PrizeRule[] {
+  if (!Array.isArray(value)) return [];
+  const result: PrizeRule[] = [];
+  for (const raw of value) {
+    const sanitized = sanitizePrizeRule(raw);
+    if (!sanitized.section.trim()) continue;
+    if (result.some((existing) => existing.id === sanitized.id)) {
+      sanitized.id = generatePrizeId();
+    }
+    result.push(sanitized);
+  }
+  return result;
+}
+
+function sanitizePrizeRule(raw: any): PrizeRule {
+  const id = typeof raw?.id === "string" && raw.id.trim() ? raw.id.trim() : generatePrizeId();
+  const sectionId = typeof raw?.sectionId === "string" && raw.sectionId.trim() ? raw.sectionId.trim() : undefined;
+  const section = typeof raw?.section === "string" ? raw.section.trim() : "";
+  const ratingCap = coerceNullableNumber(raw?.ratingCap);
+  const amount = coerceAmount(raw?.amount);
+  const currency = typeof raw?.currency === "string" && raw.currency.trim() ? raw.currency.trim().toUpperCase() : "USD";
+  const notes = typeof raw?.notes === "string" && raw.notes.trim() ? raw.notes.trim() : undefined;
+  return {
+    id,
+    sectionId,
+    section,
+    ratingCap,
     amount,
     currency,
     notes,
@@ -545,6 +630,22 @@ function coerceAmount(value: unknown): number {
   return Math.max(0, Number(numeric.toFixed(2)));
 }
 
+function coerceDateString(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const isoPattern = /^\d{4}-\d{2}-\d{2}$/;
+  if (isoPattern.test(trimmed)) {
+    return trimmed;
+  }
+  const parsed = new Date(trimmed);
+  if (Number.isNaN(parsed.getTime())) return null;
+  const year = parsed.getUTCFullYear();
+  const month = `${parsed.getUTCMonth() + 1}`.padStart(2, "0");
+  const day = `${parsed.getUTCDate()}`.padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
 function generateEntryFeeId(): string {
   const globalCrypto = typeof globalThis !== "undefined" ? (globalThis as any).crypto : undefined;
   if (globalCrypto && typeof globalCrypto.randomUUID === "function") {
@@ -553,7 +654,19 @@ function generateEntryFeeId(): string {
   return `fee-${Math.random().toString(36).slice(2, 10)}`;
 }
 
-function sanitizeSections(value: unknown, fallbackEntryFees: EntryFeeRule[] = []): SectionDefinition[] {
+function generatePrizeId(): string {
+  const globalCrypto = typeof globalThis !== "undefined" ? (globalThis as any).crypto : undefined;
+  if (globalCrypto && typeof globalCrypto.randomUUID === "function") {
+    return globalCrypto.randomUUID();
+  }
+  return `prize-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function sanitizeSections(
+  value: unknown,
+  fallbackEntryFees: EntryFeeRule[] = [],
+  fallbackPrizes: PrizeRule[] = [],
+): SectionDefinition[] {
   const fromArray = Array.isArray(value) ? value : [];
   const result: SectionDefinition[] = [];
 
@@ -566,8 +679,8 @@ function sanitizeSections(value: unknown, fallbackEntryFees: EntryFeeRule[] = []
     result.push(section);
   }
 
-  if (result.length === 0 && fallbackEntryFees.length > 0) {
-    return deriveSectionsFromEntryFees(fallbackEntryFees);
+  if (result.length === 0 && (fallbackEntryFees.length > 0 || fallbackPrizes.length > 0)) {
+    return deriveSectionsFromFallback(fallbackEntryFees, fallbackPrizes);
   }
 
   return result;
@@ -588,7 +701,7 @@ function sanitizeSectionDefinition(raw: any): SectionDefinition {
   };
 }
 
-function deriveSectionsFromEntryFees(entryFees: EntryFeeRule[]): SectionDefinition[] {
+function deriveSectionsFromFallback(entryFees: EntryFeeRule[], prizes: PrizeRule[]): SectionDefinition[] {
   const map = new Map<string, SectionDefinition>();
   for (const fee of entryFees) {
     const key = fee.section?.trim().toLowerCase();
@@ -599,6 +712,19 @@ function deriveSectionsFromEntryFees(entryFees: EntryFeeRule[]): SectionDefiniti
         name: fee.section.trim(),
         ratingMin: fee.ratingMin ?? null,
         ratingMax: fee.ratingMax ?? null,
+        description: undefined,
+      });
+    }
+  }
+  for (const prize of prizes) {
+    const key = prize.section?.trim().toLowerCase();
+    if (!key) continue;
+    if (!map.has(key)) {
+      map.set(key, {
+        id: generateSectionId(),
+        name: prize.section.trim(),
+        ratingMin: null,
+        ratingMax: prize.ratingCap ?? null,
         description: undefined,
       });
     }
@@ -682,4 +808,13 @@ export function buildTournamentPayload(
     location: serialized.basic.city,
     useQuickSetup: false,
   };
+}
+
+export function resolveEntryFeeBounds(
+  fee: EntryFeeRule,
+  section?: SectionDefinition | null,
+): { ratingMin: number | null; ratingMax: number | null } {
+  const ratingMin = fee.ratingMin !== null ? fee.ratingMin : section?.ratingMin ?? null;
+  const ratingMax = fee.ratingMax !== null ? fee.ratingMax : section?.ratingMax ?? null;
+  return { ratingMin, ratingMax };
 }

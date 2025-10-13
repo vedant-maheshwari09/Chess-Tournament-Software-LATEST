@@ -30,8 +30,14 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
-import { parseTournamentConfig } from "@/lib/tournament-config";
-import type { EntryFeeRule, PaymentSettings, OfflinePaymentMethod, SectionDefinition } from "@/lib/tournament-config";
+import {
+  parseTournamentConfig,
+  resolveEntryFeeBounds,
+  type EntryFeeRule,
+  type PaymentSettings,
+  type OfflinePaymentMethod,
+  type SectionDefinition,
+} from "@/lib/tournament-config";
 import type { Tournament, Player, PlayerRegistration } from "@shared/schema";
 import { loadStripe } from "@stripe/stripe-js";
 import type { Stripe, StripeElements } from "@stripe/stripe-js";
@@ -626,7 +632,7 @@ export default function TournamentRegistrationFormPage({ tournamentId }: Tournam
       fields = ["firstName", "lastName", "email", "sectionChoice"];
     } else if (currentStep === 2 && entryFees.length > 0) {
       const selectedSection = form.getValues("sectionChoice");
-      const sectionEntryFees = filterEntryFeesBySection(entryFees, selectedSection);
+      const sectionEntryFees = filterEntryFeesBySection(entryFees, selectedSection, sections);
       const selectedEntryFeeId = form.getValues("entryFeeId");
 
       if (sectionEntryFees.length === 0) {
@@ -787,6 +793,7 @@ export default function TournamentRegistrationFormPage({ tournamentId }: Tournam
                     paymentSettings={paymentSettings ?? null}
                     paymentTotals={paymentTotals}
                     selectedEntryFee={selectedEntryFee}
+                    sections={sections}
                     requiresPayment={requiresPayment}
                     onlineConfigured={Boolean(canProcessOnline)}
                     clientSecret={clientSecret}
@@ -806,6 +813,7 @@ export default function TournamentRegistrationFormPage({ tournamentId }: Tournam
                   paymentSettings={paymentSettings ?? null}
                   paymentTotals={paymentTotals}
                   selectedEntryFee={selectedEntryFee}
+                  sections={sections}
                   requiresPayment={requiresPayment}
                   onlineConfigured={Boolean(canProcessOnline)}
                   clientSecret={clientSecret}
@@ -905,7 +913,7 @@ function StepOne({
   const sectionDetails = useMemo(
     () =>
       sections.map((section) => {
-        const options = filterEntryFeesBySection(entryFees, section.name);
+        const options = filterEntryFeesBySection(entryFees, section.name, sections);
         const primaryFee = options[0] ?? null;
         const label = primaryFee
           ? `${section.name} (${formatCurrency(primaryFee.amount, primaryFee.currency)})`
@@ -1293,7 +1301,7 @@ function StepTwo({
   const sectionDetails = useMemo(
     () =>
       sections.map((section) => {
-        const options = filterEntryFeesBySection(entryFees, section.name);
+        const options = filterEntryFeesBySection(entryFees, section.name, sections);
         const primaryFee = options[0] ?? null;
         const label = primaryFee
           ? `${section.name} (${formatCurrency(primaryFee.amount, primaryFee.currency)})`
@@ -1332,9 +1340,15 @@ function StepTwo({
     }
   }, [numericRating, selectedSection, sectionDetails, form]);
 
+  const selectedSectionOption = useMemo(() => {
+    if (!selectedSection) return undefined;
+    const normalized = selectedSection.trim().toLowerCase();
+    return sections.find((section) => section.name.trim().toLowerCase() === normalized);
+  }, [selectedSection, sections]);
+
   const entryFeeOptions = useMemo(
-    () => filterEntryFeesBySection(entryFees, selectedSection),
-    [entryFees, selectedSection],
+    () => filterEntryFeesBySection(entryFees, selectedSection, sections),
+    [entryFees, selectedSection, sections],
   );
   const contributionAllowed = paymentSettings?.allowProcessingContribution !== false;
   useEffect(() => {
@@ -1344,8 +1358,8 @@ function StepTwo({
   }, [contributionAllowed, form]);
 
   const recommendedEntryFee = useMemo(
-    () => findRecommendedEntryFee(entryFeeOptions, numericRating),
-    [entryFeeOptions, numericRating],
+    () => findRecommendedEntryFee(entryFeeOptions, numericRating, sections, selectedSectionOption),
+    [entryFeeOptions, numericRating, sections, selectedSectionOption],
   );
 
   useEffect(() => {
@@ -1405,9 +1419,12 @@ function StepTwo({
                 className="grid gap-3 sm:grid-cols-2"
               >
                 {entryFeeOptions.map((fee) => {
-                  const eligible = ratingWithinEntryFee(numericRating, fee);
+                  const eligible = ratingWithinEntryFee(numericRating, fee, sections, selectedSectionOption);
                   const isRecommended = recommendedEntryFee?.id === fee.id;
                   const isSelected = selectedEntryFeeId === fee.id;
+                  const effectiveAfterLabel = fee.effectiveAfter
+                    ? `Effective after ${formatDate(fee.effectiveAfter)}`
+                    : "Effective immediately";
                   return (
                     <label
                       key={fee.id}
@@ -1426,7 +1443,8 @@ function StepTwo({
                           {formatCurrency(fee.amount, fee.currency)}
                         </span>
                       </div>
-                      <p className="text-xs text-slate-500">{formatEntryFeeRange(fee)}</p>
+                      <p className="text-xs text-slate-500">{formatEntryFeeRange(fee, sections, selectedSectionOption)}</p>
+                      <p className="text-[11px] text-slate-400">{effectiveAfterLabel}</p>
                       {fee.notes && <p className="text-xs text-slate-500">{fee.notes}</p>}
                       <div className="flex flex-wrap gap-2 pt-2">
                         {isRecommended && (
@@ -1600,6 +1618,7 @@ interface StepThreeProps {
   paymentSettings: PaymentSettings | null;
   paymentTotals: PaymentTotals;
   selectedEntryFee: EntryFeeRule | null;
+  sections: SectionOption[];
   requiresPayment: boolean;
   onlineConfigured: boolean;
   clientSecret: string | null;
@@ -1636,6 +1655,7 @@ function StepThreeContent({
   paymentSettings,
   paymentTotals,
   selectedEntryFee,
+  sections,
   requiresPayment,
   onlineConfigured,
   clientSecret,
@@ -1666,6 +1686,11 @@ function StepThreeContent({
   const firstName = form.watch("firstName");
   const lastName = form.watch("lastName");
   const sectionChoice = form.watch("sectionChoice");
+  const sectionChoiceOption = useMemo(() => {
+    if (!sectionChoice) return undefined;
+    const normalized = sectionChoice.trim().toLowerCase();
+    return sections.find((section) => section.name.trim().toLowerCase() === normalized);
+  }, [sectionChoice, sections]);
   const email = form.watch("email");
   const phoneNumber = form.watch("phoneNumber");
   const arrivalTime = form.watch("arrivalTime");
@@ -1706,7 +1731,7 @@ function StepThreeContent({
     {
       label: "Entry fee",
       value: selectedEntryFee
-        ? `${formatCurrency(selectedEntryFee.amount, selectedEntryFee.currency)} · ${selectedEntryFee.section}`
+        ? `${formatCurrency(selectedEntryFee.amount, selectedEntryFee.currency)} · ${selectedEntryFee.section} (${formatEntryFeeRange(selectedEntryFee, sections, sectionChoiceOption)})`
         : isOfflineEntry
         ? "To be confirmed offline"
         : undefined,
@@ -1919,7 +1944,7 @@ function StepThreeContent({
             </div>
             {selectedEntryFee && (
               <p className="text-xs text-slate-500">
-                Section: {selectedEntryFee.section} · {formatEntryFeeRange(selectedEntryFee)}
+                Section: {selectedEntryFee.section} · {formatEntryFeeRange(selectedEntryFee, sections, sectionChoiceOption)}
               </p>
             )}
             {contributionAllowed ? (
@@ -2204,22 +2229,122 @@ function derivePlayerRating(
   return null;
 }
 
-function filterEntryFeesBySection(entryFees: EntryFeeRule[], section: string | undefined) {
-  if (!section) return [];
-  const normalized = section.trim().toLowerCase();
-  return entryFees.filter((fee) => fee.section?.trim().toLowerCase() === normalized);
+function filterEntryFeesBySection(
+  entryFees: EntryFeeRule[],
+  sectionName: string | undefined,
+  sections: SectionOption[],
+): EntryFeeRule[] {
+  if (!sectionName) return [];
+  const normalized = sectionName.trim().toLowerCase();
+  const targetSection = sections.find((section) => section.name.trim().toLowerCase() === normalized);
+  const relevantFees = entryFees.filter((fee) => {
+    if (fee.sectionId) {
+      const linked = sections.find((section) => section.id === fee.sectionId);
+      if (linked && linked.name.trim().toLowerCase() === normalized) {
+        return true;
+      }
+    }
+    return (fee.section ?? "").trim().toLowerCase() === normalized;
+  });
+
+  if (relevantFees.length === 0) {
+    return [];
+  }
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const todayTs = today.getTime();
+
+  const groups = new Map<string, EntryFeeRule[]>();
+  relevantFees.forEach((fee) => {
+    const linkedSection = findSectionForFee(fee, sections) ?? targetSection;
+    const bounds = resolveEntryFeeBounds(fee, linkedSection);
+    const key = `${bounds.ratingMin ?? "null"}|${bounds.ratingMax ?? "null"}`;
+    const bucket = groups.get(key);
+    if (bucket) {
+      bucket.push(fee);
+    } else {
+      groups.set(key, [fee]);
+    }
+  });
+
+  const resolved: EntryFeeRule[] = [];
+  groups.forEach((feesInGroup) => {
+    const activeNow = feesInGroup
+      .filter((fee) => effectiveDateTimestamp(fee.effectiveAfter) <= todayTs)
+      .sort((a, b) => effectiveDateTimestamp(b.effectiveAfter) - effectiveDateTimestamp(a.effectiveAfter));
+    if (activeNow.length > 0) {
+      resolved.push(activeNow[0]);
+      return;
+    }
+    const upcoming = feesInGroup
+      .slice()
+      .sort((a, b) => effectiveDateTimestamp(a.effectiveAfter) - effectiveDateTimestamp(b.effectiveAfter));
+    if (upcoming.length > 0) {
+      resolved.push(upcoming[0]);
+    }
+  });
+
+  resolved.sort((a, b) => compareEntryFeeRange(a, b, sections, targetSection));
+  return resolved;
 }
 
-function findRecommendedEntryFee(options: EntryFeeRule[], rating: number | null): EntryFeeRule | undefined {
+function effectiveDateTimestamp(value: string | null | undefined): number {
+  if (!value) return Number.NEGATIVE_INFINITY;
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return Number.NEGATIVE_INFINITY;
+  }
+  parsed.setHours(0, 0, 0, 0);
+  return parsed.getTime();
+}
+
+function compareEntryFeeRange(
+  a: EntryFeeRule,
+  b: EntryFeeRule,
+  sections: SectionOption[],
+  fallback: SectionOption | undefined,
+): number {
+  const aSection = findSectionForFee(a, sections) ?? fallback;
+  const bSection = findSectionForFee(b, sections) ?? fallback;
+  const aBounds = resolveEntryFeeBounds(a, aSection);
+  const bBounds = resolveEntryFeeBounds(b, bSection);
+  const minCompare = compareNullableNumbers(aBounds.ratingMin, bBounds.ratingMin);
+  if (minCompare !== 0) return minCompare;
+  const maxCompare = compareNullableNumbers(aBounds.ratingMax, bBounds.ratingMax);
+  if (maxCompare !== 0) return maxCompare;
+  return a.amount - b.amount;
+}
+
+function compareNullableNumbers(a: number | null, b: number | null): number {
+  if (a === null && b === null) return 0;
+  if (a === null) return -1;
+  if (b === null) return 1;
+  return a - b;
+}
+
+function findRecommendedEntryFee(
+  options: EntryFeeRule[],
+  rating: number | null,
+  sections: SectionOption[],
+  section: SectionOption | undefined,
+): EntryFeeRule | undefined {
   if (options.length === 0) return undefined;
   if (rating === null) return options[0];
-  return options.find((fee) => ratingWithinEntryFee(rating, fee)) ?? options[0];
+  return options.find((fee) => ratingWithinEntryFee(rating, fee, sections, section)) ?? options[0];
 }
 
-function ratingWithinEntryFee(rating: number | null, fee: EntryFeeRule): boolean {
+function ratingWithinEntryFee(
+  rating: number | null,
+  fee: EntryFeeRule,
+  sections: SectionOption[],
+  fallback: SectionOption | undefined,
+): boolean {
   if (rating === null) return false;
-  if (fee.ratingMin !== null && rating < fee.ratingMin) return false;
-  if (fee.ratingMax !== null && rating > fee.ratingMax) return false;
+  const linkedSection = findSectionForFee(fee, sections) ?? fallback;
+  const bounds = resolveEntryFeeBounds(fee, linkedSection);
+  if (bounds.ratingMin !== null && rating < bounds.ratingMin) return false;
+  if (bounds.ratingMax !== null && rating > bounds.ratingMax) return false;
   return true;
 }
 
@@ -2233,8 +2358,13 @@ function ratingWithinSectionRange(
   return true;
 }
 
-function formatEntryFeeRange(fee: EntryFeeRule): string {
-  const { ratingMin, ratingMax } = fee;
+function formatEntryFeeRange(
+  fee: EntryFeeRule,
+  sections: SectionOption[],
+  fallback?: SectionOption,
+): string {
+  const linkedSection = findSectionForFee(fee, sections) ?? fallback;
+  const { ratingMin, ratingMax } = resolveEntryFeeBounds(fee, linkedSection);
   if (ratingMin !== null && ratingMax !== null) {
     return `Rating ${ratingMin}–${ratingMax}`;
   }
@@ -2245,6 +2375,18 @@ function formatEntryFeeRange(fee: EntryFeeRule): string {
     return `Rating ≤${ratingMax}`;
   }
   return "All ratings";
+}
+
+function findSectionForFee(fee: EntryFeeRule, sections: SectionOption[]): SectionOption | undefined {
+  if (fee.sectionId) {
+    const byId = sections.find((section) => section.id === fee.sectionId);
+    if (byId) {
+      return byId;
+    }
+  }
+  const normalized = (fee.section ?? "").trim().toLowerCase();
+  if (!normalized) return undefined;
+  return sections.find((section) => section.name.trim().toLowerCase() === normalized);
 }
 
 function formatCurrency(amount: number, currency: string) {

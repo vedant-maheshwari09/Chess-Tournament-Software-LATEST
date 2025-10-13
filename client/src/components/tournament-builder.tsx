@@ -1,6 +1,6 @@
-import React, { useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { useMutation } from "@tanstack/react-query";
-import { Upload, Check, ChevronRight } from "lucide-react";
+import { Upload, Check, ChevronRight, Settings, X } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
@@ -12,6 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
+import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useLocation } from "wouter";
 import { cn } from "@/lib/utils";
 import type { Tournament } from "@shared/schema";
@@ -19,6 +20,7 @@ import {
   TournamentConfig,
   TournamentMode,
   type EntryFeeRule,
+  type PrizeRule,
   type SectionDefinition,
   type OfflinePaymentMethod,
   TimeControlDefinition,
@@ -32,6 +34,13 @@ import {
   ScheduleEvent,
   SCHEDULE_EVENT_OPTIONS,
 } from "@/lib/tournament-config";
+import {
+  TOURNAMENT_TEMPLATE_OPTIONS,
+  applyTournamentTemplateSnapshot,
+  isTournamentTemplateSnapshot,
+  type TemplateSectionKey,
+  type TournamentTemplateSnapshot,
+} from "@/lib/tournament-templates";
 
 type BuilderMode = "create" | "edit";
 type SettingsShortcutTab = "registers" | "fide" | "uscf" | "chess-results";
@@ -294,6 +303,27 @@ function StepOne({
       if (!parsed || typeof parsed !== "object") {
         throw new Error("Invalid file format");
       }
+
+      if (isTournamentTemplateSnapshot(parsed)) {
+        const snapshot: TournamentTemplateSnapshot = {
+          ...parsed,
+          selected:
+            Array.isArray(parsed.selected) && parsed.selected.length > 0
+              ? (parsed.selected as TemplateSectionKey[])
+              : TOURNAMENT_TEMPLATE_OPTIONS.map((option) => option.id),
+        };
+        const baseConfig = createDefaultConfig(
+          snapshot.format ?? format,
+          snapshot.mode ?? mode,
+        );
+        const mergedConfig = applyTournamentTemplateSnapshot(baseConfig, snapshot);
+        onModeChange(snapshot.mode ?? mode);
+        onFormatChange(snapshot.format ?? format);
+        onConfigChange(mergedConfig);
+        toast({ title: "Template imported", description: "Configuration applied from template." });
+        return;
+      }
+
       const parsedConfig = parseTournamentConfig({
         id: 0,
         name: typeof parsed?.basic?.name === "string" ? parsed.basic.name : "Imported Tournament",
@@ -327,6 +357,9 @@ function StepOne({
     } finally {
       if (fileInputRef.current) {
         fileInputRef.current.value = "";
+      }
+      if (event.target) {
+        event.target.value = "";
       }
     }
   };
@@ -466,7 +499,9 @@ interface StepTwoProps {
 function StepTwo({ format, mode, config, onConfigChange, onBack: _onBack, onCancel, onSave, saving, tournament }: StepTwoProps) {
   const scheduleTemplateOptions = SCHEDULE_EVENT_OPTIONS;
   const { toast } = useToast();
+  const prizeImportInputRef = useRef<HTMLInputElement | null>(null);
   const sections = config.sections ?? [];
+  const prizes = config.prizes ?? [];
   const updateDetails = (updates: Partial<TournamentConfig["details"]>) =>
     onConfigChange({ ...config, details: { ...config.details, ...updates } });
 
@@ -485,37 +520,79 @@ function StepTwo({ format, mode, config, onConfigChange, onBack: _onBack, onCanc
   };
 
   const updateSection = (id: string, updates: Partial<SectionDefinition>) => {
+    const previousSection = sections.find((section) => section.id === id);
     const nextSections = sections.map((section) => (section.id === id ? { ...section, ...updates } : section));
     let nextEntryFees = config.entryFees;
+    let nextPrizes = prizes;
     if (updates.name !== undefined || updates.ratingMin !== undefined || updates.ratingMax !== undefined) {
       const target = nextSections.find((section) => section.id === id);
       if (target) {
-        nextEntryFees = nextEntryFees.map((fee) =>
-          fee.sectionId === id
-            ? {
-                ...fee,
-                section: target.name,
-                ratingMin: target.ratingMin,
-                ratingMax: target.ratingMax,
-              }
-            : fee,
-        );
+        const previousName = previousSection?.name.trim().toLowerCase() ?? "";
+        const nextName = target.name.trim().toLowerCase();
+        nextEntryFees = nextEntryFees.map((fee) => {
+          const matchesById = fee.sectionId === id;
+          const matchesByName =
+            !fee.sectionId &&
+            (fee.section ?? "").trim().toLowerCase() === (previousName || nextName);
+          if (!matchesById && !matchesByName) {
+            return fee;
+          }
+          return {
+            ...fee,
+            sectionId: target.id,
+            section: target.name,
+            ratingMin: fee.ratingMin ?? target.ratingMin ?? null,
+            ratingMax: fee.ratingMax ?? target.ratingMax ?? null,
+          };
+        });
+        nextPrizes = nextPrizes.map((prize) => {
+          const matchesById = prize.sectionId === id;
+          const matchesByName =
+            !prize.sectionId &&
+            (prize.section ?? "").trim().toLowerCase() === (previousName || nextName);
+          if (!matchesById && !matchesByName) {
+            return prize;
+          }
+          return {
+            ...prize,
+            sectionId: target.id,
+            section: target.name,
+            ratingCap: prize.ratingCap ?? target.ratingMax ?? null,
+          };
+        });
       }
     }
     onConfigChange({
       ...config,
       sections: nextSections,
       entryFees: nextEntryFees,
+      prizes: nextPrizes,
     });
   };
 
   const removeSection = (id: string) => {
+    const removedSection = sections.find((section) => section.id === id);
+    const removedName = removedSection?.name.trim().toLowerCase() ?? null;
     const nextSections = sections.filter((section) => section.id !== id);
-    const nextEntryFees = config.entryFees.filter((fee) => fee.sectionId !== id);
+    const nextEntryFees = config.entryFees.filter((fee) => {
+      if (fee.sectionId === id) return false;
+      if (removedName && (fee.section ?? "").trim().toLowerCase() === removedName) {
+        return false;
+      }
+      return true;
+    });
+    const nextPrizes = prizes.filter((prize) => {
+      if (prize.sectionId === id) return false;
+      if (removedName && (prize.section ?? "").trim().toLowerCase() === removedName) {
+        return false;
+      }
+      return true;
+    });
     onConfigChange({
       ...config,
       sections: nextSections,
       entryFees: nextEntryFees,
+      prizes: nextPrizes,
     });
   };
 
@@ -528,25 +605,19 @@ function StepTwo({ format, mode, config, onConfigChange, onBack: _onBack, onCanc
       });
       return;
     }
-    const usedSectionIds = new Set(
-      config.entryFees
-        .map((fee) => fee.sectionId)
-        .filter((value): value is string => typeof value === "string" && value.trim().length > 0),
+    const sectionWithGap = sections.find((section) =>
+      !entryFees.some((fee) => {
+        if (fee.sectionId && fee.sectionId === section.id) return true;
+        return (fee.section ?? "").trim().toLowerCase() === section.name.trim().toLowerCase();
+      }),
     );
-    const availableSections = sections.filter((section) => !usedSectionIds.has(section.id));
-    if (availableSections.length === 0) {
-      toast({
-        title: "All sections priced",
-        description: "Edit an existing price or add another section to create more entry fees.",
-      });
-      return;
-    }
-    const targetSection = availableSections[0];
+    const targetSection = sectionWithGap ?? sections[0];
+    const defaultCurrency = config.payments.defaultCurrency ?? "USD";
     onConfigChange({
       ...config,
       entryFees: [
         ...config.entryFees,
-        createEntryFeeRow(targetSection, config.payments.defaultCurrency ?? "USD"),
+        createEntryFeeRow(targetSection, defaultCurrency),
       ],
     });
   };
@@ -555,16 +626,26 @@ function StepTwo({ format, mode, config, onConfigChange, onBack: _onBack, onCanc
     const nextEntryFees = config.entryFees.map((fee) => {
       if (fee.id !== id) return fee;
       let nextFee: EntryFeeRule = { ...fee, ...updates };
-      if (updates.sectionId) {
-        const linked = sections.find((section) => section.id === updates.sectionId);
-        if (linked) {
-          nextFee = {
-            ...nextFee,
-            sectionId: linked.id,
-            section: linked.name,
-            ratingMin: linked.ratingMin,
-            ratingMax: linked.ratingMax,
-          };
+      const nextSectionId = updates.sectionId ?? fee.sectionId;
+      let linked: SectionDefinition | undefined;
+      if (nextSectionId) {
+        linked = sections.find((section) => section.id === nextSectionId);
+      } else if (updates.section) {
+        const normalized = updates.section.trim().toLowerCase();
+        linked = sections.find((section) => section.name.trim().toLowerCase() === normalized);
+      }
+      if (linked) {
+        nextFee = {
+          ...nextFee,
+          sectionId: linked.id,
+          section: linked.name,
+        };
+        if (updates.sectionId !== undefined || updates.section !== undefined) {
+          nextFee.ratingMin = null;
+          nextFee.ratingMax = null;
+        }
+        if (!nextFee.currency) {
+          nextFee.currency = config.payments.defaultCurrency ?? "USD";
         }
       }
       return nextFee;
@@ -601,14 +682,329 @@ function StepTwo({ format, mode, config, onConfigChange, onBack: _onBack, onCanc
     updateEntryFee(id, { amount: Number.isFinite(parsed) ? Math.max(0, parsed) : 0 });
   };
 
+  const handleEntryFeeRatingChange = (id: string, field: "ratingMin" | "ratingMax", raw: string) => {
+    const trimmed = raw.trim();
+    if (!trimmed) {
+      updateEntryFee(id, { [field]: null } as Partial<EntryFeeRule>);
+      return;
+    }
+    const numeric = Number(trimmed);
+    updateEntryFee(id, { [field]: Number.isFinite(numeric) ? numeric : null } as Partial<EntryFeeRule>);
+  };
+
+  const handleEntryFeeDateChange = (id: string, value: string) => {
+    const trimmed = value.trim();
+    updateEntryFee(id, { effectiveAfter: trimmed ? trimmed : null });
+  };
+
+  const addPrize = () => {
+    if (sections.length === 0) {
+      toast({
+        title: "Add a section first",
+        description: "Create sections under Details before configuring prizes.",
+        variant: "destructive",
+      });
+      return;
+    }
+    const defaultCurrency = config.payments.defaultCurrency ?? "USD";
+    const targetSection = sections[0];
+    onConfigChange({
+      ...config,
+      prizes: [...prizes, createPrizeRow(targetSection, defaultCurrency)],
+    });
+  };
+
+  const updatePrize = (id: string, updates: Partial<PrizeRule>) => {
+    const nextPrizes = prizes.map((prize) => {
+      if (prize.id !== id) return prize;
+      let nextPrize: PrizeRule = { ...prize, ...updates };
+      const nextSectionId = updates.sectionId ?? prize.sectionId;
+      let linked: SectionDefinition | undefined;
+      if (nextSectionId) {
+        linked = sections.find((section) => section.id === nextSectionId);
+      } else if (updates.section) {
+        const normalized = updates.section.trim().toLowerCase();
+        linked = sections.find((section) => section.name.trim().toLowerCase() === normalized);
+      }
+      if (linked) {
+        nextPrize = {
+          ...nextPrize,
+          sectionId: linked.id,
+          section: linked.name,
+        };
+        if (updates.sectionId !== undefined || updates.section !== undefined) {
+          nextPrize.ratingCap = linked.ratingMax ?? null;
+        }
+      }
+      if (!nextPrize.currency) {
+        nextPrize.currency = config.payments.defaultCurrency ?? "USD";
+      }
+      return nextPrize;
+    });
+    onConfigChange({
+      ...config,
+      prizes: nextPrizes,
+    });
+  };
+
+  const removePrize = (id: string) =>
+    onConfigChange({
+      ...config,
+      prizes: prizes.filter((prize) => prize.id !== id),
+    });
+
+  const handlePrizeRatingCapChange = (id: string, raw: string) => {
+    const trimmed = raw.trim();
+    if (!trimmed) {
+      updatePrize(id, { ratingCap: null });
+      return;
+    }
+    const numeric = parseRatingCap(trimmed);
+    updatePrize(id, { ratingCap: numeric });
+  };
+
+  const handlePrizeAmountChange = (id: string, raw: string) => {
+    const trimmed = raw.trim();
+    if (!trimmed) {
+      updatePrize(id, { amount: 0 });
+      return;
+    }
+    const normalized = Number(trimmed.replace(/[^0-9.-]/g, ""));
+    const amount = Number.isFinite(normalized) ? Math.max(0, Number(normalized.toFixed(2))) : 0;
+    updatePrize(id, { amount });
+  };
+
+  const handlePrizeCurrencyChange = (id: string, currency: string) => {
+    updatePrize(id, { currency: currency.toUpperCase() });
+  };
+
+  const handlePrizeNotesChange = (id: string, value: string) => {
+    updatePrize(id, { notes: value });
+  };
+
+  const formatPrizeRating = (rating: number | null) => {
+    if (rating === null) {
+      return "Open";
+    }
+    return `U${rating}`;
+  };
+
+  const parseRatingCap = (input: string): number | null => {
+    const match = input.match(/\d+/);
+    if (!match) return null;
+    const numeric = Number(match[0]);
+    if (!Number.isFinite(numeric)) return null;
+    return Math.max(0, Math.round(numeric));
+  };
+
+  const escapeHtml = (value: string) =>
+    value
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
+
+  const handlePrizePrint = () => {
+    if (typeof window === "undefined") return;
+    const printWindow = window.open("", "print-prizes", "width=900,height=600,noopener,noreferrer");
+    if (!printWindow) return;
+    const rowsHtml = prizes
+      .map((prize) => {
+        const sectionLabel = escapeHtml(prize.section || "");
+        const ratingLabel = escapeHtml(formatPrizeRating(prize.ratingCap));
+        const amountLabel = escapeHtml(`${prize.currency ?? "USD"} ${Number(prize.amount || 0).toFixed(2)}`);
+        const notesLabel = escapeHtml(prize.notes ?? "");
+        return `<tr><td>${sectionLabel}</td><td>${ratingLabel}</td><td>${amountLabel}</td><td>${notesLabel}</td></tr>`;
+      })
+      .join("");
+    const tableHtml = prizes.length
+      ? `<table><thead><tr><th>Section</th><th>Rating</th><th>Prize</th><th>Notes</th></tr></thead><tbody>${rowsHtml}</tbody></table>`
+      : `<p>No prizes configured.</p>`;
+    printWindow.document.write(`<!doctype html><html><head><title>Prize payouts</title><style>
+      body { font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; padding: 24px; }
+      h1 { font-size: 20px; margin-bottom: 16px; }
+      table { width: 100%; border-collapse: collapse; }
+      th, td { border: 1px solid #cbd5f5; padding: 8px 12px; text-align: left; }
+      th { background-color: #eef2ff; }
+    </style></head><body><h1>Prize payouts</h1>${tableHtml}</body></html>`);
+    printWindow.document.close();
+    printWindow.focus();
+    printWindow.print();
+    printWindow.close();
+  };
+
+  const handlePrizeDownload = () => {
+    if (typeof window === "undefined") return;
+    const header = ["Section", "Rating", "Amount", "Currency", "Notes"];
+    const rows = prizes.map((prize) => [
+      prize.section ?? "",
+      formatPrizeRating(prize.ratingCap),
+      String(Number(prize.amount || 0).toFixed(2)),
+      prize.currency ?? "USD",
+      prize.notes ?? "",
+    ]);
+    const toCsvCell = (value: string) => `"${value.replace(/"/g, '""')}"`;
+    const csv = [header, ...rows].map((row) => row.map((cell) => toCsvCell(cell ?? "")).join(",")).join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const slug = config.basic.name
+      ? config.basic.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "")
+      : "tournament";
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `${slug || "tournament"}-prizes.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
+  const handlePrizeImport = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const lines = text
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter((line) => line.length > 0);
+      if (lines.length === 0) {
+        toast({
+          title: "No data found",
+          description: "Upload a CSV export from Google Sheets with at least one row.",
+          variant: "destructive",
+        });
+        return;
+      }
+      let startIndex = 0;
+      const header = lines[0].toLowerCase();
+      if (header.includes("section") && header.includes("rating")) {
+        startIndex = 1;
+      }
+      const defaultCurrency = config.payments.defaultCurrency ?? "USD";
+      const imported: PrizeRule[] = [];
+      for (let index = startIndex; index < lines.length; index += 1) {
+        const rawLine = lines[index];
+        if (!rawLine) continue;
+        const cells = rawLine.split(",").map((cell) => cell.trim());
+        const [sectionCell, ratingCell, amountCell, currencyCell, notesCell] = [
+          cells[0] ?? "",
+          cells[1] ?? "",
+          cells[2] ?? "",
+          cells[3] ?? "",
+          cells[4] ?? "",
+        ];
+        if (!sectionCell) continue;
+        const linkedSection = sections.find(
+          (section) => section.name.trim().toLowerCase() === sectionCell.trim().toLowerCase(),
+        );
+        const base = createPrizeRow(linkedSection, currencyCell || defaultCurrency);
+        base.section = linkedSection?.name ?? sectionCell;
+        base.sectionId = linkedSection?.id;
+        base.ratingCap = ratingCell ? parseRatingCap(ratingCell) : linkedSection?.ratingMax ?? null;
+        const normalizedAmount = Number(amountCell.replace(/[^0-9.-]/g, ""));
+        base.amount = Number.isFinite(normalizedAmount) ? Number(normalizedAmount.toFixed(2)) : 0;
+        base.currency = currencyCell ? currencyCell.toUpperCase() : defaultCurrency;
+        base.notes = notesCell ?? "";
+        imported.push(base);
+      }
+      if (imported.length === 0) {
+        toast({
+          title: "No rows imported",
+          description: "Ensure your sheet has Section, Rating, and Amount columns.",
+          variant: "destructive",
+        });
+        return;
+      }
+      onConfigChange({
+        ...config,
+        prizes: imported,
+      });
+      toast({
+        title: "Prizes imported",
+        description: `Loaded ${imported.length} prize ${imported.length === 1 ? "row" : "rows"}.`,
+      });
+    } catch (error) {
+      toast({
+        title: "Unable to import prizes",
+        description:
+          error instanceof Error
+            ? error.message
+            : "Upload failed. Export your Google Sheet as CSV and try again.",
+        variant: "destructive",
+      });
+    } finally {
+      if (event.target) {
+        event.target.value = "";
+      }
+    }
+  };
+
   const entryFees = config.entryFees ?? [];
-  const unpricedSections = sections.filter(
-    (section) => !entryFees.some((fee) => fee.sectionId === section.id),
+  const sectionsMissingPricing = sections.filter((section) =>
+    !entryFees.some((fee) => {
+      if (fee.sectionId && fee.sectionId === section.id) return true;
+      return (fee.section ?? "").trim().toLowerCase() === section.name.trim().toLowerCase();
+    }),
   );
-  const canAddEntryFee = sections.length > 0 && unpricedSections.length > 0;
 
   const [, setLocation] = useLocation();
   const [settingsShortcut, setSettingsShortcut] = useState<SettingsShortcutTab>("registers");
+  const [paymentsDialogOpen, setPaymentsDialogOpen] = useState(false);
+  const [paymentSettingsDraft, setPaymentSettingsDraft] = useState(config.payments);
+
+  useEffect(() => {
+    if (paymentsDialogOpen) {
+      setPaymentSettingsDraft(config.payments);
+    }
+  }, [paymentsDialogOpen, config.payments]);
+
+  const handlePaymentSettingsDialogChange = (open: boolean) => {
+    setPaymentsDialogOpen(open);
+    if (!open) {
+      setPaymentSettingsDraft(config.payments);
+    }
+  };
+
+  const commitPaymentSettings = (next: TournamentConfig["payments"]) => {
+    onConfigChange({ ...config, payments: next });
+  };
+
+  const updatePaymentDraft = <K extends keyof TournamentConfig["payments"]>(
+    key: K,
+    value: TournamentConfig["payments"][K],
+  ) => {
+    setPaymentSettingsDraft((prev) => ({ ...prev, [key]: value }));
+  };
+
+  const toggleOfflineMethod = (method: OfflinePaymentMethod) => {
+    setPaymentSettingsDraft((prev) => {
+      const current = prev.acceptedOfflineMethods ?? [];
+      const next = current.includes(method)
+        ? current.filter((value) => value !== method)
+        : [...current, method];
+      return { ...prev, acceptedOfflineMethods: next };
+    });
+  };
+
+  const handleProcessingFeeChange = (raw: string) => {
+    const trimmed = raw.trim();
+    if (!trimmed) {
+      updatePaymentDraft("processingFeePercent", null);
+      return;
+    }
+    const numeric = Number(trimmed);
+    if (Number.isFinite(numeric)) {
+      const clamped = Math.max(0, Math.min(10, Number(numeric.toFixed(2))));
+      updatePaymentDraft("processingFeePercent", clamped);
+    }
+  };
+
+  const handlePaymentSettingsSave = () => {
+    commitPaymentSettings(paymentSettingsDraft);
+    setPaymentsDialogOpen(false);
+  };
 
   const defaultTimeControlFor = (type: TimeControlType): TimeControlDefinition => {
     switch (type) {
@@ -782,6 +1178,11 @@ function StepTwo({ format, mode, config, onConfigChange, onBack: _onBack, onCanc
       label: "USCF Rated Tournament",
       description: "Toggle to unlock the Data for USCF page.",
     },
+    {
+      key: "enablePairingPredictor",
+      label: "Enable Pairing Predictor",
+      description: "Allow players to simulate upcoming pairings once the event is underway.",
+    },
   ];
 
   const handleShortcutChange = (next: SettingsShortcutTab) => {
@@ -808,8 +1209,9 @@ function StepTwo({ format, mode, config, onConfigChange, onBack: _onBack, onCanc
   );
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
+    <>
+      <div className="space-y-6">
+        <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <span>
             Format: <Badge variant="secondary">{format.toUpperCase()}</Badge>
@@ -824,11 +1226,12 @@ function StepTwo({ format, mode, config, onConfigChange, onBack: _onBack, onCanc
         <Card className="overflow-hidden">
           <CardContent className="p-0">
             <Tabs defaultValue="basic" className="w-full">
-            <TabsList className="grid w-full grid-cols-5">
+            <TabsList className="grid w-full grid-cols-6">
                 <TabsTrigger value="basic">Basic information</TabsTrigger>
                 <TabsTrigger value="details">Details</TabsTrigger>
                 <TabsTrigger value="schedule">Schedule</TabsTrigger>
               <TabsTrigger value="payments">Payments</TabsTrigger>
+              <TabsTrigger value="prizes">Prizes</TabsTrigger>
                 <TabsTrigger value="playerSignup">Player sign up</TabsTrigger>
               </TabsList>
               <TabsContent value="basic" className="bg-white p-6 space-y-4">
@@ -1171,216 +1574,290 @@ function StepTwo({ format, mode, config, onConfigChange, onBack: _onBack, onCanc
                 {renderTabSaveButton()}
               </TabsContent>
               <TabsContent value="payments" className="bg-white p-6 space-y-5">
-                <div className="rounded-lg border border-indigo-100 bg-indigo-50/80 px-4 py-3">
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div>
-                      <p className="text-sm font-semibold text-slate-900">Online payments</p>
-                      <p className="text-xs text-slate-600">
-                        Enable Stripe-powered checkout inside the player registration flow.
-                      </p>
-                    </div>
-                    <Switch
-                      checked={config.payments.onlineEnabled}
-                      onCheckedChange={(checked) => updatePayments({ onlineEnabled: checked })}
-                    />
-                  </div>
-                  {!config.payments.onlineEnabled && (
-                    <p className="mt-3 text-xs text-indigo-700">
-                      Players will acknowledge offline payment instructions during registration. Toggle this on once your Stripe API keys are active.
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <h3 className="text-base font-semibold text-slate-900">Entry fee rules</h3>
+                    <p className="text-xs text-slate-600">
+                      Configure pricing by section, rating eligibility, and effective date.
                     </p>
-                  )}
-                </div>
-
-                <div className="grid gap-4 md:grid-cols-2">
-                  <div className="space-y-2">
-                    <Label htmlFor="payment-currency">Default currency</Label>
-                    <Select
-                      value={config.payments.defaultCurrency ?? "USD"}
-                      onValueChange={(value) => updatePayments({ defaultCurrency: value })}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-9 gap-2 border"
+                      onClick={() => setPaymentsDialogOpen(true)}
                     >
-                      <SelectTrigger id="payment-currency">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {ENTRY_FEE_CURRENCY_OPTIONS.map((currency) => (
-                          <SelectItem key={currency} value={currency}>
-                            {currency}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="payment-descriptor">Statement descriptor (optional)</Label>
-                    <Input
-                      id="payment-descriptor"
-                      value={config.payments.payoutStatementDescriptor ?? ""}
-                      onChange={(event) => updatePayments({ payoutStatementDescriptor: event.target.value })}
-                      placeholder="e.g., SD CHESS CLUB"
-                    />
-                  </div>
-
-                  {config.payments.onlineEnabled && (
-                    <>
-                      <div className="space-y-2">
-                        <Label className="flex items-center gap-2">
-                          Require payment on registration
-                          <Badge variant="outline" className="text-xs">Recommended</Badge>
-                        </Label>
-                        <div className="flex items-center justify-between rounded-lg border border-slate-200 bg-white px-4 py-3">
-                          <p className="text-xs text-slate-600 pr-6">
-                            Players must complete Stripe checkout before their registration is submitted.
-                          </p>
-                          <Switch
-                            checked={config.payments.requirePaymentOnRegistration}
-                            onCheckedChange={(checked) => updatePayments({ requirePaymentOnRegistration: checked })}
-                          />
-                        </div>
-                      </div>
-
-                      <div className="space-y-2">
-                        <Label>Processing contribution</Label>
-                        <div className="flex items-center justify-between rounded-lg border border-slate-200 bg-white px-4 py-3">
-                          <p className="text-xs text-slate-600 pr-6">
-                            Allow players to add an optional amount to help cover Stripe fees.
-                          </p>
-                          <Switch
-                            checked={config.payments.allowProcessingContribution}
-                            onCheckedChange={(checked) => updatePayments({ allowProcessingContribution: checked })}
-                          />
-                        </div>
-                      </div>
-
-                      <div className="space-y-2">
-                        <Label htmlFor="processing-fee">Processing fee (%)</Label>
-                        <Input
-                          id="processing-fee"
-                          type="number"
-                          min={0}
-                          max={10}
-                          step={0.1}
-                          value={
-                            typeof config.payments.processingFeePercent === "number"
-                              ? String(config.payments.processingFeePercent)
-                              : ""
-                          }
-                          onChange={(event) => {
-                            const raw = event.target.value;
-                            const trimmed = raw.trim();
-                            if (!trimmed) {
-                              updatePayments({ processingFeePercent: null });
-                              return;
-                            }
-                            const numeric = Number(trimmed);
-                            if (Number.isFinite(numeric)) {
-                              const clamped = Math.max(0, Math.min(10, Number(numeric.toFixed(2))));
-                              updatePayments({ processingFeePercent: clamped });
-                            }
-                          }}
-                          placeholder="0"
-                        />
-                        <p className="text-xs text-muted-foreground">
-                          Applied on top of the entry fee total when the checkout session is created.
-                        </p>
-                      </div>
-
-                      <div className="space-y-2">
-                        <Label htmlFor="stripe-account">Stripe Connect account (optional)</Label>
-                        <Input
-                          id="stripe-account"
-                          value={config.payments.stripeAccountId ?? ""}
-                          onChange={(event) => updatePayments({ stripeAccountId: event.target.value })}
-                          placeholder="acct_1234"
-                        />
-                        <p className="text-xs text-muted-foreground">
-                          Provide a connected account ID if payouts route to a tournament sub-account.
-                        </p>
-                      </div>
-                    </>
-                  )}
-                </div>
-
-                <div className="space-y-3 rounded-xl border border-slate-200 bg-white p-4">
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div>
-                      <h3 className="text-sm font-semibold text-slate-900">Section pricing</h3>
-                      <p className="text-xs text-slate-600">
-                        Assign a required entry fee to each section. Players will see these prices during registration.
-                      </p>
-                    </div>
-                    <Button variant="outline" onClick={addEntryFee} disabled={!canAddEntryFee}>
-                      Add pricing
+                      <Settings className="h-4 w-4" />
+                      <span>Settings</span>
+                    </Button>
+                    <Button variant="outline" onClick={addEntryFee} disabled={sections.length === 0}>
+                      Add entry rule
                     </Button>
                   </div>
+                </div>
 
-                  {sections.length === 0 ? (
-                    <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-4 text-xs text-slate-600">
-                      Create sections under the Details tab before configuring pricing.
-                    </div>
-                  ) : entryFees.length === 0 ? (
-                    <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-4 text-xs text-slate-600">
-                      No pricing configured yet. Add a pricing row for each section to open registration.
-                    </div>
-                  ) : (
-                    <div className="space-y-3">
-                      {entryFees.map((fee) => {
-                        const activeSection =
-                          sections.find((section) => section.id === fee.sectionId) ??
-                          sections.find(
-                            (section) =>
-                              section.name.trim().toLowerCase() === (fee.section ?? "").trim().toLowerCase(),
-                          );
-                        const otherUsedSectionIds = new Set(
-                          entryFees
-                            .filter((other) => other.id !== fee.id)
-                            .map((other) => other.sectionId)
-                            .filter((value): value is string => typeof value === "string" && value.trim().length > 0),
+                {sections.length === 0 ? (
+                  <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-4 text-xs text-slate-600">
+                    Create sections under the Details tab before configuring pricing.
+                  </div>
+                ) : entryFees.length === 0 ? (
+                  <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-4 text-xs text-slate-600">
+                    No entry rules configured yet. Add a rule for each section to open registration.
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {entryFees.map((fee) => {
+                      const activeSection =
+                        sections.find((section) => section.id === fee.sectionId) ??
+                        sections.find(
+                          (section) => section.name.trim().toLowerCase() === (fee.section ?? "").trim().toLowerCase(),
                         );
-                        const ratingLabel = activeSection
-                          ? `Rating ${activeSection.ratingMin ?? "Unrated"} – ${activeSection.ratingMax ?? "Open"}`
-                          : "Select a section to inherit its rating range.";
+                      const derivedRatingMin =
+                        fee.ratingMin ?? activeSection?.ratingMin ?? null;
+                      const derivedRatingMax =
+                        fee.ratingMax ?? activeSection?.ratingMax ?? null;
+                      const inheritsSectionRange = fee.ratingMin === null && fee.ratingMax === null;
+                      const ratingSummary = formatRatingRange(derivedRatingMin, derivedRatingMax);
 
-                        return (
-                          <div key={fee.id} className="space-y-3 rounded-lg border border-slate-200 bg-slate-50/60 p-4">
-                            <div className="grid gap-3 md:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)_minmax(0,1fr)_auto] md:items-end">
-                              <div>
-                                <Label className="text-xs font-semibold uppercase text-slate-500">Section</Label>
+                      return (
+                        <div key={fee.id} className="space-y-4 rounded-lg border border-slate-200 bg-slate-50/60 p-4">
+                          <div className="grid gap-3 md:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)_minmax(0,1fr)_auto] md:items-end">
+                            <div>
+                              <Label className="text-xs font-semibold uppercase text-slate-500">Section</Label>
+                              <Select
+                                value={activeSection?.id ?? fee.sectionId ?? ""}
+                                onValueChange={(value) => updateEntryFee(fee.id, { sectionId: value })}
+                              >
+                                <SelectTrigger>
+                                  <SelectValue placeholder="Select section" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {sections.map((section) => (
+                                    <SelectItem key={section.id} value={section.id}>
+                                      {section.name || "Unnamed section"}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                              <p className="mt-1 text-[11px] text-slate-500">{ratingSummary}</p>
+                            </div>
+                            <div>
+                              <Label className="text-xs font-semibold uppercase text-slate-500">Amount</Label>
+                              <Input
+                                type="number"
+                                step="0.01"
+                                value={typeof fee.amount === "number" ? String(fee.amount) : ""}
+                                onChange={(event) => handleEntryFeeAmountChange(fee.id, event.target.value)}
+                                placeholder="e.g., 120"
+                              />
+                            </div>
+                            <div>
+                              <Label className="text-xs font-semibold uppercase text-slate-500">Currency</Label>
+                              <Select
+                                value={fee.currency || config.payments.defaultCurrency || "USD"}
+                                onValueChange={(value) => updateEntryFee(fee.id, { currency: value })}
+                              >
+                                <SelectTrigger>
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {ENTRY_FEE_CURRENCY_OPTIONS.map((option) => (
+                                    <SelectItem key={option} value={option}>
+                                      {option}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </div>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              className="justify-self-end text-red-600"
+                              onClick={() => removeEntryFee(fee.id)}
+                            >
+                              Remove
+                            </Button>
+                          </div>
+
+                          <div className="grid gap-3 md:grid-cols-3">
+                            <div>
+                              <Label className="text-xs font-semibold uppercase text-slate-500">Rating floor</Label>
+                              <Input
+                                type="number"
+                                value={fee.ratingMin ?? ""}
+                                onChange={(event) =>
+                                  handleEntryFeeRatingChange(fee.id, "ratingMin", event.target.value)
+                                }
+                                placeholder={inheritsSectionRange ? "Inherits section" : "e.g., 2000"}
+                              />
+                            </div>
+                            <div>
+                              <Label className="text-xs font-semibold uppercase text-slate-500">Rating ceiling</Label>
+                              <Input
+                                type="number"
+                                value={fee.ratingMax ?? ""}
+                                onChange={(event) =>
+                                  handleEntryFeeRatingChange(fee.id, "ratingMax", event.target.value)
+                                }
+                                placeholder={inheritsSectionRange ? "Inherits section" : "Leave blank for open"}
+                              />
+                            </div>
+                            <div>
+                              <Label className="text-xs font-semibold uppercase text-slate-500">Effective after</Label>
+                              <Input
+                                type="date"
+                                value={fee.effectiveAfter ?? ""}
+                                onChange={(event) => handleEntryFeeDateChange(fee.id, event.target.value)}
+                              />
+                            </div>
+                          </div>
+
+                          <div>
+                            <Label className="text-xs font-semibold uppercase text-slate-500">Notes (optional)</Label>
+                            <Input
+                              value={fee.notes ?? ""}
+                              onChange={(event) => updateEntryFee(fee.id, { notes: event.target.value })}
+                              placeholder="e.g., Early bird pricing"
+                            />
+                          </div>
+
+                          <p className="text-[11px] text-slate-500">
+                            {inheritsSectionRange
+                              ? "Leaving the rating fields blank inherits the section rating window."
+                              : "Custom rating bounds override the section window for this rule."}
+                          </p>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {sections.length > 0 && sectionsMissingPricing.length > 0 && (
+                  <div className="rounded-lg border border-dashed border-amber-200 bg-amber-50 p-3 text-xs text-amber-700">
+                    {sectionsMissingPricing.length === 1
+                      ? `${sectionsMissingPricing[0].name || "Unnamed section"} still needs an entry rule.`
+                      : `The following sections still need at least one entry rule: ${sectionsMissingPricing
+                          .map((section) => section.name || "Unnamed section")
+                          .join(", ")}.`}
+                  </div>
+                )}
+
+                {renderTabSaveButton()}
+              </TabsContent>
+
+              <TabsContent value="prizes" className="bg-white p-6 space-y-5">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <h3 className="text-base font-semibold text-slate-900">Prize payouts</h3>
+                    <p className="text-xs text-slate-600">
+                      Define prize amounts by section and U-rating cutoff (e.g., U1600).
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button variant="outline" onClick={handlePrizePrint} disabled={prizes.length === 0}>
+                      Print
+                    </Button>
+                    <Button variant="outline" onClick={handlePrizeDownload} disabled={prizes.length === 0}>
+                      Download
+                    </Button>
+                    <Button variant="outline" onClick={() => prizeImportInputRef.current?.click()}>
+                      Import Google Sheet
+                    </Button>
+                    <input
+                      ref={prizeImportInputRef}
+                      type="file"
+                      accept=".csv,text/csv"
+                      className="hidden"
+                      onChange={handlePrizeImport}
+                    />
+                    <Button onClick={addPrize} disabled={sections.length === 0}>
+                      Add prize
+                    </Button>
+                  </div>
+                </div>
+
+                <div className="overflow-hidden rounded-lg border border-slate-200">
+                  <table className="min-w-full divide-y divide-slate-200 bg-white">
+                    <thead className="bg-slate-50">
+                      <tr className="text-left text-xs font-semibold uppercase tracking-wide text-slate-600">
+                        <th className="px-4 py-3">Section</th>
+                        <th className="px-4 py-3">Rating cap (U)</th>
+                        <th className="px-4 py-3">Prize amount</th>
+                        <th className="px-4 py-3">Currency</th>
+                        <th className="px-4 py-3">Notes</th>
+                        <th className="px-4 py-3 text-right">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-200 text-sm text-slate-700">
+                      {prizes.length === 0 ? (
+                        <tr>
+                          <td colSpan={6} className="px-4 py-6 text-center text-sm text-slate-500">
+                            {sections.length === 0
+                              ? "Create sections before defining prizes."
+                              : "No prizes added yet. Select Add prize to create your first payout."}
+                          </td>
+                        </tr>
+                      ) : (
+                        prizes.map((prize) => {
+                          const activeSection =
+                            sections.find((section) => section.id === prize.sectionId) ??
+                            sections.find(
+                              (section) =>
+                                section.name.trim().toLowerCase() === (prize.section ?? "").trim().toLowerCase(),
+                            );
+                          return (
+                            <tr key={prize.id} className="align-top">
+                              <td className="px-4 py-3">
                                 <Select
-                                  value={activeSection?.id ?? fee.sectionId ?? ""}
-                                  onValueChange={(value) => updateEntryFee(fee.id, { sectionId: value })}
+                                  value={activeSection?.id ?? prize.sectionId ?? ""}
+                                  onValueChange={(value) => updatePrize(prize.id, { sectionId: value })}
                                 >
                                   <SelectTrigger>
                                     <SelectValue placeholder="Select section" />
                                   </SelectTrigger>
                                   <SelectContent>
                                     {sections.map((section) => (
-                                      <SelectItem
-                                        key={section.id}
-                                        value={section.id}
-                                        disabled={otherUsedSectionIds.has(section.id)}
-                                      >
+                                      <SelectItem key={section.id} value={section.id}>
                                         {section.name || "Unnamed section"}
                                       </SelectItem>
                                     ))}
                                   </SelectContent>
                                 </Select>
-                                <p className="mt-1 text-[11px] text-slate-500">{ratingLabel}</p>
-                              </div>
-                              <div>
-                                <Label className="text-xs font-semibold uppercase text-slate-500">Amount</Label>
+                                <p className="mt-1 text-[11px] text-slate-500">
+                                  {prize.section || "Choose a section"}
+                                </p>
+                              </td>
+                              <td className="px-4 py-3">
+                                <div className="flex items-center gap-2">
+                                  <span className="text-sm text-slate-500">U</span>
+                                  <Input
+                                    type="number"
+                                    value={prize.ratingCap ?? ""}
+                                    onChange={(event) => handlePrizeRatingCapChange(prize.id, event.target.value)}
+                                    placeholder="e.g., 1600"
+                                  />
+                                </div>
+                                <p className="mt-1 text-[11px] text-slate-500">
+                                  {prize.ratingCap === null
+                                    ? "Open to all ratings"
+                                    : `Players rated under ${prize.ratingCap}`}
+                                </p>
+                              </td>
+                              <td className="px-4 py-3">
                                 <Input
                                   type="number"
                                   step="0.01"
-                                  value={typeof fee.amount === "number" ? String(fee.amount) : ""}
-                                  onChange={(event) => handleEntryFeeAmountChange(fee.id, event.target.value)}
-                                  placeholder="e.g., 120"
+                                  value={typeof prize.amount === "number" ? String(prize.amount) : ""}
+                                  onChange={(event) => handlePrizeAmountChange(prize.id, event.target.value)}
+                                  placeholder="Amount"
                                 />
-                              </div>
-                              <div>
-                                <Label className="text-xs font-semibold uppercase text-slate-500">Currency</Label>
+                              </td>
+                              <td className="px-4 py-3">
                                 <Select
-                                  value={fee.currency || config.payments.defaultCurrency || "USD"}
-                                  onValueChange={(value) => updateEntryFee(fee.id, { currency: value })}
+                                  value={prize.currency || config.payments.defaultCurrency || "USD"}
+                                  onValueChange={(value) => handlePrizeCurrencyChange(prize.id, value)}
                                 >
                                   <SelectTrigger>
                                     <SelectValue />
@@ -1393,84 +1870,30 @@ function StepTwo({ format, mode, config, onConfigChange, onBack: _onBack, onCanc
                                     ))}
                                   </SelectContent>
                                 </Select>
-                              </div>
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                className="justify-self-end text-red-600"
-                                onClick={() => removeEntryFee(fee.id)}
-                              >
-                                Remove
-                              </Button>
-                            </div>
-                            <div>
-                              <Label className="text-xs font-semibold uppercase text-slate-500">Notes (optional)</Label>
-                              <Input
-                                value={fee.notes ?? ""}
-                                onChange={(event) => updateEntryFee(fee.id, { notes: event.target.value })}
-                                placeholder="e.g., Early bird until Oct 1"
-                              />
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-
-                  {sections.length > 0 && unpricedSections.length > 0 && (
-                    <div className="rounded-lg border border-dashed border-amber-200 bg-amber-50 p-3 text-xs text-amber-700">
-                      {unpricedSections.length === 1
-                        ? `${unpricedSections[0].name || "Unnamed section"} still needs a price.`
-                        : `The following sections still need pricing: ${unpricedSections
-                            .map((section) => section.name || "Unnamed section")
-                            .join(", ")}.`}
-                    </div>
-                  )}
+                              </td>
+                              <td className="px-4 py-3">
+                                <Input
+                                  value={prize.notes ?? ""}
+                                  onChange={(event) => handlePrizeNotesChange(prize.id, event.target.value)}
+                                  placeholder="Optional details"
+                                />
+                              </td>
+                              <td className="px-4 py-3 text-right">
+                                <Button variant="ghost" className="text-red-600" onClick={() => removePrize(prize.id)}>
+                                  Remove
+                                </Button>
+                              </td>
+                            </tr>
+                          );
+                        })
+                      )}
+                    </tbody>
+                  </table>
                 </div>
 
-                <div className="space-y-2">
-                  <Label>Accepted offline payment methods</Label>
-                  <div className="flex flex-wrap gap-2">
-                    {OFFLINE_METHOD_OPTIONS.map((option) => {
-                      const active = config.payments.acceptedOfflineMethods?.includes(option.id) ?? false;
-                      return (
-                        <button
-                          key={option.id}
-                          type="button"
-                          onClick={() => {
-                            const current = config.payments.acceptedOfflineMethods ?? [];
-                            const next = active
-                              ? current.filter((method) => method !== option.id)
-                              : [...current, option.id];
-                            updatePayments({ acceptedOfflineMethods: next });
-                          }}
-                          className={cn(
-                            "rounded-full border px-3 py-1 text-xs font-medium transition",
-                            active
-                              ? "border-indigo-500 bg-indigo-500 text-white shadow-sm"
-                              : "border-slate-200 bg-white text-slate-600 hover:border-indigo-300 hover:text-indigo-600",
-                          )}
-                        >
-                          {option.label}
-                        </button>
-                      );
-                    })}
-                  </div>
-                  <p className="text-xs text-muted-foreground">
-                    These options display on the review step so players know how to pay if they skip online checkout.
-                  </p>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="offline-instructions">Offline payment instructions</Label>
-                  <Textarea
-                    id="offline-instructions"
-                    rows={4}
-                    value={config.payments.offlineInstructions ?? ""}
-                    onChange={(event) => updatePayments({ offlineInstructions: event.target.value })}
-                    placeholder="Include on-site payment windows, who to Venmo, or mailing addresses for checks."
-                  />
-                </div>
+                <p className="text-xs text-slate-500">
+                  Export your Google Sheet as CSV with columns: Section, Rating, Amount, Currency, Notes.
+                </p>
 
                 {renderTabSaveButton()}
               </TabsContent>
@@ -1661,14 +2084,6 @@ function StepTwo({ format, mode, config, onConfigChange, onBack: _onBack, onCanc
             </CardContent>
           </Tabs>
 
-          <div className="flex gap-2 border-t border-slate-200 bg-white/70 p-4">
-            <Button variant="outline" className="flex-1" disabled>
-              Export
-            </Button>
-            <Button variant="outline" className="flex-1" disabled>
-              Download
-            </Button>
-          </div>
         </Card>
       </div>
 
@@ -1680,6 +2095,195 @@ function StepTwo({ format, mode, config, onConfigChange, onBack: _onBack, onCanc
         </div>
       )}
     </div>
+
+      <Dialog open={paymentsDialogOpen} onOpenChange={handlePaymentSettingsDialogChange}>
+    <DialogContent className="w-full max-w-3xl sm:max-w-4xl [&>button.absolute]:hidden">
+      <div className="flex flex-col gap-4">
+        <div className="flex items-start gap-3">
+          <DialogClose asChild>
+            <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full border border-slate-200">
+              <X className="h-4 w-4" />
+              <span className="sr-only">Close</span>
+            </Button>
+          </DialogClose>
+          <div className="flex-1">
+            <DialogHeader className="items-start text-left">
+              <DialogTitle className="text-xl">Payment settings</DialogTitle>
+              <DialogDescription>
+                Manage currencies, online checkout requirements, and offline payment instructions.
+              </DialogDescription>
+            </DialogHeader>
+          </div>
+        </div>
+
+        <div className="space-y-6">
+          <div className="rounded-lg border border-indigo-100 bg-indigo-50/80 px-4 py-3">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <p className="text-sm font-semibold text-slate-900">Online payments</p>
+                <p className="text-xs text-slate-600">
+                  Enable Stripe-powered checkout inside the player registration flow.
+                </p>
+              </div>
+              <Switch
+                checked={paymentSettingsDraft.onlineEnabled}
+                onCheckedChange={(checked) => updatePaymentDraft("onlineEnabled", checked)}
+              />
+            </div>
+            {!paymentSettingsDraft.onlineEnabled && (
+              <p className="mt-3 text-xs text-indigo-700">
+                Players will acknowledge offline payment instructions during registration. Toggle this on once your Stripe API keys are active.
+              </p>
+            )}
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-2">
+            <div className="space-y-2">
+              <Label htmlFor="dialog-payment-currency">Default currency</Label>
+              <Select
+                value={paymentSettingsDraft.defaultCurrency ?? "USD"}
+                onValueChange={(value) => updatePaymentDraft("defaultCurrency", value)}
+              >
+                <SelectTrigger id="dialog-payment-currency">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {ENTRY_FEE_CURRENCY_OPTIONS.map((currency) => (
+                    <SelectItem key={currency} value={currency}>
+                      {currency}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="dialog-payment-descriptor">Statement descriptor (optional)</Label>
+              <Input
+                id="dialog-payment-descriptor"
+                value={paymentSettingsDraft.payoutStatementDescriptor ?? ""}
+                onChange={(event) => updatePaymentDraft("payoutStatementDescriptor", event.target.value)}
+                placeholder="e.g., SD CHESS CLUB"
+              />
+            </div>
+
+            {paymentSettingsDraft.onlineEnabled && (
+              <>
+                <div className="space-y-2">
+                  <Label className="flex items-center gap-2">
+                    Require payment on registration
+                    <Badge variant="outline" className="text-xs">
+                      Recommended
+                    </Badge>
+                  </Label>
+                  <div className="flex items-center justify-between rounded-lg border border-slate-200 bg-white px-4 py-3">
+                    <p className="text-xs text-slate-600 pr-6">
+                      Players must complete Stripe checkout before their registration is submitted.
+                    </p>
+                    <Switch
+                      checked={paymentSettingsDraft.requirePaymentOnRegistration}
+                      onCheckedChange={(checked) => updatePaymentDraft("requirePaymentOnRegistration", checked)}
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Processing contribution</Label>
+                  <div className="flex items-center justify-between rounded-lg border border-slate-200 bg-white px-4 py-3">
+                    <p className="text-xs text-slate-600 pr-6">
+                      Allow players to add an optional amount to help cover Stripe fees.
+                    </p>
+                    <Switch
+                      checked={paymentSettingsDraft.allowProcessingContribution}
+                      onCheckedChange={(checked) => updatePaymentDraft("allowProcessingContribution", checked)}
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="dialog-processing-fee">Processing fee (%)</Label>
+                  <Input
+                    id="dialog-processing-fee"
+                    type="number"
+                    min={0}
+                    max={10}
+                    step={0.1}
+                    value={
+                      typeof paymentSettingsDraft.processingFeePercent === "number"
+                        ? String(paymentSettingsDraft.processingFeePercent)
+                        : ""
+                    }
+                    onChange={(event) => handleProcessingFeeChange(event.target.value)}
+                    placeholder="0"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Applied on top of the entry fee total when the checkout session is created.
+                  </p>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="dialog-stripe-account">Stripe Connect account (optional)</Label>
+                  <Input
+                    id="dialog-stripe-account"
+                    value={paymentSettingsDraft.stripeAccountId ?? ""}
+                    onChange={(event) => updatePaymentDraft("stripeAccountId", event.target.value)}
+                    placeholder="acct_1234"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Provide a connected account ID if payouts route to a tournament sub-account.
+                  </p>
+                </div>
+              </>
+            )}
+          </div>
+
+          <div className="space-y-2">
+            <Label>Accepted offline payment methods</Label>
+            <div className="flex flex-wrap gap-2">
+              {OFFLINE_METHOD_OPTIONS.map((option) => {
+                const active = paymentSettingsDraft.acceptedOfflineMethods?.includes(option.id) ?? false;
+                return (
+                  <button
+                    key={option.id}
+                    type="button"
+                    onClick={() => toggleOfflineMethod(option.id)}
+                    className={cn(
+                      "rounded-full border px-3 py-1 text-xs font-medium transition",
+                      active
+                        ? "border-indigo-500 bg-indigo-500 text-white shadow-sm"
+                        : "border-slate-200 bg-white text-slate-600 hover:border-indigo-300 hover:text-indigo-600",
+                    )}
+                  >
+                    {option.label}
+                  </button>
+                );
+              })}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              These options display on the review step so players know how to pay if they skip online checkout.
+            </p>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="dialog-offline-instructions">Offline payment instructions</Label>
+            <Textarea
+              id="dialog-offline-instructions"
+              rows={4}
+              value={paymentSettingsDraft.offlineInstructions ?? ""}
+              onChange={(event) => updatePaymentDraft("offlineInstructions", event.target.value)}
+              placeholder="Include on-site payment windows, who to Venmo, or mailing addresses for checks."
+            />
+          </div>
+        </div>
+
+        <DialogFooter className="border-t border-slate-200 pt-4">
+          <Button className="ml-auto" onClick={handlePaymentSettingsSave}>
+            Save & Close
+          </Button>
+        </DialogFooter>
+      </div>
+    </DialogContent>
+      </Dialog>
+    </>
   );
 }
 
@@ -1800,6 +2404,19 @@ export function TournamentBuilder({ mode, format: initialFormat, tournament, onC
   );
 }
 
+function formatRatingRange(min: number | null, max: number | null): string {
+  if (min !== null && max !== null) {
+    return `Rating ${min}–${max}`;
+  }
+  if (min !== null) {
+    return `Rating ${min}+`;
+  }
+  if (max !== null) {
+    return `Rating ≤${max}`;
+  }
+  return "Open to all ratings";
+}
+
 function createSectionDefinition(): SectionDefinition {
   return {
     id: generateSectionId(),
@@ -1815,8 +2432,21 @@ function createEntryFeeRow(section?: SectionDefinition, defaultCurrency = "USD")
     id: generateEntryFeeId(),
     sectionId: section?.id,
     section: section?.name ?? "",
-    ratingMin: section?.ratingMin ?? null,
-    ratingMax: section?.ratingMax ?? null,
+    ratingMin: null,
+    ratingMax: null,
+    amount: 0,
+    currency: defaultCurrency,
+    notes: "",
+    effectiveAfter: null,
+  };
+}
+
+function createPrizeRow(section?: SectionDefinition, defaultCurrency = "USD"): PrizeRule {
+  return {
+    id: generatePrizeId(),
+    sectionId: section?.id,
+    section: section?.name ?? "",
+    ratingCap: section?.ratingMax ?? null,
     amount: 0,
     currency: defaultCurrency,
     notes: "",
@@ -1828,6 +2458,13 @@ function generateEntryFeeId(): string {
     return crypto.randomUUID();
   }
   return `fee-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function generatePrizeId(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return `prize-${Math.random().toString(36).slice(2, 10)}`;
 }
 
 function generateSectionId(): string {
