@@ -1,7 +1,8 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import type { ComponentType } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useLocation } from "wouter";
-import { Trophy, Users, Eye, ArrowLeft, Medal, Info, Calculator } from "lucide-react";
+import { Trophy, Users, Eye, ArrowLeft, Medal, Info, Calculator, PauseCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -17,10 +18,14 @@ import RoundRobinCrosstable from "@/components/round-robin-crosstable";
 import KnockoutBracket from "@/components/knockout-bracket";
 import PairingPredictor from "@/components/pairing-predictor";
 import PlayerRegistration from "@/components/player-registration";
+import TournamentByes from "@/components/tournament-byes";
 import { parseTournamentConfig } from "@/lib/tournament-config";
+import { renderTournamentPageContent } from "@/lib/tournament-page";
 import { apiRequest } from "@/lib/queryClient";
 
 type SortKey = "players" | "date" | "state";
+
+type DetailTabKey = "pairings" | "standings" | "byes" | "predictor" | "info";
 
 interface TournamentRow {
   tournament: Tournament;
@@ -39,10 +44,19 @@ interface SectionData {
   empty: string;
 }
 
+const DETAIL_TAB_META: Array<{ key: DetailTabKey; label: string; icon: ComponentType<{ className?: string }> }> = [
+  { key: "pairings", label: "Pairings", icon: Users },
+  { key: "standings", label: "Standings", icon: Medal },
+  { key: "byes", label: "Byes", icon: PauseCircle },
+  { key: "predictor", label: "Pairing Predictor", icon: Calculator },
+  { key: "info", label: "Info", icon: Info },
+];
+
 export default function PlayerDashboard() {
   const { user } = useAuth();
   const [selectedTournament, setSelectedTournament] = useState<Tournament | null>(null);
   const [activeTab, setActiveTab] = useState<string>("ongoing");
+  const [detailTab, setDetailTab] = useState<DetailTabKey>("pairings");
   const [, setLocation] = useLocation();
 
   const { data: tournaments = [], isLoading } = useQuery<Tournament[]>({
@@ -242,7 +256,7 @@ export default function PlayerDashboard() {
         </td>
         <td className="px-4 py-4 text-center align-middle text-sm text-slate-700 dark:text-slate-300">{formatDateRange(startDate, endDate)}</td>
         <td className="px-4 py-4 text-center align-middle text-sm text-slate-700 dark:text-slate-300">{sectionsCount ?? "—"}</td>
-        <td className="px-4 py-4 align-middle text-right">
+        <td className="px-4 py-4 align-middle text-center">
           <Button
             variant="outline"
             size="sm"
@@ -253,7 +267,7 @@ export default function PlayerDashboard() {
             View
           </Button>
         </td>
-        <td className="px-4 py-4 align-middle text-right">
+        <td className="px-4 py-4 align-middle text-center">
           <Button
             size="sm"
             disabled={registerDisabled}
@@ -292,8 +306,8 @@ export default function PlayerDashboard() {
                     <th className="px-4 py-3 text-center">Players</th>
                     <th className="px-4 py-3 text-center">Start Date – End Date</th>
                     <th className="px-4 py-3 text-center">Sections</th>
-                    <th className="px-4 py-3 text-right">View</th>
-                    <th className="px-4 py-3 text-right">Register</th>
+                    <th className="px-4 py-3 text-center">View</th>
+                    <th className="px-4 py-3 text-center">Register</th>
                   </tr>
                 </thead>
                 <tbody>{section.items.map((entry) => renderTournamentRow(entry))}</tbody>
@@ -304,6 +318,46 @@ export default function PlayerDashboard() {
       </Card>
     );
   };
+
+  const tournamentConfig = useMemo(
+    () => (selectedTournament ? parseTournamentConfig(selectedTournament) : null),
+    [selectedTournament],
+  );
+  const schedule = tournamentConfig?.schedule ?? [];
+  const infoHtml = useMemo(
+    () => renderTournamentPageContent(tournamentConfig?.tournamentPageContent ?? ""),
+    [tournamentConfig?.tournamentPageContent],
+  );
+  const predictorEnabled = Boolean(tournamentConfig?.registers?.enablePairingPredictor);
+  const tournamentHasStarted = Boolean(
+    selectedTournament &&
+      ((selectedTournament.currentRound ?? 0) > 0 ||
+        selectedTournament.status === "active" ||
+        selectedTournament.status === "completed"),
+  );
+  const showPredictorTab = Boolean(
+    selectedTournament && predictorEnabled && selectedTournament.format === "swiss" && tournamentHasStarted,
+  );
+  const visibleTabMeta = useMemo(
+    () => DETAIL_TAB_META.filter((tab) => (showPredictorTab ? true : tab.key !== "predictor")),
+    [showPredictorTab],
+  );
+  const visibleTabs = useMemo<DetailTabKey[]>(
+    () => visibleTabMeta.map((tab) => tab.key as DetailTabKey),
+    [visibleTabMeta],
+  );
+
+  useEffect(() => {
+    if (!visibleTabs.includes(detailTab)) {
+      setDetailTab(visibleTabs[0] ?? "pairings");
+    }
+  }, [visibleTabs, detailTab]);
+
+  useEffect(() => {
+    if (selectedTournament) {
+      setDetailTab(visibleTabs[0] ?? "pairings");
+    }
+  }, [selectedTournament?.id, visibleTabs]);
 
   if (isLoading || statsLoading) {
     return (
@@ -384,10 +438,11 @@ export default function PlayerDashboard() {
     );
   }
 
-  // Tournament Details View
-  const tournamentConfig = parseTournamentConfig(selectedTournament);
-  const schedule = tournamentConfig.schedule ?? [];
+  if (!tournamentConfig) {
+    return null;
+  }
 
+  // Tournament Details View
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
       {/* Header with Back Button */}
@@ -429,201 +484,24 @@ export default function PlayerDashboard() {
 
       {/* Tournament Content */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <Tabs defaultValue="info" className="space-y-6">
-          <TabsList className="grid w-full grid-cols-4">
-            <TabsTrigger value="info" className="flex items-center gap-2">
-              <Info className="h-4 w-4" />
-              Info
-            </TabsTrigger>
-            <TabsTrigger value="standings" className="flex items-center gap-2">
-              <Medal className="h-4 w-4" />
-              Standings
-            </TabsTrigger>
-            <TabsTrigger value="pairings" className="flex items-center gap-2">
-              <Users className="h-4 w-4" />
-              Pairings
-            </TabsTrigger>
-            <TabsTrigger value="predictor" className="flex items-center gap-2">
-              <Calculator className="h-4 w-4" />
-              Predictor
-            </TabsTrigger>
+        <Tabs value={detailTab} onValueChange={(value) => setDetailTab(value as DetailTabKey)} className="space-y-6">
+          <TabsList className="grid w-full gap-2 sm:grid-cols-3 md:grid-cols-5">
+            {visibleTabMeta.map(({ key, label, icon: Icon }) => (
+              <TabsTrigger key={key} value={key} className="flex items-center justify-center gap-2 text-sm font-semibold">
+                <Icon className="h-4 w-4" />
+                {label}
+              </TabsTrigger>
+            ))}
           </TabsList>
-
-          <TabsContent value="info" className="space-y-6">
-            <Card>
-              <CardHeader>
-                <CardTitle>Tournament Information</CardTitle>
-                <CardDescription>
-                  Details about this tournament
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                  <div className="space-y-2">
-                    <h4 className="font-medium text-gray-900">Tournament Name</h4>
-                    <p className="text-gray-600">{selectedTournament.name}</p>
-                  </div>
-                  <div className="space-y-2">
-                    <h4 className="font-medium text-gray-900">Format</h4>
-                    <p className="text-gray-600 capitalize">{selectedTournament.format}</p>
-                  </div>
-                  <div className="space-y-2">
-                    <h4 className="font-medium text-gray-900">Status</h4>
-                    <Badge variant={selectedTournament.status === 'active' ? 'default' : selectedTournament.status === 'completed' ? 'secondary' : 'outline'}>
-                      {selectedTournament.status.charAt(0).toUpperCase() + selectedTournament.status.slice(1)}
-                    </Badge>
-                  </div>
-                  {selectedTournament.rounds && (
-                    <div className="space-y-2">
-                      <h4 className="font-medium text-gray-900">Total Rounds</h4>
-                      <p className="text-gray-600">{selectedTournament.rounds}</p>
-                    </div>
-                  )}
-                  <div className="space-y-2">
-                    <h4 className="font-medium text-gray-900">Current Round</h4>
-                    <p className="text-gray-600">{selectedTournament.currentRound || 0}</p>
-                  </div>
-                  <div className="space-y-2">
-                    <h4 className="font-medium text-gray-900">Created</h4>
-                    <p className="text-gray-600">
-                      {selectedTournament.createdAt ? new Date(selectedTournament.createdAt).toLocaleDateString() : 'Unknown'}
-                    </p>
-                  </div>
-                  {selectedTournament.format === 'roundrobin' && selectedTournament.isDoubleRoundRobin && (
-                    <div className="space-y-2">
-                      <h4 className="font-medium text-gray-900">Round Robin Type</h4>
-                      <p className="text-gray-600">Double Round Robin</p>
-                    </div>
-                  )}
-                  
-                  {/* Tournament Details */}
-                  {(tournamentConfig.basic.city || tournamentConfig.basic.description || tournamentConfig.basic.startDate || tournamentConfig.basic.endDate || selectedTournament.directorPhone || selectedTournament.directorEmail) && (
-                    <>
-                      <div className="col-span-full">
-                        <h3 className="text-lg font-semibold text-gray-900 mb-4 border-b pb-2">
-                          Tournament Details
-                        </h3>
-                      </div>
-                      
-                      {tournamentConfig.basic.city && (
-                        <div className="space-y-2">
-                          <h4 className="font-medium text-gray-900">Location</h4>
-                          <p className="text-gray-600">{tournamentConfig.basic.city}</p>
-                        </div>
-                      )}
-                      {tournamentConfig.basic.startDate && (
-                        <div className="space-y-2">
-                          <h4 className="font-medium text-gray-900">Start Date</h4>
-                          <p className="text-gray-600">{new Date(tournamentConfig.basic.startDate).toLocaleDateString()}</p>
-                        </div>
-                      )}
-                      {tournamentConfig.basic.endDate && (
-                        <div className="space-y-2">
-                          <h4 className="font-medium text-gray-900">End Date</h4>
-                          <p className="text-gray-600">{new Date(tournamentConfig.basic.endDate).toLocaleDateString()}</p>
-                        </div>
-                      )}
-                      {tournamentConfig.basic.description && (
-                        <div className="space-y-2 md:col-span-2 lg:col-span-3">
-                          <h4 className="font-medium text-gray-900">Description</h4>
-                          <p className="text-gray-600 whitespace-pre-wrap">{tournamentConfig.basic.description}</p>
-                        </div>
-                      )}
-                      
-                      {selectedTournament.directorPhone && (
-                        <div className="space-y-2">
-                          <h4 className="font-medium text-gray-900">Director Phone</h4>
-                          <p className="text-gray-600">{selectedTournament.directorPhone}</p>
-                        </div>
-                      )}
-                      
-                      {selectedTournament.directorEmail && (
-                        <div className="space-y-2">
-                          <h4 className="font-medium text-gray-900">Director Email</h4>
-                          <p className="text-gray-600">{selectedTournament.directorEmail}</p>
-                        </div>
-                      )}
-                    </>
-                  )}
-                  
-                  {/* Round Schedule */}
-                  {schedule.length > 0 && (
-                    <>
-                      <div className="col-span-full">
-                        <h3 className="text-lg font-semibold text-gray-900 mb-4 border-b pb-2">
-                          Round Schedule
-                        </h3>
-                      </div>
-                      
-                      <div className="col-span-full">
-                        <div className="space-y-2">
-                          {schedule.map((timing, index) => {
-                            const hasSchedule = timing.date || timing.time;
-                            if (!hasSchedule) return null;
-                            
-                            return (
-                              <div key={index} className="flex items-center justify-between py-2 border-b border-gray-100">
-                                <span className="font-medium">{timing.label ?? `Round ${timing.round ?? index + 1}`}</span>
-                                <div className="text-gray-600">
-                                  {timing.date && (
-                                    <span className="mr-3">
-                                      {new Date(timing.date).toLocaleDateString()}
-                                    </span>
-                                  )}
-                                  {timing.time && (
-                                    <span>
-                                      {timing.time}
-                                    </span>
-                                  )}
-                                </div>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    </>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Player Registration Card */}
-            <PlayerRegistration 
-              tournament={selectedTournament}
-              existingRegistration={myRegistrations.find(reg => reg.tournamentId === selectedTournament.id)}
-            />
-          </TabsContent>
-
-          <TabsContent value="standings" className="space-y-6">
-            <Card>
-              <CardHeader>
-                <CardTitle>Live Standings</CardTitle>
-                <CardDescription>
-                  Current tournament standings and results
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                {selectedTournament.format === 'roundrobin' ? (
-                  <RoundRobinCrosstable tournamentId={selectedTournament.id} />
-                ) : selectedTournament.format === 'swiss' ? (
-                  <SwissStandings tournamentId={selectedTournament.id} />
-                ) : (
-                  <Standings tournamentId={selectedTournament.id} />
-                )}
-              </CardContent>
-            </Card>
-          </TabsContent>
 
           <TabsContent value="pairings" className="space-y-6">
             <Card>
               <CardHeader>
                 <CardTitle>Current Round Pairings</CardTitle>
-                <CardDescription>
-                  Live pairings and match results
-                </CardDescription>
+                <CardDescription>Live pairings and match results</CardDescription>
               </CardHeader>
               <CardContent>
-                {selectedTournament.format === 'swiss' || selectedTournament.format === 'roundrobin' ? (
+                {selectedTournament.format === "swiss" || selectedTournament.format === "roundrobin" ? (
                   <SwissPairings tournamentId={selectedTournament.id} />
                 ) : (
                   <p className="text-gray-600 dark:text-gray-400">
@@ -634,11 +512,58 @@ export default function PlayerDashboard() {
             </Card>
           </TabsContent>
 
-          <TabsContent value="predictor" className="space-y-6">
-            <PairingPredictor 
-              tournamentId={selectedTournament.id} 
-              tournament={selectedTournament} 
-            />
+          <TabsContent value="standings" className="space-y-6">
+            <Card>
+              <CardHeader>
+                <CardTitle>Live Standings</CardTitle>
+                <CardDescription>Current tournament standings and results</CardDescription>
+              </CardHeader>
+              <CardContent>
+                {selectedTournament.format === "roundrobin" ? (
+                  <RoundRobinCrosstable tournamentId={selectedTournament.id} />
+                ) : selectedTournament.format === "swiss" ? (
+                  <SwissStandings tournamentId={selectedTournament.id} />
+                ) : (
+                  <Standings tournamentId={selectedTournament.id} />
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="byes" className="space-y-6">
+            <Card>
+              <CardHeader>
+                <CardTitle>Registered Byes</CardTitle>
+                <CardDescription>Approved half-point and full-point byes</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <TournamentByes tournamentId={selectedTournament.id} />
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {showPredictorTab ? (
+            <TabsContent value="predictor" className="space-y-6">
+              <PairingPredictor tournamentId={selectedTournament.id} tournament={selectedTournament} />
+            </TabsContent>
+          ) : null}
+
+          <TabsContent value="info" className="space-y-6">
+            <Card>
+              <CardHeader>
+                <CardTitle>Public Tournament Page</CardTitle>
+                <CardDescription>Information provided by the tournament director</CardDescription>
+              </CardHeader>
+              <CardContent>
+                {infoHtml.trim() ? (
+                  <div className="prose prose-slate max-w-none" dangerouslySetInnerHTML={{ __html: infoHtml }} />
+                ) : (
+                  <p className="text-sm text-slate-600">
+                    The tournament director has not published public page content yet.
+                  </p>
+                )}
+              </CardContent>
+            </Card>
           </TabsContent>
         </Tabs>
       </div>

@@ -13,6 +13,7 @@ import {
   serializeTournamentConfig,
   type TournamentConfig,
 } from "@/lib/tournament-config";
+import { renderTournamentPageContent } from "@/lib/tournament-page";
 import type { Tournament } from "@shared/schema";
 
 type ToolbarAction = "h1" | "h2" | "bold" | "italic" | "bullet" | "numbered" | "link";
@@ -25,9 +26,15 @@ interface TournamentPagePanelProps {
 export default function TournamentPagePanel({ tournament, onUpdated }: TournamentPagePanelProps) {
   const { toast } = useToast();
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const importInputRef = useRef<HTMLInputElement | null>(null);
+  const imageInputRef = useRef<HTMLInputElement | null>(null);
   const [config, setConfig] = useState<TournamentConfig>(() => parseTournamentConfig(tournament));
   const [initialContent, setInitialContent] = useState<string>(
     parseTournamentConfig(tournament).tournamentPageContent ?? ""
+  );
+  const previewHtml = useMemo(
+    () => renderTournamentPageContent(config.tournamentPageContent ?? ""),
+    [config.tournamentPageContent],
   );
 
   useEffect(() => {
@@ -51,6 +58,14 @@ export default function TournamentPagePanel({ tournament, onUpdated }: Tournamen
 
   const handleContentChange = (value: string) => {
     setConfig((prev) => ({ ...prev, tournamentPageContent: value }));
+  };
+
+  const appendContentBlock = (snippet: string, { ensureSpacing = true }: { ensureSpacing?: boolean } = {}) => {
+    setConfig((prev) => {
+      const current = prev.tournamentPageContent ?? "";
+      const prefix = ensureSpacing && current.trim().length > 0 ? "\n\n" : "";
+      return { ...prev, tournamentPageContent: `${current}${prefix}${snippet}` };
+    });
   };
 
   const wrapSelection = (
@@ -195,6 +210,103 @@ export default function TournamentPagePanel({ tournament, onUpdated }: Tournamen
     setConfig((prev) => ({ ...prev, tournamentPageContent: initialContent }));
   };
 
+  const handleImportFile = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) {
+      return;
+    }
+    try {
+      const text = await file.text();
+      let nextContent = text;
+      if (/\.json$/i.test(file.name)) {
+        try {
+          const parsed = JSON.parse(text);
+          if (typeof parsed === "string") {
+            nextContent = parsed;
+          } else if (parsed && typeof parsed === "object" && typeof parsed.tournamentPageContent === "string") {
+            nextContent = parsed.tournamentPageContent;
+          }
+        } catch (parseError) {
+          // fallback to raw text
+        }
+      }
+      handleContentChange(nextContent);
+      toast({ title: "Content imported", description: `Loaded ${file.name}` });
+    } catch (error) {
+      toast({ title: "Import failed", description: "Unable to read file", variant: "destructive" });
+    } finally {
+      if (event.target) {
+        event.target.value = "";
+      }
+    }
+  };
+
+  const handleImageFile = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) {
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = typeof reader.result === "string" ? reader.result : "";
+      if (!dataUrl) {
+        toast({ title: "Upload failed", description: "Could not read image", variant: "destructive" });
+        return;
+      }
+      const altText = file.name.replace(/\.[^/.]+$/, "").replace(/[\-_]+/g, " ").trim() || "Tournament image";
+      appendContentBlock(`![${altText}](${dataUrl})\n`);
+      requestAnimationFrame(() => {
+        const el = textareaRef.current;
+        if (!el) return;
+        const length = el.value.length;
+        el.focus();
+        el.setSelectionRange(length, length);
+      });
+      toast({ title: "Image added", description: `${file.name} embedded` });
+    };
+    reader.onerror = () => {
+      toast({ title: "Upload failed", description: "Could not read image", variant: "destructive" });
+    };
+    reader.readAsDataURL(file);
+    if (event.target) {
+      event.target.value = "";
+    }
+  };
+
+  const handleAddImageUrl = () => {
+    const url = window.prompt("Enter the image URL");
+    if (!url) {
+      return;
+    }
+    const trimmedUrl = url.trim();
+    if (!trimmedUrl) {
+      return;
+    }
+    const altText = (window.prompt("Describe this image", "Tournament flyer") ?? "Tournament image").trim();
+    appendContentBlock(`![${altText || "Tournament image"}](${trimmedUrl})`);
+    requestAnimationFrame(() => {
+      const el = textareaRef.current;
+      if (!el) return;
+      const length = el.value.length;
+      el.focus();
+      el.setSelectionRange(length, length);
+    });
+    toast({ title: "Image added", description: "Image URL embedded" });
+  };
+
+  const handleInsertMapButtons = () => {
+    const query = window.prompt("Enter the venue or address to link on maps");
+    if (!query) {
+      return;
+    }
+    const trimmed = query.trim();
+    if (!trimmed) {
+      return;
+    }
+    appendContentBlock(`{{map-buttons:${trimmed}}}`);
+    toast({ title: "Map buttons added", description: "Google and Apple Maps links inserted" });
+  };
+
   return (
     <Card>
       <CardHeader>
@@ -208,17 +320,66 @@ export default function TournamentPagePanel({ tournament, onUpdated }: Tournamen
               Share parking info, highlights, livestream links, and other player guidance.
             </p>
           </div>
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => geminiDraft.mutate()}
-            disabled={geminiDraft.isPending}
-            className="flex items-center gap-2"
-          >
-            <Sparkles className="h-4 w-4" />
-            {geminiDraft.isPending ? "Drafting..." : "Draft with Gemini"}
-          </Button>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => geminiDraft.mutate()}
+              disabled={geminiDraft.isPending}
+              className="flex items-center gap-2"
+            >
+              <Sparkles className="h-4 w-4" />
+              {geminiDraft.isPending ? "Drafting..." : "Draft with Gemini"}
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => importInputRef.current?.click()}
+              className="flex items-center gap-2"
+            >
+              Import content
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => imageInputRef.current?.click()}
+              className="flex items-center gap-2"
+            >
+              Upload image
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={handleAddImageUrl}
+              className="flex items-center gap-2"
+            >
+              Link image URL
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={handleInsertMapButtons}
+              className="flex items-center gap-2"
+            >
+              Add map buttons
+            </Button>
+          </div>
         </div>
+
+        <input
+          type="file"
+          ref={importInputRef}
+          accept=".txt,.md,.markdown,.json,.html,.htm"
+          className="hidden"
+          onChange={handleImportFile}
+        />
+        <input
+          type="file"
+          ref={imageInputRef}
+          accept="image/*"
+          className="hidden"
+          onChange={handleImageFile}
+        />
 
         <div className="flex flex-wrap items-center gap-1 rounded-md border bg-slate-50 p-2">
           {pageToolbar.map((item) => (
@@ -242,6 +403,20 @@ export default function TournamentPagePanel({ tournament, onUpdated }: Tournamen
           className="min-h-[320px]"
           placeholder="Welcome to our event!"
         />
+
+        <div className="space-y-2">
+          <Label className="text-sm font-medium">Live preview</Label>
+          {config.tournamentPageContent?.trim() ? (
+            <div
+              className="prose prose-slate max-w-none rounded-md border bg-white p-4"
+              dangerouslySetInnerHTML={{ __html: previewHtml }}
+            />
+          ) : (
+            <div className="rounded-md border border-dashed bg-slate-50 p-6 text-sm text-slate-500">
+              Start writing or import content to preview your tournament page.
+            </div>
+          )}
+        </div>
       </CardContent>
       <CardFooter className="flex flex-wrap items-center justify-between gap-3">
         <Button

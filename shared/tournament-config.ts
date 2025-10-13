@@ -159,6 +159,7 @@ export interface TournamentConfig {
   basic: {
     name: string;
     city: string;
+    state: string;
     federation: string;
     startDate: string | null;
     endDate: string | null;
@@ -234,6 +235,7 @@ export function createDefaultConfig(format: Tournament["format"], mode: Tourname
     basic: {
       name: "",
       city: "",
+      state: "",
       federation: "United States",
       startDate: null,
       endDate: null,
@@ -401,6 +403,11 @@ export function parseTournamentConfig(tournament: Tournament): TournamentConfig 
     return {
       ...createDefaultConfig(tournament.format, normalizedMode ?? "rated"),
       ...parsed,
+      basic: {
+        ...createDefaultConfig(tournament.format, normalizedMode ?? "rated").basic,
+        ...parsed.basic,
+        state: typeof parsed.basic?.state === "string" ? parsed.basic.state : "",
+      },
       details: {
         ...createDefaultConfig(tournament.format, normalizedMode ?? "rated").details,
         ...parsed.details,
@@ -471,6 +478,7 @@ export function parseTournamentConfig(tournament: Tournament): TournamentConfig 
       ...config.basic,
       name: tournament.name,
       description: tournament.location ?? "",
+      state: config.basic.state,
     },
     details: {
       ...config.details,

@@ -11,22 +11,24 @@ import SwissPairings from "@/components/swiss-pairings";
 import RoundRobinCrosstable from "@/components/round-robin-crosstable";
 import PairingPredictor from "@/components/pairing-predictor";
 import TournamentByes from "@/components/tournament-byes";
-import { parseTournamentConfig } from "@/lib/tournament-config";
-import { cn } from "@/lib/utils";
+import { createDefaultConfig, parseTournamentConfig } from "@/lib/tournament-config";
+import { renderTournamentPageContent } from "@/lib/tournament-page";
 import type { Tournament } from "@shared/schema";
 import { useAuth } from "@/hooks/useAuth";
 
 type TabKey = "pairings" | "standings" | "byes" | "predictor" | "info";
 
+const TAB_LABELS: Record<TabKey, string> = {
+  pairings: "Pairings",
+  standings: "Standings",
+  byes: "Byes",
+  predictor: "Pairing Predictor",
+  info: "Info",
+};
+
 interface TournamentViewProps {
   tournamentId: number;
 }
-
-const GRID_COLUMNS_MAP: Record<number, string> = {
-  3: "grid-cols-3",
-  4: "grid-cols-4",
-  5: "grid-cols-5",
-};
 
 export default function TournamentView({ tournamentId }: TournamentViewProps) {
   const [, setLocation] = useLocation();
@@ -36,6 +38,35 @@ export default function TournamentView({ tournamentId }: TournamentViewProps) {
   const { data: tournament, isLoading: tournamentLoading } = useQuery<Tournament>({
     queryKey: [`/api/tournaments/${tournamentId}`],
   });
+
+  const config = useMemo(
+    () => (tournament ? parseTournamentConfig(tournament) : createDefaultConfig("swiss")),
+    [tournament],
+  );
+  const tournamentPageContent = config.tournamentPageContent?.trim() ?? "";
+  const predictorEnabled = Boolean(config.registers?.enablePairingPredictor);
+  const tournamentHasStarted = Boolean(
+    tournament &&
+      ((tournament.currentRound ?? 0) > 0 || tournament.status === "active" || tournament.status === "completed"),
+  );
+  const showPredictor =
+    predictorEnabled && (tournament?.format ?? config.format) === "swiss" && tournamentHasStarted;
+
+  const availableTabs = useMemo<TabKey[]>(
+    () => (showPredictor ? ["pairings", "standings", "byes", "predictor", "info"] : ["pairings", "standings", "byes", "info"]),
+    [showPredictor],
+  );
+
+  useEffect(() => {
+    if (!availableTabs.includes(activeTab)) {
+      setActiveTab(availableTabs[0]);
+    }
+  }, [availableTabs, activeTab]);
+
+  const infoHtml = useMemo(
+    () => (tournamentPageContent ? renderTournamentPageContent(tournamentPageContent) : ""),
+    [tournamentPageContent],
+  );
 
   if (tournamentLoading || authLoading) {
     return (
@@ -64,33 +95,6 @@ export default function TournamentView({ tournamentId }: TournamentViewProps) {
   }
 
   const canManageTournament = Boolean(user && user.role === "tournament_director");
-  const config = useMemo(() => parseTournamentConfig(tournament), [tournament]);
-  const tournamentPageContent = config.tournamentPageContent?.trim() ?? "";
-  const predictorEnabled = Boolean(config.registers?.enablePairingPredictor);
-  const tournamentHasStarted = (tournament.currentRound ?? 0) > 0 || tournament.status === "active" || tournament.status === "completed";
-  const showPredictor = predictorEnabled && tournamentHasStarted && tournament.format === "swiss";
-
-  const tabs = useMemo<{ key: TabKey; label: string }[]>(() => {
-    const items: { key: TabKey; label: string }[] = [
-      { key: "pairings", label: "Pairings" },
-      { key: "standings", label: "Standings" },
-      { key: "byes", label: "Byes" },
-    ];
-    if (showPredictor) {
-      items.push({ key: "predictor", label: "Predictor" });
-    }
-    items.push({ key: "info", label: "Info" });
-    return items;
-  }, [showPredictor]);
-
-  useEffect(() => {
-    if (!tabs.some((tab) => tab.key === activeTab)) {
-      setActiveTab(tabs[0]?.key ?? "pairings");
-    }
-  }, [tabs, activeTab]);
-
-  const infoHtml = useMemo(() => (tournamentPageContent ? renderTournamentPageContent(tournamentPageContent) : ""), [tournamentPageContent]);
-  const gridClass = GRID_COLUMNS_MAP[tabs.length] ?? "grid-cols-4";
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
@@ -130,12 +134,24 @@ export default function TournamentView({ tournamentId }: TournamentViewProps) {
 
       <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
         <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as TabKey)}>
-          <TabsList className={cn("grid w-full gap-2", gridClass)}>
-            {tabs.map((tab) => (
-              <TabsTrigger key={tab.key} value={tab.key} className="text-sm font-semibold">
-                {tab.label}
+          <TabsList className="flex w-full flex-wrap gap-2">
+            <TabsTrigger value="pairings" className="flex-1 min-w-[140px] text-sm font-semibold">
+              {TAB_LABELS.pairings}
+            </TabsTrigger>
+            <TabsTrigger value="standings" className="flex-1 min-w-[140px] text-sm font-semibold">
+              {TAB_LABELS.standings}
+            </TabsTrigger>
+            <TabsTrigger value="byes" className="flex-1 min-w-[140px] text-sm font-semibold">
+              {TAB_LABELS.byes}
+            </TabsTrigger>
+            {showPredictor ? (
+              <TabsTrigger value="predictor" className="flex-1 min-w-[140px] text-sm font-semibold">
+                {TAB_LABELS.predictor}
               </TabsTrigger>
-            ))}
+            ) : null}
+            <TabsTrigger value="info" className="flex-1 min-w-[140px] text-sm font-semibold">
+              {TAB_LABELS.info}
+            </TabsTrigger>
           </TabsList>
 
           <TabsContent value="pairings" className="mt-6">
@@ -213,85 +229,4 @@ export default function TournamentView({ tournamentId }: TournamentViewProps) {
       </div>
     </div>
   );
-}
-
-function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-}
-
-function formatInlineMarkdown(input: string): string {
-  let result = escapeHtml(input);
-  result = result.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
-  result = result.replace(/\*(.+?)\*/g, "<em>$1</em>");
-  result = result.replace(/`([^`]+)`/g, "<code>$1</code>");
-  result = result.replace(/\[(.+?)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
-  return result;
-}
-
-function renderTournamentPageContent(content: string): string {
-  const lines = content.replace(/\r\n/g, "\n").split("\n");
-  const html: string[] = [];
-  let inUnordered = false;
-  let inOrdered = false;
-
-  const closeLists = () => {
-    if (inUnordered) {
-      html.push("</ul>");
-      inUnordered = false;
-    }
-    if (inOrdered) {
-      html.push("</ol>");
-      inOrdered = false;
-    }
-  };
-
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (!trimmed) {
-      closeLists();
-      html.push("<p>&nbsp;</p>");
-      continue;
-    }
-
-    if (/^#{1,6}\s/.test(trimmed)) {
-      closeLists();
-      const level = Math.min(6, trimmed.match(/^#+/)?.[0].length ?? 1);
-      const text = trimmed.replace(/^#{1,6}\s*/, "");
-      html.push(`<h${level}>${formatInlineMarkdown(text)}</h${level}>`);
-      continue;
-    }
-
-    if (/^[-*]\s+/.test(trimmed)) {
-      if (!inUnordered) {
-        closeLists();
-        html.push("<ul>");
-        inUnordered = true;
-      }
-      const text = trimmed.replace(/^[-*]\s+/, "");
-      html.push(`<li>${formatInlineMarkdown(text)}</li>`);
-      continue;
-    }
-
-    if (/^\d+\.\s+/.test(trimmed)) {
-      if (!inOrdered) {
-        closeLists();
-        html.push("<ol>");
-        inOrdered = true;
-      }
-      const text = trimmed.replace(/^\d+\.\s+/, "");
-      html.push(`<li>${formatInlineMarkdown(text)}</li>`);
-      continue;
-    }
-
-    closeLists();
-    html.push(`<p>${formatInlineMarkdown(trimmed)}</p>`);
-  }
-
-  closeLists();
-  return html.join("");
 }

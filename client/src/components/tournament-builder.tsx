@@ -152,9 +152,10 @@ function fileToText(file: File): Promise<string> {
 interface BasicInformationFieldsProps {
   config: TournamentConfig;
   onConfigChange: (config: TournamentConfig) => void;
+  variant?: "minimal" | "full";
 }
 
-function BasicInformationFields({ config, onConfigChange }: BasicInformationFieldsProps) {
+function BasicInformationFields({ config, onConfigChange, variant = "full" }: BasicInformationFieldsProps) {
   const updateBasic = (updates: Partial<TournamentConfig["basic"]>) => {
     onConfigChange({
       ...config,
@@ -172,6 +173,52 @@ function BasicInformationFields({ config, onConfigChange }: BasicInformationFiel
     window.open(url, "_blank");
   };
 
+  if (variant === "minimal") {
+    return (
+      <div className="space-y-4">
+        <div className="space-y-2">
+          <Label htmlFor="tournament-name">Tournament Name</Label>
+          <Input
+            id="tournament-name"
+            value={config.basic.name}
+            onChange={(event) => updateBasic({ name: event.target.value })}
+            placeholder="e.g., San Diego Fall Open"
+          />
+        </div>
+
+        <div className="grid gap-4 md:grid-cols-3">
+          <div className="space-y-2">
+            <Label htmlFor="basic-state">State</Label>
+            <Input
+              id="basic-state"
+              value={config.basic.state}
+              onChange={(event) => updateBasic({ state: event.target.value })}
+              placeholder="e.g., California"
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="basic-start-date">Start Date</Label>
+            <Input
+              id="basic-start-date"
+              type="date"
+              value={config.basic.startDate ?? ""}
+              onChange={(event) => updateBasic({ startDate: event.target.value || null })}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="basic-end-date">End Date</Label>
+            <Input
+              id="basic-end-date"
+              type="date"
+              value={config.basic.endDate ?? ""}
+              onChange={(event) => updateBasic({ endDate: event.target.value || null })}
+            />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-4">
       <div className="space-y-2">
@@ -184,14 +231,14 @@ function BasicInformationFields({ config, onConfigChange }: BasicInformationFiel
         />
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2">
-        <div className="space-y-2">
-          <Label htmlFor="basic-location">Location / Venue</Label>
+      <div className="grid gap-4 md:grid-cols-3">
+        <div className="space-y-2 md:col-span-2">
+          <Label htmlFor="basic-address">Address</Label>
           <Input
-            id="basic-location"
+            id="basic-address"
             value={config.basic.city}
             onChange={(event) => updateBasic({ city: event.target.value })}
-            placeholder="e.g., San Diego Convention Center"
+            placeholder="e.g., 111 W Harbor Dr, San Diego"
           />
           <div className="flex gap-2 pt-1">
             <Button
@@ -213,52 +260,54 @@ function BasicInformationFields({ config, onConfigChange }: BasicInformationFiel
           </div>
         </div>
         <div className="space-y-2">
-          <Label>Federation</Label>
-          <Select
-            value={config.basic.federation}
-            onValueChange={(value) => updateBasic({ federation: value })}
-          >
-            <SelectTrigger>
-              <SelectValue placeholder="Select federation" />
-            </SelectTrigger>
-            <SelectContent>
-              {FEDERATION_OPTIONS.map((option) => (
-                <SelectItem key={option.code} value={option.code}>
-                  {option.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <Label htmlFor="basic-state">State</Label>
+          <Input
+            id="basic-state"
+            value={config.basic.state}
+            onChange={(event) => updateBasic({ state: event.target.value })}
+            placeholder="e.g., California"
+          />
         </div>
+      </div>
+
+      <div className="space-y-2">
+        <Label>Federation</Label>
+        <Select
+          value={config.basic.federation}
+          onValueChange={(value) => updateBasic({ federation: value })}
+        >
+          <SelectTrigger>
+            <SelectValue placeholder="Select federation" />
+          </SelectTrigger>
+          <SelectContent>
+            {FEDERATION_OPTIONS.map((option) => (
+              <SelectItem key={option.code} value={option.code}>
+                {option.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
 
       <div className="grid gap-4 md:grid-cols-2">
         <div className="space-y-2">
-          <Label>Start Date</Label>
+          <Label htmlFor="basic-start-date">Start Date</Label>
           <Input
+            id="basic-start-date"
             type="date"
             value={config.basic.startDate ?? ""}
             onChange={(event) => updateBasic({ startDate: event.target.value || null })}
           />
         </div>
         <div className="space-y-2">
-          <Label>End Date</Label>
+          <Label htmlFor="basic-end-date">End Date</Label>
           <Input
+            id="basic-end-date"
             type="date"
             value={config.basic.endDate ?? ""}
             onChange={(event) => updateBasic({ endDate: event.target.value || null })}
           />
         </div>
-      </div>
-
-      <div className="space-y-2">
-        <Label>Description</Label>
-        <Textarea
-          rows={4}
-          value={config.basic.description}
-          onChange={(event) => updateBasic({ description: event.target.value })}
-          placeholder="Add venue notes, parking details, or livestream information"
-        />
       </div>
     </div>
   );
@@ -267,6 +316,7 @@ function BasicInformationFields({ config, onConfigChange }: BasicInformationFiel
 interface StepOneProps {
   format: Tournament["format"];
   mode: TournamentMode;
+  builderMode: BuilderMode;
   config: TournamentConfig;
   onFormatChange: (format: Tournament["format"]) => void;
   onModeChange: (mode: TournamentMode) => void;
@@ -281,6 +331,7 @@ interface StepOneProps {
 function StepOne({
   format,
   mode,
+  builderMode,
   config,
   onFormatChange,
   onModeChange,
@@ -293,6 +344,12 @@ function StepOne({
 }: StepOneProps) {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const { toast } = useToast();
+  const hasRequiredBasics =
+    config.basic.name.trim().length > 0 &&
+    Boolean(config.basic.startDate) &&
+    Boolean(config.basic.endDate) &&
+    config.basic.state.trim().length > 0;
+  const canContinue = builderMode === "create" ? hasRequiredBasics : true;
 
   const handleFileImport = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -365,6 +422,9 @@ function StepOne({
   };
 
   const handleContinue = () => {
+    if (!canContinue) {
+      return;
+    }
     onContinue();
   };
 
@@ -451,7 +511,7 @@ function StepOne({
           </p>
         </CardHeader>
         <CardContent>
-          <BasicInformationFields config={config} onConfigChange={onConfigChange} />
+          <BasicInformationFields variant="minimal" config={config} onConfigChange={onConfigChange} />
         </CardContent>
       </Card>
 
@@ -474,7 +534,7 @@ function StepOne({
               Cancel
             </Button>
           )}
-          <Button onClick={handleContinue} disabled={isProcessing}>
+          <Button onClick={handleContinue} disabled={isProcessing || !canContinue}>
             {continueText}
             <ChevronRight className="h-4 w-4 ml-2" />
           </Button>
@@ -2371,6 +2431,7 @@ export function TournamentBuilder({ mode, format: initialFormat, tournament, onC
     <StepOne
       format={format}
       mode={config.mode}
+      builderMode={mode}
       config={config}
       onFormatChange={handleFormatChange}
       onModeChange={handleModeChange}
