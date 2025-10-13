@@ -146,13 +146,17 @@ const formatNameLastFirst = (name?: string) => {
 
 interface AddPlayerPageProps {
   tournamentId: number;
+  playerId?: number;
 }
 
-export default function AddPlayerPage({ tournamentId }: AddPlayerPageProps) {
+export default function AddPlayerPage({ tournamentId, playerId }: AddPlayerPageProps) {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   const { user } = useAuth();
   const queryClient = useQueryClient();
+  const resolvedPlayerId = typeof playerId === "number" && Number.isFinite(playerId) ? playerId : null;
+  const isEditing = resolvedPlayerId !== null;
+  const [editInitialized, setEditInitialized] = useState(false);
 
   const { data: tournament, isLoading: tournamentLoading } = useQuery<Tournament>({
     queryKey: [`/api/tournaments/${tournamentId}`],
@@ -160,6 +164,15 @@ export default function AddPlayerPage({ tournamentId }: AddPlayerPageProps) {
 
   const { data: players = [], isLoading: playersLoading } = useQuery<Player[]>({
     queryKey: [`/api/tournaments/${tournamentId}/players`],
+  });
+
+  const { data: editingPlayer, isLoading: editingPlayerLoading } = useQuery<Player | null>({
+    queryKey: ["player-detail", tournamentId, resolvedPlayerId],
+    enabled: Boolean(isEditing && resolvedPlayerId),
+    queryFn: async () => {
+      if (!resolvedPlayerId) return null;
+      return (await apiRequest(`/api/tournaments/${tournamentId}/players/${resolvedPlayerId}`)) as Player;
+    },
   });
 
   useEffect(() => {
@@ -300,6 +313,40 @@ export default function AddPlayerPage({ tournamentId }: AddPlayerPageProps) {
   }, [sections, primarySection]);
 
   useEffect(() => {
+    if (!isEditing || editInitialized) return;
+    if (editingPlayerLoading) return;
+    if (!editingPlayer) {
+      toast({ title: "Player not found", variant: "destructive" });
+      setLocation(`/tournaments/${tournamentId}/manage`);
+      return;
+    }
+    const matchedSection = sections.find((section) => section.id === editingPlayer.sectionId) ??
+      sections.find((section) => section.name === editingPlayer.sectionName) ??
+      primarySection;
+    setFormState((prev) => ({
+      ...prev,
+      firstName: editingPlayer.firstName ?? prev.firstName,
+      lastName: editingPlayer.lastName ?? prev.lastName,
+      rating: editingPlayer.rating != null ? String(editingPlayer.rating) : prev.rating,
+      federation: editingPlayer.federation ?? prev.federation,
+      sectionId: matchedSection?.id ?? editingPlayer.sectionId ?? prev.sectionId,
+      sectionName: matchedSection?.name ?? editingPlayer.sectionName ?? prev.sectionName,
+    }));
+    setCombinedNameInput([editingPlayer.lastName, editingPlayer.firstName].filter(Boolean).join(", "));
+    setEditInitialized(true);
+  }, [
+    isEditing,
+    editInitialized,
+    editingPlayer,
+    editingPlayerLoading,
+    sections,
+    primarySection,
+    toast,
+    setLocation,
+    tournamentId,
+  ]);
+
+  useEffect(() => {
     const handle = setTimeout(() => {
       setDebouncedSearchInputs({
         term: searchInputs.term.trim(),
@@ -436,7 +483,7 @@ export default function AddPlayerPage({ tournamentId }: AddPlayerPageProps) {
     setCombinedNameInput("");
   };
 
-  const addPlayerMutation = useMutation<void, Error, "close" | "new">({
+  const savePlayerMutation = useMutation<void, Error, "close" | "stay">({
     mutationFn: async (_mode) => {
       const selectedSectionDetails = formState.sectionId
         ? sections.find((section) => section.id === formState.sectionId)
@@ -451,28 +498,39 @@ export default function AddPlayerPage({ tournamentId }: AddPlayerPageProps) {
         sectionId: formState.sectionId || selectedSectionDetails?.id || null,
         sectionName: (selectedSectionDetails?.name ?? formState.sectionName)?.trim() || null,
       };
+      if (isEditing && resolvedPlayerId) {
+        return apiRequest(`/api/tournaments/${tournamentId}/players/${resolvedPlayerId}`, {
+          method: "PUT",
+          body: JSON.stringify(payload),
+        });
+      }
       return apiRequest(`/api/tournaments/${tournamentId}/players`, {
         method: "POST",
         body: JSON.stringify(payload),
       });
     },
     onSuccess: (_data, mode) => {
-      toast({ title: "Player added" });
+      toast({ title: isEditing ? "Player updated" : "Player added" });
       queryClient.invalidateQueries({ queryKey: [`/api/tournaments/${tournamentId}/players`] });
-      if (mode === "new") {
+      if (isEditing && resolvedPlayerId) {
+        queryClient.invalidateQueries({ queryKey: ["player-detail", tournamentId, resolvedPlayerId] });
+      }
+      if (mode === "close") {
+        setLocation(`/tournaments/${tournamentId}/manage`);
+        return;
+      }
+      if (!isEditing) {
         const nextForm = createEmptyForm(primarySection);
         setFormState(nextForm);
         setCombinedNameInput("");
         setSearchInputs({ term: "", lastName: "", firstName: "", id: "" });
         setDebouncedSearchInputs({ term: "", lastName: "", firstName: "", id: "" });
         setActiveTab("basic");
-      } else {
-        setLocation(`/tournaments/${tournamentId}/manage`);
       }
     },
     onError: (error: any) => {
       toast({
-        title: "Unable to add player",
+        title: "Unable to save player",
         description: error?.message ?? "Please try again.",
         variant: "destructive",
       });
@@ -585,8 +643,14 @@ export default function AddPlayerPage({ tournamentId }: AddPlayerPageProps) {
                       <UserRound className="h-7 w-7" />
                     </div>
                     <div>
-                      <h1 className="text-2xl font-semibold text-slate-800">Add Player</h1>
-                      <p className="text-sm text-muted-foreground">Complete the player details below.</p>
+                      <h1 className="text-2xl font-semibold text-slate-800">
+                        {isEditing ? "Edit Player" : "Add Player"}
+                      </h1>
+                      <p className="text-sm text-muted-foreground">
+                        {isEditing
+                          ? "Update roster information, payments, and notes for this participant."
+                          : "Complete the player details below."}
+                      </p>
                     </div>
                   </div>
                   <TabsList className="grid grid-cols-3 gap-2 rounded-full bg-white px-1 py-1 shadow-inner">
@@ -1044,20 +1108,24 @@ export default function AddPlayerPage({ tournamentId }: AddPlayerPageProps) {
                     <Button
                       type="button"
                       className="bg-indigo-700 px-5 text-white hover:bg-indigo-800"
-                      onClick={() => addPlayerMutation.mutate("close")}
-                      disabled={addPlayerMutation.isPending}
+                      onClick={() => savePlayerMutation.mutate("close")}
+                      disabled={savePlayerMutation.isPending}
                     >
                       <Save className="mr-2 h-4 w-4" />
-                      {addPlayerMutation.isPending ? "Saving..." : "Save & Close"}
+                      {savePlayerMutation.isPending ? "Saving..." : "Save & Close"}
                     </Button>
                     <Button
                       type="button"
                       className="bg-indigo-600 px-5 text-white hover:bg-indigo-700"
-                      onClick={() => addPlayerMutation.mutate("new")}
-                      disabled={addPlayerMutation.isPending}
+                      onClick={() => savePlayerMutation.mutate("stay")}
+                      disabled={savePlayerMutation.isPending}
                     >
-                      <FilePlus2 className="mr-2 h-4 w-4" />
-                      {addPlayerMutation.isPending ? "Saving..." : "Add New"}
+                      {isEditing ? (
+                        <Save className="mr-2 h-4 w-4" />
+                      ) : (
+                        <FilePlus2 className="mr-2 h-4 w-4" />
+                      )}
+                      {savePlayerMutation.isPending ? "Saving..." : isEditing ? "Save" : "Save & Add Another"}
                     </Button>
                   </div>
                   <div className="flex items-center gap-2">

@@ -1,4 +1,4 @@
-import { pgTable, text, serial, integer, boolean, timestamp, varchar, numeric, jsonb } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, boolean, timestamp, varchar, numeric, jsonb, uniqueIndex } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -57,6 +57,26 @@ export const tournaments = pgTable("tournaments", {
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
+
+export const tournamentStars = pgTable(
+  "tournament_stars",
+  {
+    id: serial("id").primaryKey(),
+    userId: integer("user_id")
+      .references(() => users.id, { onDelete: "cascade" })
+      .notNull(),
+    tournamentId: integer("tournament_id")
+      .references(() => tournaments.id, { onDelete: "cascade" })
+      .notNull(),
+    createdAt: timestamp("created_at").defaultNow(),
+  },
+  (table) => ({
+    userTournamentUnique: uniqueIndex("tournament_stars_user_tournament_idx").on(
+      table.userId,
+      table.tournamentId,
+    ),
+  }),
+);
 
 export const players = pgTable("players", {
   id: serial("id").primaryKey(),
@@ -226,6 +246,11 @@ export const insertPlayerRegistrationSchema = createInsertSchema(playerRegistrat
   updatedAt: true,
 });
 
+export const insertTournamentStarSchema = createInsertSchema(tournamentStars).omit({
+  id: true,
+  createdAt: true,
+});
+
 // User types
 export type User = typeof users.$inferSelect;
 export type InsertUser = z.infer<typeof insertUserSchema>;
@@ -253,3 +278,5 @@ export type TournamentHistory = typeof tournamentHistory.$inferSelect;
 export type InsertTournamentHistory = z.infer<typeof insertTournamentHistorySchema>;
 export type PlayerRegistration = typeof playerRegistrations.$inferSelect;
 export type InsertPlayerRegistration = z.infer<typeof insertPlayerRegistrationSchema>;
+export type TournamentStar = typeof tournamentStars.$inferSelect;
+export type InsertTournamentStar = z.infer<typeof insertTournamentStarSchema>;

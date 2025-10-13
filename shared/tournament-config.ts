@@ -123,9 +123,9 @@ export interface PrizeRule {
   sectionId?: string;
   section: string;
   ratingCap: number | null;
+  place: string;
   amount: number;
   currency: string;
-  notes?: string;
 }
 
 export interface SectionDefinition {
@@ -210,6 +210,20 @@ export interface TournamentConfig {
   chessResults: ChessResultsConfig;
   contacts: ContactEntry[];
   tournamentPageContent: string;
+}
+
+export function normalizeCityState(value: string): string {
+  if (typeof value !== "string") return "";
+  const normalized = value.replace(/\s+/g, " ").trim();
+  if (!normalized) return "";
+  const [cityPartRaw, ...stateParts] = normalized.split(",");
+  const cityPart = cityPartRaw.trim().replace(/\s+/g, " ");
+  const stateSource = stateParts.join(",").trim();
+  if (!stateSource) {
+    return cityPart;
+  }
+  const stateAbbreviation = stateSource.replace(/[^a-zA-Z]/g, "").slice(0, 2).toUpperCase();
+  return stateAbbreviation ? `${cityPart}, ${stateAbbreviation}` : cityPart;
 }
 
 const DEFAULT_SCHEDULE_ROUNDS = 9;
@@ -451,7 +465,7 @@ export function parseTournamentConfig(tournament: Tournament): TournamentConfig 
       basic: {
         ...defaults.basic,
         ...parsed.basic,
-        state: typeof parsed.basic?.state === "string" ? parsed.basic.state : "",
+        state: normalizeCityState(typeof parsed.basic?.state === "string" ? parsed.basic.state : ""),
       },
       details: {
         ...defaults.details,
@@ -526,7 +540,7 @@ export function parseTournamentConfig(tournament: Tournament): TournamentConfig 
       ...config.basic,
       name: tournament.name,
       description: tournament.location ?? "",
-      state: config.basic.state,
+      state: normalizeCityState(config.basic.state),
     },
     details: {
       ...config.details,
@@ -592,6 +606,10 @@ export function serializeTournamentConfig(config: TournamentConfig): TournamentC
 
   return {
     ...config,
+    basic: {
+      ...config.basic,
+      state: normalizeCityState(config.basic.state),
+    },
     details: {
       ...config.details,
       rounds,
@@ -660,17 +678,19 @@ function sanitizePrizeRule(raw: any): PrizeRule {
   const sectionId = typeof raw?.sectionId === "string" && raw.sectionId.trim() ? raw.sectionId.trim() : undefined;
   const section = typeof raw?.section === "string" ? raw.section.trim() : "";
   const ratingCap = coerceNullableNumber(raw?.ratingCap);
+  const placeSource = typeof raw?.place === "string" && raw.place.trim() ? raw.place.trim() : undefined;
+  const legacyNotes = typeof raw?.notes === "string" && raw.notes.trim() ? raw.notes.trim() : undefined;
+  const place = placeSource ?? legacyNotes ?? "";
   const amount = coerceAmount(raw?.amount);
   const currency = typeof raw?.currency === "string" && raw.currency.trim() ? raw.currency.trim().toUpperCase() : "USD";
-  const notes = typeof raw?.notes === "string" && raw.notes.trim() ? raw.notes.trim() : undefined;
   return {
     id,
     sectionId,
     section,
     ratingCap,
+    place,
     amount,
     currency,
-    notes,
   };
 }
 

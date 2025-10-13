@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import type { ComponentType } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
-import { Trophy, Users, Eye, ArrowLeft, Medal, Info, Calculator, PauseCircle } from "lucide-react";
+import { Trophy, Users, Eye, ArrowLeft, Medal, Info, Calculator, PauseCircle, Star, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -10,7 +10,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import SettingsMenu from "@/components/settings-menu";
 import { useAuth } from "@/hooks/useAuth";
-import type { Tournament, Player, PlayerRegistration as PlayerRegistrationType } from "@shared/schema";
+import { useToast } from "@/hooks/use-toast";
+import type { Tournament, Player, PlayerRegistration as PlayerRegistrationType, TournamentStar } from "@shared/schema";
 import Standings from "@/components/standings";
 import SwissStandings from "@/components/swiss-standings";
 import SwissPairings from "@/components/swiss-pairings";
@@ -54,18 +55,105 @@ const DETAIL_TAB_META: Array<{ key: DetailTabKey; label: string; icon: Component
 
 export default function PlayerDashboard() {
   const { user } = useAuth();
+  const { toast } = useToast();
   const [selectedTournament, setSelectedTournament] = useState<Tournament | null>(null);
   const [activeTab, setActiveTab] = useState<string>("ongoing");
   const [detailTab, setDetailTab] = useState<DetailTabKey>("pairings");
   const [, setLocation] = useLocation();
+  const queryClient = useQueryClient();
+  const isPlayer = user?.role === "player";
+  const [pendingStarId, setPendingStarId] = useState<number | null>(null);
 
   const { data: tournaments = [], isLoading } = useQuery<Tournament[]>({
     queryKey: ["/api/tournaments"],
   });
 
+  const { data: starredEntries = [] } = useQuery<TournamentStar[]>({
+    queryKey: ["/api/tournaments/starred"],
+    enabled: isPlayer,
+  });
+
   const { data: myRegistrations = [] } = useQuery<PlayerRegistrationType[]>({
     queryKey: ["/api/my-registrations"],
   });
+
+  const starredIds = useMemo(() => new Set(starredEntries.map((entry) => entry.tournamentId)), [starredEntries]);
+
+  const toggleStar = useMutation<
+    TournamentStar | { success: boolean },
+    any,
+    { tournamentId: number; starred: boolean },
+    { previous?: TournamentStar[] }
+  >({
+    mutationFn: async ({ tournamentId, starred }) => {
+      const method = starred ? "DELETE" : "POST";
+      return apiRequest(`/api/tournaments/${tournamentId}/star`, { method });
+    },
+    onMutate: async ({ tournamentId, starred }) => {
+      setPendingStarId(tournamentId);
+      if (!isPlayer) {
+        return {};
+      }
+      await queryClient.cancelQueries({ queryKey: ["/api/tournaments/starred"] });
+      const previous = queryClient.getQueryData<TournamentStar[]>(["/api/tournaments/starred"]);
+      const current = previous ?? [];
+      let optimistic: TournamentStar[];
+      if (starred) {
+        optimistic = current.filter((entry) => entry.tournamentId !== tournamentId);
+      } else {
+        const optimisticEntry: TournamentStar = {
+          id: Date.now(),
+          tournamentId,
+          userId: user?.id ?? 0,
+          createdAt: new Date(),
+        } as TournamentStar;
+        optimistic = current.filter((entry) => entry.tournamentId !== tournamentId).concat(optimisticEntry);
+      }
+      queryClient.setQueryData(["/api/tournaments/starred"], optimistic);
+      return { previous: current };
+    },
+    onError: (error: any, _variables, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(["/api/tournaments/starred"], context.previous);
+      }
+      toast({
+        title: "Unable to update favorites",
+        description: error?.message ?? "Please try again.",
+        variant: "destructive",
+      });
+    },
+    onSuccess: (result, { tournamentId, starred }) => {
+      if (!isPlayer) return;
+      queryClient.setQueryData(["/api/tournaments/starred"], (existing?: TournamentStar[]) => {
+        const current = existing ?? [];
+        if (starred) {
+          return current.filter((entry) => entry.tournamentId !== tournamentId);
+        }
+        const normalized =
+          result && typeof result === "object" && "tournamentId" in result
+            ? (result as TournamentStar)
+            : {
+                id: Date.now(),
+                tournamentId,
+                userId: user?.id ?? 0,
+                createdAt: new Date(),
+              };
+        const filtered = current.filter((entry) => entry.tournamentId !== tournamentId);
+        return [...filtered, normalized];
+      });
+    },
+    onSettled: () => {
+      setPendingStarId(null);
+      if (isPlayer) {
+        queryClient.invalidateQueries({ queryKey: ["/api/tournaments/starred"] });
+      }
+    },
+  });
+
+  const handleToggleStar = (tournamentId: number, currentlyStarred: boolean) => {
+    if (!isPlayer) return;
+    toggleStar.mutate({ tournamentId, starred: currentlyStarred });
+  };
 
   const registrationMap = useMemo(() => {
     const map = new Map<number, PlayerRegistrationType>();
@@ -138,6 +226,14 @@ export default function PlayerDashboard() {
 
   const comparator = useMemo(() => {
     return (a: TournamentRow, b: TournamentRow) => {
+      if (isPlayer) {
+        const aStar = starredIds.has(a.tournament.id);
+        const bStar = starredIds.has(b.tournament.id);
+        if (aStar !== bStar) {
+          return aStar ? -1 : 1;
+        }
+      }
+
       switch (sortKey) {
         case "players":
           return b.playersCount - a.playersCount;
@@ -151,7 +247,7 @@ export default function PlayerDashboard() {
         }
       }
     };
-  }, [sortKey]);
+  }, [sortKey, isPlayer, starredIds]);
 
   const sectionsData = useMemo<SectionData[]>(
     () => [
@@ -220,6 +316,8 @@ export default function PlayerDashboard() {
   const renderTournamentRow = (entry: TournamentRow) => {
     const { tournament, playersCount, sectionsCount, startDate, endDate, state } = entry;
     const registration = registrationMap.get(tournament.id);
+    const isStarred = starredIds.has(tournament.id);
+    const isPendingStar = pendingStarId === tournament.id && toggleStar.isPending;
 
     let registerLabel = "Register Now";
     let registerDisabled = tournament.status !== "upcoming";
@@ -239,8 +337,39 @@ export default function PlayerDashboard() {
       registerLabel = "Registration Closed";
     }
 
+    const rowClass = isStarred
+      ? "border-b border-slate-200 bg-amber-50/70 transition last:border-b-0 hover:bg-amber-100 dark:bg-amber-900/30 dark:hover:bg-amber-900/40"
+      : "border-b border-slate-200 bg-white transition last:border-b-0 hover:bg-slate-50 dark:bg-slate-800/60 dark:hover:bg-slate-700/60";
+
     return (
-      <tr key={tournament.id} className="border-b border-slate-200 bg-white transition hover:bg-slate-50 last:border-b-0">
+      <tr key={tournament.id} className={rowClass}>
+        <td className="px-4 py-4 text-center align-middle">
+          {isPlayer ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 rounded-full"
+              onClick={(event) => {
+                event.preventDefault();
+                handleToggleStar(tournament.id, isStarred);
+              }}
+              disabled={isPendingStar}
+              aria-label={isStarred ? "Remove from favorites" : "Add to favorites"}
+            >
+              {isPendingStar ? (
+                <Loader2 className="h-4 w-4 animate-spin text-amber-500" />
+              ) : (
+                <Star
+                  className={isStarred ? "h-4 w-4 text-amber-500" : "h-4 w-4 text-slate-400"}
+                  fill={isStarred ? "currentColor" : "none"}
+                />
+              )}
+            </Button>
+          ) : (
+            <span className="text-xs text-slate-400">—</span>
+          )}
+        </td>
         <td className="px-4 py-4 align-middle">
           <div className="space-y-1">
             <div className="flex items-center gap-2 font-semibold text-slate-900 dark:text-slate-100">
@@ -301,6 +430,7 @@ export default function PlayerDashboard() {
               <table className="min-w-[960px] w-full border-collapse overflow-hidden rounded-xl">
                 <thead className="bg-slate-50">
                   <tr className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    <th className="px-4 py-3 text-center">Favorite</th>
                     <th className="px-4 py-3 text-left">Tournament Name</th>
                     <th className="px-4 py-3 text-center">State</th>
                     <th className="px-4 py-3 text-center">Players</th>

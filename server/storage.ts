@@ -13,6 +13,8 @@ import {
   type InsertTournamentHistory,
   type PlayerRegistration,
   type InsertPlayerRegistration,
+  type TournamentStar,
+  type InsertTournamentStar,
   type User,
   type InsertUser,
   type Session,
@@ -235,6 +237,10 @@ export interface IStorage {
   getPlayerRegistrationsByUser(userId: number): Promise<PlayerRegistration[]>;
   updatePlayerRegistration(id: number, registration: Partial<PlayerRegistration>): Promise<PlayerRegistration | undefined>;
   deletePlayerRegistration(id: number): Promise<boolean>;
+
+  createTournamentStar(userId: number, tournamentId: number): Promise<TournamentStar>;
+  deleteTournamentStar(userId: number, tournamentId: number): Promise<boolean>;
+  getTournamentStarsByUser(userId: number): Promise<TournamentStar[]>;
 }
 
 class SupabaseStorage implements IStorage {
@@ -509,6 +515,26 @@ class SupabaseStorage implements IStorage {
 
   async deletePlayerRegistration(id: number): Promise<boolean> {
     return (await deleteMany("player_registrations", { id })) > 0;
+  }
+
+  async createTournamentStar(userId: number, tournamentId: number): Promise<TournamentStar> {
+    const existing = await fetchOne<TournamentStar>("tournament_stars", { userId, tournamentId });
+    if (existing) {
+      return existing;
+    }
+    const payload: InsertTournamentStar = {
+      userId,
+      tournamentId,
+    };
+    return insertOne<TournamentStar>("tournament_stars", payload as AnyRecord);
+  }
+
+  async deleteTournamentStar(userId: number, tournamentId: number): Promise<boolean> {
+    return (await deleteMany("tournament_stars", { userId, tournamentId })) > 0;
+  }
+
+  async getTournamentStarsByUser(userId: number): Promise<TournamentStar[]> {
+    return fetchMany<TournamentStar>("tournament_stars", { userId });
   }
 }
 

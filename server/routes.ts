@@ -13,7 +13,8 @@ import {
   forgotPasswordSchema,
   forgotUsernameSchema,
   resetPasswordSchema,
-  changePasswordSchema
+  changePasswordSchema,
+  type Player,
 } from "@shared/schema";
 import { 
   hashPassword, 
@@ -40,6 +41,7 @@ import {
   type EntryFeeRule,
   type AccountPaymentSettings,
 } from "@shared/tournament-config";
+import { getPointsForResult } from "@shared/match-results";
 
 type RatingSource = "uscf" | "fide";
 
@@ -1079,6 +1081,54 @@ Close with a friendly call-to-action for players or parents.`;
       res.json(visibleTournaments);
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch tournaments" });
+    }
+  });
+  app.get("/api/tournaments/starred", requireAuth, async (req, res) => {
+    try {
+      const user = req.user;
+      if (!user) {
+        return res.status(401).json({ message: "User not found" });
+      }
+      const stars = await storage.getTournamentStarsByUser(user.id);
+      res.json(stars);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch starred tournaments" });
+    }
+  });
+  app.post("/api/tournaments/:id/star", requireAuth, requireRole('player'), async (req, res) => {
+    try {
+      const user = req.user;
+      if (!user) {
+        return res.status(401).json({ message: "User not found" });
+      }
+      const tournamentId = Number.parseInt(req.params.id, 10);
+      if (!Number.isFinite(tournamentId)) {
+        return res.status(400).json({ message: "Invalid tournament id" });
+      }
+      const tournament = await storage.getTournament(tournamentId);
+      if (!tournament) {
+        return res.status(404).json({ message: "Tournament not found" });
+      }
+      const star = await storage.createTournamentStar(user.id, tournamentId);
+      res.status(201).json(star);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to star tournament" });
+    }
+  });
+  app.delete("/api/tournaments/:id/star", requireAuth, requireRole('player'), async (req, res) => {
+    try {
+      const user = req.user;
+      if (!user) {
+        return res.status(401).json({ message: "User not found" });
+      }
+      const tournamentId = Number.parseInt(req.params.id, 10);
+      if (!Number.isFinite(tournamentId)) {
+        return res.status(400).json({ message: "Invalid tournament id" });
+      }
+      await storage.deleteTournamentStar(user.id, tournamentId);
+      res.status(204).send();
+    } catch (error) {
+      res.status(500).json({ message: "Failed to unstar tournament" });
     }
   });
 
@@ -2124,6 +2174,83 @@ Close with a friendly call-to-action for players or parents.`;
       res.status(400).json({ message: "Invalid player data" });
     }
   });
+
+  app.get(
+    "/api/tournaments/:tournamentId/players/:playerId",
+    requireAuth,
+    requireRole('tournament_director'),
+    requireTournamentAccess,
+    async (req, res) => {
+      try {
+        const tournamentId = parseInt(req.params.tournamentId);
+        const playerId = parseInt(req.params.playerId);
+        const player = await storage.getPlayer(playerId);
+        if (!player || player.tournamentId !== tournamentId) {
+          return res.status(404).json({ message: "Player not found" });
+        }
+        res.json(player);
+      } catch (error) {
+        console.error("Fetch player error:", error);
+        res.status(500).json({ message: "Failed to fetch player" });
+      }
+    },
+  );
+
+  app.put(
+    "/api/tournaments/:tournamentId/players/:playerId",
+    requireAuth,
+    requireRole('tournament_director'),
+    requireTournamentAccess,
+    async (req, res) => {
+      try {
+        const tournamentId = parseInt(req.params.tournamentId);
+        const playerId = parseInt(req.params.playerId);
+        const existing = await storage.getPlayer(playerId);
+        if (!existing || existing.tournamentId !== tournamentId) {
+          return res.status(404).json({ message: "Player not found" });
+        }
+
+        const updates: Partial<Player> = {};
+        if (typeof req.body?.firstName === "string" && req.body.firstName.trim()) {
+          updates.firstName = req.body.firstName.trim();
+        }
+        if (typeof req.body?.lastName === "string" && req.body.lastName.trim()) {
+          updates.lastName = req.body.lastName.trim();
+        }
+        if (req.body?.rating !== undefined && req.body?.rating !== null) {
+          const numericRating = Number(req.body.rating);
+          if (Number.isFinite(numericRating)) {
+            updates.rating = Math.max(0, Math.round(numericRating));
+          }
+        }
+        if (typeof req.body?.federation === "string" && req.body.federation.trim()) {
+          updates.federation = req.body.federation.trim();
+        }
+        if (req.body?.sectionId === null) {
+          updates.sectionId = null;
+        } else if (typeof req.body?.sectionId === "string") {
+          const trimmed = req.body.sectionId.trim();
+          updates.sectionId = trimmed.length > 0 ? trimmed : null;
+        }
+        if (req.body?.sectionName === null) {
+          updates.sectionName = null;
+        } else if (typeof req.body?.sectionName === "string") {
+          const trimmed = req.body.sectionName.trim();
+          updates.sectionName = trimmed.length > 0 ? trimmed : null;
+        }
+
+        if (Object.keys(updates).length === 0) {
+          return res.status(400).json({ message: "No changes provided" });
+        }
+
+        const updated = await storage.updatePlayer(playerId, updates);
+        res.json(updated);
+      } catch (error) {
+        console.error("Update player error:", error);
+        res.status(500).json({ message: "Failed to update player" });
+      }
+    },
+  );
 
   app.delete("/api/players/:id", requireAuth, requireRole('tournament_director'), async (req, res) => {
     try {
@@ -3414,20 +3541,10 @@ async function generateSwissPairings(players: any[], matches: any[], round: numb
       for (const match of playerMatches) {
         if (match.whitePlayerId === player.id) {
           whiteGames++;
-          if (match.result === 'white_wins' || match.result === '1-0' || match.result === '1F-0F') {
-            points += 1;
-          } else if (match.result === 'draw' || match.result === '1/2-1/2') {
-            points += 0.5;
-          } else if (match.result === '1-bye') {
-            points += 1; // 1-point bye for the player
-          }
+          points += getPointsForResult(match.result, "white");
         } else if (match.blackPlayerId === player.id) {
           blackGames++;
-          if (match.result === 'black_wins' || match.result === '0-1' || match.result === '0F-1F') {
-            points += 1;
-          } else if (match.result === 'draw' || match.result === '1/2-1/2') {
-            points += 0.5;
-          }
+          points += getPointsForResult(match.result, "black");
         }
         
         // Debug logging for this player's matches

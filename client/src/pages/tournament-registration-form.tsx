@@ -80,7 +80,6 @@ const registrationSchema = z.object({
   byePreference: z.enum(["none", "yes"]).default("none"),
   byeRounds: z.array(z.string()).default([]),
   arrivalTime: z.string().optional(),
-  prizeEmail: z.string().email().optional(),
   notes: z.string().optional(),
   paymentIntentId: z.string().optional(),
   paymentStatus: z.enum(PAYMENT_STATUS_VALUES).optional(),
@@ -265,7 +264,6 @@ export default function TournamentRegistrationFormPage({ tournamentId }: Tournam
       byePreference: "none",
       byeRounds: [],
       arrivalTime: "",
-      prizeEmail: "",
       notes: "",
       paymentIntentId: undefined,
       paymentStatus: "unpaid",
@@ -1542,7 +1540,6 @@ function StepTwo({
 
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label="Expected arrival notes" name="arrivalTime" placeholder="e.g., Arriving Saturday 9AM" />
-          <Field label="Prize payment email (optional)" name="prizeEmail" placeholder="PayPal or Zelle email" />
         </div>
 
         <div className="space-y-4">
@@ -1694,7 +1691,6 @@ function StepThreeContent({
   const email = form.watch("email");
   const phoneNumber = form.watch("phoneNumber");
   const arrivalTime = form.watch("arrivalTime");
-  const prizeEmail = form.watch("prizeEmail");
   const notes = form.watch("notes");
 
   const offlineMethods = paymentSettings?.acceptedOfflineMethods ?? [];
@@ -1746,7 +1742,6 @@ function StepThreeContent({
     { label: "Email", value: email },
     { label: "Phone", value: phoneNumber },
     { label: "Arrival", value: arrivalTime },
-    { label: "Prize email", value: prizeEmail },
   ];
 
   useEffect(() => {
@@ -2203,7 +2198,6 @@ function buildArrivalNotes(values: RegistrationFormValues, entryFees: EntryFeeRu
     values.byePreference === "yes" && values.byeRounds.length > 0
       ? `Byes:${values.byeRounds.join("/")}`
       : undefined,
-    values.prizeEmail && `Prize:${truncate(values.prizeEmail, 12)}`,
     values.notes && `Notes:${truncate(values.notes, 18)}`,
   ].filter(Boolean);
 

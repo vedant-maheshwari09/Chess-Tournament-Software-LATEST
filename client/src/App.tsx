@@ -68,6 +68,14 @@ function AuthenticatedApp() {
             <Route path="/tournaments/:id/players/new">
               {(params) => <AddPlayerPage tournamentId={parseInt(params.id)} />}
             </Route>
+            <Route path="/tournaments/:id/players/:playerId">
+              {(params) => (
+                <AddPlayerPage
+                  tournamentId={parseInt(params.id)}
+                  playerId={parseInt(params.playerId)}
+                />
+              )}
+            </Route>
             <Route path="/tournaments/:id/register">
               {(params) => <TournamentRegistrationPage tournamentId={parseInt(params.id)} />}
             </Route>

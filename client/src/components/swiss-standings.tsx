@@ -2,10 +2,11 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Download } from "lucide-react";
+import { Download, Printer } from "lucide-react";
 import type { Player, Match, Pairing, Tournament } from "@shared/schema";
 import { parseTournamentConfig } from "@/lib/tournament-config";
 import type { SectionDefinition } from "@shared/tournament-config";
+import { getPointsForResult, normalizeMatchResult } from "@shared/match-results";
 
 interface SwissStandingsProps {
   tournamentId: number;
@@ -15,7 +16,16 @@ interface SwissStandingsProps {
 interface PlayerRoundResult {
   opponent: Player | null;
   opponentPosition: number;
-  result: 'W' | 'L' | 'D' | 'bye' | 'withdrawn' | 'forfeit-win' | 'forfeit-loss' | 'unplayed';
+  result:
+    | 'W'
+    | 'L'
+    | 'D'
+    | 'bye'
+    | 'withdrawn'
+    | 'forfeit-win'
+    | 'forfeit-loss'
+    | 'unplayed'
+    | 'double-forfeit';
   color: 'white' | 'black' | null;
   points: number;
 }
@@ -26,6 +36,41 @@ interface SwissPlayerStanding {
   totalPoints: number;
   roundResults: PlayerRoundResult[];
   isWithdrawn: boolean;
+}
+
+function interpretPlayerResult(
+  result: string | null | undefined,
+  isWhite: boolean,
+): { outcome: PlayerRoundResult["result"]; points: number } {
+  const normalized = normalizeMatchResult(result);
+  const color = isWhite ? "white" : "black";
+  const points = getPointsForResult(result, color);
+
+  if (!normalized) {
+    return { outcome: "unplayed", points: 0 };
+  }
+  if (normalized === "1-bye") {
+    return { outcome: "bye", points };
+  }
+  if (normalized === "1-0") {
+    return { outcome: isWhite ? "W" : "L", points };
+  }
+  if (normalized === "0-1") {
+    return { outcome: isWhite ? "L" : "W", points };
+  }
+  if (normalized === "1/2-1/2") {
+    return { outcome: "D", points };
+  }
+  if (normalized === "1F-0F") {
+    return { outcome: isWhite ? "forfeit-win" : "forfeit-loss", points };
+  }
+  if (normalized === "0F-1F") {
+    return { outcome: isWhite ? "forfeit-loss" : "forfeit-win", points };
+  }
+  if (normalized === "1F-1F" || normalized === "0F-0F") {
+    return { outcome: "double-forfeit", points };
+  }
+  return { outcome: "unplayed", points };
 }
 
 
@@ -127,39 +172,6 @@ export default function SwissStandings({ tournamentId, showExportControls = true
     }
     return map;
   }, [players]);
-
-  if (tournamentLoading || playersLoading || matchesLoading || pairingsLoading) {
-    return (
-      <Card>
-        <CardHeader>
-          <CardTitle>Swiss Tournament Standings</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="animate-pulse space-y-4">
-            {[1, 2, 3, 4, 5].map((i) => (
-              <div key={i} className="h-16 bg-gray-200 rounded-lg"></div>
-            ))}
-          </div>
-        </CardContent>
-      </Card>
-    );
-  }
-
-  if (!tournament || !players || !matches || !pairings) {
-    return (
-      <Card>
-        <CardHeader>
-          <CardTitle>Swiss Tournament Standings</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="text-center py-8">
-            <p className="text-gray-500">No tournament data available</p>
-          </div>
-        </CardContent>
-      </Card>
-    );
-  }
-
   const calculateSwissStandings = useCallback(
     (sourcePlayers: Player[], sourceMatches: Match[], sourcePairings: Pairing[]): SwissPlayerStanding[] => {
       if (!tournament) return [];
@@ -181,12 +193,12 @@ export default function SwissStandings({ tournamentId, showExportControls = true
         const sortedScores = [...opponentScores].sort((a, b) => b - a);
         const middleScores = sortedScores.slice(1, -1);
         return middleScores.reduce((sum, score) => sum + score, 0) / middleScores.length;
-      };
+      }
 
       const calculateSolkoff = (playerId: number): number => {
         const opponentScores = getOpponentScores(playerId);
         return opponentScores.reduce((sum, score) => sum + score, 0);
-      };
+      }
 
       const calculateCumulative = (playerId: number): number => {
         let cumulative = 0;
@@ -197,23 +209,18 @@ export default function SwissStandings({ tournamentId, showExportControls = true
           .sort((a, b) => a.round - b.round);
 
         playerMatches.forEach((match) => {
-          if (match.result && match.result !== "Pending") {
-            const isWhite = match.whitePlayerId === playerId;
-            let points = 0;
-
-            if (match.result === "1-0") points = isWhite ? 1 : 0;
-            else if (match.result === "0-1") points = isWhite ? 0 : 1;
-            else if (match.result === "1/2-1/2") points = 0.5;
-            else if (match.result === "1F-0F") points = isWhite ? 1 : 0;
-            else if (match.result === "0F-1F") points = isWhite ? 0 : 1;
-
-            runningTotal += points;
-            cumulative += runningTotal;
+          const normalized = normalizeMatchResult(match.result);
+          if (!normalized) {
+            return;
           }
+          const isWhite = match.whitePlayerId === playerId;
+          const points = getPointsForResult(match.result, isWhite ? "white" : "black");
+          runningTotal += points;
+          cumulative += runningTotal;
         });
 
         return cumulative;
-      };
+      }
 
       const getOpponentScores = (playerId: number): number[] => {
         const opponentIds = new Set<number>();
@@ -231,15 +238,12 @@ export default function SwissStandings({ tournamentId, showExportControls = true
 
           matches.forEach((match) => {
             if (match.whitePlayerId === opponentId || match.blackPlayerId === opponentId) {
-              if (match.result && match.result !== "Pending") {
-                const isWhite = match.whitePlayerId === opponentId;
-
-                if (match.result === "1-0") totalPoints += isWhite ? 1 : 0;
-                else if (match.result === "0-1") totalPoints += isWhite ? 0 : 1;
-                else if (match.result === "1/2-1/2") totalPoints += 0.5;
-                else if (match.result === "1F-0F") totalPoints += isWhite ? 1 : 0;
-                else if (match.result === "0F-1F") totalPoints += isWhite ? 0 : 1;
+              const normalized = normalizeMatchResult(match.result);
+              if (!normalized) {
+                return;
               }
+              const isWhite = match.whitePlayerId === opponentId;
+              totalPoints += getPointsForResult(match.result, isWhite ? "white" : "black");
             }
           });
 
@@ -263,20 +267,10 @@ export default function SwissStandings({ tournamentId, showExportControls = true
 
         // Add points from matches
         playerMatches.forEach((match) => {
-          if (!match.result) return;
+          const normalized = normalizeMatchResult(match.result);
+          if (!normalized) return;
           const isWhite = match.whitePlayerId === player.id;
-
-          if (match.result === "1-0") {
-            totalPoints += isWhite ? 1 : 0;
-          } else if (match.result === "0-1") {
-            totalPoints += isWhite ? 0 : 1;
-          } else if (match.result === "1/2-1/2") {
-            totalPoints += 0.5;
-          } else if (match.result === "1F-0F") {
-            totalPoints += isWhite ? 1 : 0;
-          } else if (match.result === "0F-1F") {
-            totalPoints += isWhite ? 0 : 1;
-          }
+          totalPoints += getPointsForResult(match.result, isWhite ? "white" : "black");
         });
 
         // Add points from byes
@@ -421,38 +415,14 @@ export default function SwissStandings({ tournamentId, showExportControls = true
           const opponent = opponentId ? playerById.get(opponentId) ?? null : null;
           const opponentStanding = standingsWithPositions.find((s) => s.player.id === opponentId);
           const opponentPosition = opponentStanding?.position || 0;
-
-          let result: PlayerRoundResult["result"] = "withdrawn";
-          let points = 0;
-
-          if (matchThisRound.result) {
-            if (matchThisRound.result === "1-0") {
-              result = isWhite ? "W" : "L";
-              points = isWhite ? 1 : 0;
-            } else if (matchThisRound.result === "0-1") {
-              result = isWhite ? "L" : "W";
-              points = isWhite ? 0 : 1;
-            } else if (matchThisRound.result === "1/2-1/2") {
-              result = "D";
-              points = 0.5;
-            } else if (matchThisRound.result === "1F-0F") {
-              result = isWhite ? "forfeit-win" : "forfeit-loss";
-              points = isWhite ? 1 : 0;
-            } else if (matchThisRound.result === "0F-1F") {
-              result = isWhite ? "forfeit-loss" : "forfeit-win";
-              points = isWhite ? 0 : 1;
-            } else if (matchThisRound.result === "1-bye") {
-              result = "bye";
-              points = 1;
-            }
-          }
+          const interpretation = interpretPlayerResult(matchThisRound.result, isWhite);
 
           roundResults.push({
             opponent,
             opponentPosition,
-            result,
+            result: interpretation.outcome,
             color: isWhite ? "white" : "black",
-            points,
+            points: interpretation.points,
           });
         }
 
@@ -477,29 +447,30 @@ export default function SwissStandings({ tournamentId, showExportControls = true
   const currentRound = filteredMatches.length > 0 ? Math.max(...filteredMatches.map((m) => m.round)) : 0;
   const totalRounds = Math.max(currentRound, tournament?.rounds || 5);
 
-  const downloadStandings = () => {
-    // Create CSV content with tiebreakers if using USCF system
+  const downloadStandings = useCallback(() => {
     const baseHeaders = ['Rank', 'Name', 'Rating', 'Points'];
     const tiebreakHeaders = tournament?.tiebreakOrder === 'uscf' ? ['Modified Median', 'Solkoff', 'Cumulative'] : [];
     const roundHeaders = Array.from({ length: totalRounds }, (_, i) => `Round ${i + 1}`);
     const headers = [...baseHeaders, ...tiebreakHeaders, ...roundHeaders];
-    
-    const rows = standings.map(standing => {
+
+    const rows = standings.map((standing) => {
       const baseData = [
         standing.position,
         `${standing.player.firstName} ${standing.player.lastName}`,
         standing.player.rating || 'Unrated',
-        formatPoints(standing)
+        formatPoints(standing),
       ];
-      
-      const tiebreakData = tournament?.tiebreakOrder === 'uscf' ? [
-        (standing as any).modifiedMedian?.toFixed(2) || '0.00',
-        (standing as any).solkoff?.toFixed(2) || '0.00', 
-        (standing as any).cumulative?.toFixed(2) || '0.00'
-      ] : [];
-      
+
+      const tiebreakData = tournament?.tiebreakOrder === 'uscf'
+        ? [
+            (standing as any).modifiedMedian?.toFixed(2) || '0.00',
+            (standing as any).solkoff?.toFixed(2) || '0.00',
+            (standing as any).cumulative?.toFixed(2) || '0.00',
+          ]
+        : [];
+
       const roundData = standing.roundResults.map((result, index) => formatRoundResult(result, index + 1));
-      
+
       return [...baseData, ...tiebreakData, ...roundData];
     });
 
@@ -510,20 +481,94 @@ export default function SwissStandings({ tournamentId, showExportControls = true
     const sectionSlug = selectedSectionId === "__all__"
       ? "all-sections"
       : selectedSectionLabel.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "") || "section";
+    const baseName = (tournament?.name ?? 'tournament').toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "") || 'event';
 
-    // Create download link
     const blob = new Blob([csvContent], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `${tournament.name}_standings_${sectionSlug}_round_${currentRound}.csv`;
+    link.download = `${baseName}-standings-${sectionSlug}.csv`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
-  };
+  }, [formatPoints, selectedSectionId, selectedSectionLabel, standings, tournament?.name, tournament?.tiebreakOrder, totalRounds]);
 
-  const formatRoundResult = (result: PlayerRoundResult, round: number): string => {
+  const handlePrintStandings = useCallback(() => {
+    if (standings.length === 0 || typeof window === 'undefined') return;
+    const headingSuffix = selectedSectionId === '__all__' ? '' : ` – ${selectedSectionLabel}`;
+    const title = `${tournament?.name ?? 'Tournament'} Swiss Standings${headingSuffix}`;
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) return;
+
+    const styles = `body{font-family:Arial,Helvetica,sans-serif;padding:24px;color:#0f172a;}h1{font-size:24px;margin-bottom:16px;}table{width:100%;border-collapse:collapse;}th,td{border:1px solid #cbd5f5;padding:8px;font-size:13px;text-align:center;}th{text-transform:uppercase;font-size:11px;background:#f1f5f9;color:#475569;letter-spacing:0.05em;}td:first-child,th:first-child{text-align:left;}`;
+    printWindow.document.write(`<html><head><title>${title}</title><style>${styles}</style></head><body>`);
+    printWindow.document.write(`<h1>${title}</h1>`);
+    printWindow.document.write('<table><thead><tr><th>Rank</th><th>Player</th>');
+    for (let round = 1; round <= totalRounds; round++) {
+      printWindow.document.write(`<th>Rd ${round}</th>`);
+    }
+    printWindow.document.write('</tr></thead><tbody>');
+
+    standings.forEach((standing) => {
+      const playerName = `${standing.player.firstName} ${standing.player.lastName}`.trim();
+      const ratingDisplay = standing.player.rating != null ? ` (${standing.player.rating})` : '';
+      printWindow.document.write(`<tr><td>${standing.position}</td><td style="text-align:left;">${playerName}${ratingDisplay}</td>`);
+
+      standing.roundResults.forEach((result, index) => {
+        const display = formatRoundResultDisplay(result);
+        const cumulative = standing.roundResults
+          .slice(0, index + 1)
+          .reduce((sum, entry) => sum + entry.points, 0);
+        const cumulativeText = index < currentRound ? cumulative.toString() : '';
+        const cellContent = cumulativeText
+          ? `${display}<div style="font-size:11px;color:#475569;margin-top:2px;">${cumulativeText}</div>`
+          : display;
+        printWindow.document.write(`<td>${cellContent}</td>`);
+      });
+
+      printWindow.document.write('</tr>');
+    });
+
+    printWindow.document.write('</tbody></table></body></html>');
+    printWindow.document.close();
+    printWindow.focus();
+    printWindow.print();
+  }, [currentRound, formatRoundResultDisplay, selectedSectionId, selectedSectionLabel, standings, totalRounds, tournament?.name]);
+
+  if (tournamentLoading || playersLoading || matchesLoading || pairingsLoading) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>Swiss Tournament Standings</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="animate-pulse space-y-4">
+            {[1, 2, 3, 4, 5].map((i) => (
+              <div key={i} className="h-16 bg-gray-200 rounded-lg"></div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (!tournament || !players || !matches || !pairings) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>Swiss Tournament Standings</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="text-center py-8">
+            <p className="text-gray-500">No tournament data available</p>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  function formatRoundResult(result: PlayerRoundResult, round: number): string {
     if (result.result === 'bye') {
       return 'bye';
     }
@@ -551,10 +596,14 @@ export default function SwissStandings({ tournamentId, showExportControls = true
       return `F${opponentPos}`;
     }
 
-    return `${colorPrefix}${result.result === 'W' ? '' : result.result === 'L' ? '' : result.result === 'D' ? '' : ''}${opponentPos}`;
-  };
+    if (result.result === 'double-forfeit') {
+      return `FF${opponentPos}`;
+    }
 
-  const formatRoundResultDisplay = (result: PlayerRoundResult): string => {
+    return `${colorPrefix}${opponentPos}`;
+  }
+
+  function formatRoundResultDisplay(result: PlayerRoundResult): string {
     if (result.result === 'bye') {
       return 'bye';
     }
@@ -584,15 +633,19 @@ export default function SwissStandings({ tournamentId, showExportControls = true
       return `F${opponentDisplayText}`;
     }
 
-    return `${colorPrefix}${result.result}${opponentDisplayText}`;
-  };
+    if (result.result === 'double-forfeit') {
+      return `FF${opponentDisplayText}`;
+    }
 
-  const formatPoints = (standing: SwissPlayerStanding): string => {
+    return `${colorPrefix}${result.result}${opponentDisplayText}`;
+  }
+
+  function formatPoints(standing: SwissPlayerStanding): string {
     if (standing.isWithdrawn) {
       return `U${standing.totalPoints}`;
     }
     return standing.totalPoints.toString();
-  };
+  }
 
   return (
     <Card>
@@ -631,16 +684,28 @@ export default function SwissStandings({ tournamentId, showExportControls = true
               </div>
             )}
             {showExportControls ? (
-              <Button
-                onClick={downloadStandings}
-                variant="outline"
-                size="sm"
-                className="flex items-center gap-2"
-                disabled={standings.length === 0}
-              >
-                <Download className="h-4 w-4" />
-                Download CSV
-              </Button>
+              <div className="flex flex-wrap justify-end gap-2">
+                <Button
+                  onClick={handlePrintStandings}
+                  variant="outline"
+                  size="sm"
+                  className="flex items-center gap-2"
+                  disabled={standings.length === 0}
+                >
+                  <Printer className="h-4 w-4" />
+                  Print
+                </Button>
+                <Button
+                  onClick={downloadStandings}
+                  variant="outline"
+                  size="sm"
+                  className="flex items-center gap-2"
+                  disabled={standings.length === 0}
+                >
+                  <Download className="h-4 w-4" />
+                  Download CSV
+                </Button>
+              </div>
             ) : null}
           </div>
         </div>

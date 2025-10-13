@@ -1,4 +1,5 @@
 import type { Player, Match } from "@shared/schema";
+import { getPointsForResult, normalizeMatchResult } from "@shared/match-results";
 
 export interface PairingResult {
   whitePlayerId: number;
@@ -309,21 +310,18 @@ export class SwissPairingEngine {
       let whiteGames = 0;
       let blackGames = 0;
 
-      playerMatches.forEach(match => {
-        if (!match.result) return;
+      playerMatches.forEach((match) => {
+        const normalized = normalizeMatchResult(match.result);
+        if (!normalized) {
+          return;
+        }
 
         const isWhite = match.whitePlayerId === player.id;
-        
+
         if (isWhite) whiteGames++;
         else blackGames++;
 
-        if (match.result === '1-0') {
-          points += isWhite ? 1 : 0;
-        } else if (match.result === '0-1') {
-          points += isWhite ? 0 : 1;
-        } else if (match.result === '1/2-1/2') {
-          points += 0.5;
-        }
+        points += getPointsForResult(match.result, isWhite ? "white" : "black");
       });
 
       return {

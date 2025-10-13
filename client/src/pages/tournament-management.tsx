@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
-import { Users, Trophy, Calendar, Play, Plus, Undo, FileText, Settings as SettingsIcon, CalendarClock, CreditCard } from "lucide-react";
+import { Users, Trophy, Calendar, Play, Plus, Undo, FileText, Settings as SettingsIcon, CalendarClock } from "lucide-react";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -322,15 +322,6 @@ export default function TournamentManagement({ tournamentId }: TournamentManagem
                     </AlertDialogFooter>
                   </AlertDialogContent>
                 </AlertDialog>
-              )}
-              {isOwner && (
-                <Button
-                  className="bg-indigo-600 text-white hover:bg-indigo-700"
-                  onClick={() => setLocation(`/tournaments/${tournamentId}/payments/setup`)}
-                >
-                  <CreditCard className="mr-2 h-4 w-4" />
-                  Collect Entry Fees
-                </Button>
               )}
               {isOwner && (
                 <Button

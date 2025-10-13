@@ -12,6 +12,7 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import type { Match, Player, Pairing, Tournament } from "@shared/schema";
 import { parseTournamentConfig } from "@/lib/tournament-config";
 import type { SectionDefinition } from "@shared/tournament-config";
+import { HEAD_TO_HEAD_RESULT_OPTIONS, BYE_RESULT_OPTIONS, getPointsForResult } from "@shared/match-results";
 
 interface TournamentPairingsProps {
   tournamentId: number;
@@ -483,18 +484,8 @@ export default function SwissPairings({ tournamentId, showExportControls = true 
 
       for (const match of allMatches) {
         if ((match.whitePlayerId === playerId || match.blackPlayerId === playerId) && match.round < beforeRound) {
-          if (match.result && match.result !== 'Pending') {
-            if (match.result === '1/2-1/2') {
-              points += 0.5;
-            } else if (
-              (match.result === '1-0' && match.whitePlayerId === playerId) ||
-              (match.result === '0-1' && match.blackPlayerId === playerId) ||
-              (match.result === '1F-0F' && match.whitePlayerId === playerId) ||
-              (match.result === '0F-1F' && match.blackPlayerId === playerId)
-            ) {
-              points += 1;
-            }
-          }
+          const color = match.whitePlayerId === playerId ? 'white' : 'black';
+          points += getPointsForResult(match.result, color);
         }
       }
 
@@ -1181,21 +1172,12 @@ export default function SwissPairings({ tournamentId, showExportControls = true 
                                     </SelectTrigger>
                                     <SelectContent>
                                       <SelectItem value="Pending">Pending</SelectItem>
-                                      {match.blackPlayerId ? (
-                                        <>
-                                          <SelectItem value="1-0">1-0</SelectItem>
-                                          <SelectItem value="0-1">0-1</SelectItem>
-                                          <SelectItem value="1/2-1/2">½-½</SelectItem>
-                                          <SelectItem value="1F-0F">1F-0F</SelectItem>
-                                          <SelectItem value="0F-1F">0F-1F</SelectItem>
-                                        </>
-                                      ) : (
-                                        <>
-                                          <SelectItem value="1-0">1-0 (Win)</SelectItem>
-                                          <SelectItem value="0-1">0-1 (Loss)</SelectItem>
-                                          <SelectItem value="1/2-1/2">½-½ (Draw)</SelectItem>
-                                          <SelectItem value="1-bye">1-point bye</SelectItem>
-                                        </>
+                                      {(match.blackPlayerId ? HEAD_TO_HEAD_RESULT_OPTIONS : BYE_RESULT_OPTIONS).map(
+                                        (option) => (
+                                          <SelectItem key={option.value} value={option.value}>
+                                            {option.label}
+                                          </SelectItem>
+                                        ),
                                       )}
                                     </SelectContent>
                                   </Select>
@@ -1284,21 +1266,12 @@ export default function SwissPairings({ tournamentId, showExportControls = true 
                                   </SelectTrigger>
                                   <SelectContent>
                                     <SelectItem value="Pending">Pending</SelectItem>
-                                    {match.blackPlayerId ? (
-                                      <>
-                                        <SelectItem value="1-0">1-0</SelectItem>
-                                        <SelectItem value="0-1">0-1</SelectItem>
-                                        <SelectItem value="1/2-1/2">½-½</SelectItem>
-                                        <SelectItem value="1F-0F">1F-0F</SelectItem>
-                                        <SelectItem value="0F-1F">0F-1F</SelectItem>
-                                      </>
-                                    ) : (
-                                      <>
-                                        <SelectItem value="1-0">1-0 (Win)</SelectItem>
-                                        <SelectItem value="0-1">0-1 (Loss)</SelectItem>
-                                        <SelectItem value="1/2-1/2">½-½ (Draw)</SelectItem>
-                                        <SelectItem value="1-bye">1-point bye</SelectItem>
-                                      </>
+                                    {(match.blackPlayerId ? HEAD_TO_HEAD_RESULT_OPTIONS : BYE_RESULT_OPTIONS).map(
+                                      (option) => (
+                                        <SelectItem key={option.value} value={option.value}>
+                                          {option.label}
+                                        </SelectItem>
+                                      ),
                                     )}
                                   </SelectContent>
                                 </Select>

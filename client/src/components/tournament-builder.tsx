@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { useMutation } from "@tanstack/react-query";
-import { Upload, Check, ChevronRight, Settings, X, ChevronUp, ChevronDown, Plus } from "lucide-react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Upload, Check, ChevronRight, Settings, X, ChevronUp, ChevronDown, Plus, CreditCard } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
@@ -29,6 +29,7 @@ import {
   TimeControlType,
   buildTournamentPayload,
   createDefaultConfig,
+  normalizeCityState,
   parseTournamentConfig,
   serializeTournamentConfig,
   createDefaultSchedule,
@@ -163,6 +164,9 @@ function BasicInformationFields({ config, onConfigChange, variant = "full" }: Ba
       basic: { ...config.basic, ...updates },
     });
   };
+  const handleCityStateChange = (raw: string) => {
+    updateBasic({ state: normalizeCityState(raw) });
+  };
 
   const openMaps = (provider: "google" | "apple") => {
     const query = config.basic.city.trim();
@@ -189,13 +193,14 @@ function BasicInformationFields({ config, onConfigChange, variant = "full" }: Ba
 
         <div className="grid gap-4 md:grid-cols-3">
           <div className="space-y-2">
-            <Label htmlFor="basic-state">State</Label>
+            <Label htmlFor="basic-city-state">City &amp; State (2-letter)</Label>
             <Input
-              id="basic-state"
+              id="basic-city-state"
               value={config.basic.state}
-              onChange={(event) => updateBasic({ state: event.target.value })}
-              placeholder="e.g., California"
+              onChange={(event) => handleCityStateChange(event.target.value)}
+              placeholder="e.g., San Diego, CA"
             />
+            <p className="text-xs text-muted-foreground">Example: San Diego, CA</p>
           </div>
           <div className="space-y-2">
             <Label htmlFor="basic-start-date">Start Date</Label>
@@ -261,13 +266,14 @@ function BasicInformationFields({ config, onConfigChange, variant = "full" }: Ba
           </div>
         </div>
         <div className="space-y-2">
-          <Label htmlFor="basic-state">State</Label>
+          <Label htmlFor="basic-city-state">City &amp; State (2-letter)</Label>
           <Input
-            id="basic-state"
+            id="basic-city-state"
             value={config.basic.state}
-            onChange={(event) => updateBasic({ state: event.target.value })}
-            placeholder="e.g., California"
+            onChange={(event) => handleCityStateChange(event.target.value)}
+            placeholder="e.g., San Diego, CA"
           />
+          <p className="text-xs text-muted-foreground">Use a two-letter state code.</p>
         </div>
       </div>
 
@@ -557,12 +563,58 @@ interface StepTwoProps {
   tournament?: Tournament;
 }
 
+interface PaymentsConfigResponse {
+  payments: TournamentConfig["payments"];
+  publishableKey: string | null;
+  onlineConfigured: boolean;
+}
+
 function StepTwo({ format, mode, config, onConfigChange, onBack: _onBack, onCancel, onSave, saving, tournament }: StepTwoProps) {
   const scheduleTemplateOptions = SCHEDULE_EVENT_OPTIONS;
   const { toast } = useToast();
   const prizeImportInputRef = useRef<HTMLInputElement | null>(null);
   const sections = config.sections ?? [];
   const prizes = config.prizes ?? [];
+  const tournamentId = tournament?.id;
+  const { data: paymentsConfigData } = useQuery<PaymentsConfigResponse>({
+    queryKey: ["tournament-payments-config", tournamentId],
+    queryFn: async () => {
+      if (!tournamentId) {
+        throw new Error("Tournament id is required");
+      }
+      return apiRequest(`/api/tournaments/${tournamentId}/payments/config`);
+    },
+    enabled: Boolean(tournamentId),
+    staleTime: 30_000,
+  });
+
+  const paymentsSnapshot = paymentsConfigData?.payments ?? config.payments;
+  const onlinePaymentsEnabled = Boolean(paymentsSnapshot.onlineEnabled);
+  const provider = paymentsSnapshot.provider;
+  const hasConnectionDetails = provider === "stripe"
+    ? Boolean(
+        paymentsSnapshot.stripeAccountId?.trim() ||
+          paymentsSnapshot.stripePublishableKey?.trim(),
+      )
+    : provider === "paypal"
+    ? Boolean(
+        paymentsSnapshot.paypalMerchantId?.trim() ||
+          paymentsSnapshot.paypalClientId?.trim() ||
+          paymentsSnapshot.paypalEmail?.trim(),
+      )
+    : false;
+  const collectFeesStatus: "hidden" | "setup" | "pending" | "connected" = !tournamentId || !onlinePaymentsEnabled
+    ? "hidden"
+    : paymentsConfigData?.onlineConfigured
+    ? "connected"
+    : hasConnectionDetails
+    ? "pending"
+    : "setup";
+  const collectFeesButtonClass = collectFeesStatus === "connected"
+    ? "bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm"
+    : collectFeesStatus === "pending"
+    ? "bg-amber-500 hover:bg-amber-600 text-white shadow-sm"
+    : "bg-red-600 hover:bg-red-700 text-white shadow-sm";
   const updateDetails = (updates: Partial<TournamentConfig["details"]>) =>
     onConfigChange({ ...config, details: { ...config.details, ...updates } });
 
@@ -839,8 +891,8 @@ function StepTwo({ format, mode, config, onConfigChange, onBack: _onBack, onCanc
     updatePrize(id, { currency: currency.toUpperCase() });
   };
 
-  const handlePrizeNotesChange = (id: string, value: string) => {
-    updatePrize(id, { notes: value });
+  const handlePrizePlaceChange = (id: string, value: string) => {
+    updatePrize(id, { place: value.trim() });
   };
 
   const formatPrizeRating = (rating: number | null) => {
@@ -874,13 +926,13 @@ function StepTwo({ format, mode, config, onConfigChange, onBack: _onBack, onCanc
       .map((prize) => {
         const sectionLabel = escapeHtml(prize.section || "");
         const ratingLabel = escapeHtml(formatPrizeRating(prize.ratingCap));
+        const placeLabel = escapeHtml(prize.place ?? "");
         const amountLabel = escapeHtml(`${prize.currency ?? "USD"} ${Number(prize.amount || 0).toFixed(2)}`);
-        const notesLabel = escapeHtml(prize.notes ?? "");
-        return `<tr><td>${sectionLabel}</td><td>${ratingLabel}</td><td>${amountLabel}</td><td>${notesLabel}</td></tr>`;
+        return `<tr><td>${sectionLabel}</td><td>${ratingLabel}</td><td>${placeLabel}</td><td>${amountLabel}</td></tr>`;
       })
       .join("");
     const tableHtml = prizes.length
-      ? `<table><thead><tr><th>Section</th><th>Rating</th><th>Prize</th><th>Notes</th></tr></thead><tbody>${rowsHtml}</tbody></table>`
+      ? `<table><thead><tr><th>Section</th><th>Rating</th><th>Place</th><th>Prize</th></tr></thead><tbody>${rowsHtml}</tbody></table>`
       : `<p>No prizes configured.</p>`;
     printWindow.document.write(`<!doctype html><html><head><title>Prize payouts</title><style>
       body { font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; padding: 24px; }
@@ -897,13 +949,13 @@ function StepTwo({ format, mode, config, onConfigChange, onBack: _onBack, onCanc
 
   const handlePrizeDownload = () => {
     if (typeof window === "undefined") return;
-    const header = ["Section", "Rating", "Amount", "Currency", "Notes"];
+    const header = ["Section", "Rating", "Place", "Amount", "Currency"];
     const rows = prizes.map((prize) => [
       prize.section ?? "",
       formatPrizeRating(prize.ratingCap),
+      prize.place ?? "",
       String(Number(prize.amount || 0).toFixed(2)),
       prize.currency ?? "USD",
-      prize.notes ?? "",
     ]);
     const toCsvCell = (value: string) => `"${value.replace(/"/g, '""')}"`;
     const csv = [header, ...rows].map((row) => row.map((cell) => toCsvCell(cell ?? "")).join(",")).join("\n");
@@ -944,18 +996,59 @@ function StepTwo({ format, mode, config, onConfigChange, onBack: _onBack, onCanc
         startIndex = 1;
       }
       const defaultCurrency = config.payments.defaultCurrency ?? "USD";
+      const headerCells =
+        startIndex === 1 ? lines[0].split(",").map((cell) => cell.trim().toLowerCase()) : [];
       const imported: PrizeRule[] = [];
       for (let index = startIndex; index < lines.length; index += 1) {
         const rawLine = lines[index];
         if (!rawLine) continue;
         const cells = rawLine.split(",").map((cell) => cell.trim());
-        const [sectionCell, ratingCell, amountCell, currencyCell, notesCell] = [
-          cells[0] ?? "",
-          cells[1] ?? "",
-          cells[2] ?? "",
-          cells[3] ?? "",
-          cells[4] ?? "",
-        ];
+        const findIndex = (match: string) =>
+          headerCells.findIndex((column) => column.includes(match));
+        const sectionIndex = headerCells.length ? findIndex("section") : -1;
+        const ratingIndex = headerCells.length ? findIndex("rating") : -1;
+        const sectionCell = sectionIndex >= 0 && sectionIndex < cells.length ? cells[sectionIndex] : cells[0] ?? "";
+        const ratingCell = ratingIndex >= 0 && ratingIndex < cells.length ? cells[ratingIndex] : cells[1] ?? "";
+        const placeCell = (() => {
+          if (headerCells.length) {
+            const explicitPlace = findIndex("place");
+            if (explicitPlace >= 0 && explicitPlace < cells.length) {
+              return cells[explicitPlace];
+            }
+            const legacyNotes = findIndex("note");
+            if (legacyNotes >= 0 && legacyNotes < cells.length) {
+              return cells[legacyNotes];
+            }
+          }
+          if (cells.length >= 5) {
+            return cells[2] ?? "";
+          }
+          return "";
+        })();
+        const amountCell = (() => {
+          if (headerCells.length) {
+            const amountIndex = findIndex("amount");
+            if (amountIndex >= 0 && amountIndex < cells.length) {
+              return cells[amountIndex];
+            }
+          }
+          if (cells.length === 4) {
+            return cells[2] ?? "";
+          }
+          return cells[3] ?? "";
+        })();
+        const currencyCell = (() => {
+          if (headerCells.length) {
+            const currencyIndex = findIndex("currency");
+            if (currencyIndex >= 0 && currencyIndex < cells.length) {
+              return cells[currencyIndex];
+            }
+          }
+          if (cells.length === 4) {
+            return cells[3] ?? "";
+          }
+          return cells[4] ?? "";
+        })();
         if (!sectionCell) continue;
         const linkedSection = sections.find(
           (section) => section.name.trim().toLowerCase() === sectionCell.trim().toLowerCase(),
@@ -967,13 +1060,13 @@ function StepTwo({ format, mode, config, onConfigChange, onBack: _onBack, onCanc
         const normalizedAmount = Number(amountCell.replace(/[^0-9.-]/g, ""));
         base.amount = Number.isFinite(normalizedAmount) ? Number(normalizedAmount.toFixed(2)) : 0;
         base.currency = currencyCell ? currencyCell.toUpperCase() : defaultCurrency;
-        base.notes = notesCell ?? "";
+        base.place = placeCell.trim();
         imported.push(base);
       }
       if (imported.length === 0) {
         toast({
           title: "No rows imported",
-          description: "Ensure your sheet has Section, Rating, and Amount columns.",
+          description: "Ensure your sheet has Section, Rating, Place, and Amount columns.",
           variant: "destructive",
         });
         return;
@@ -1242,7 +1335,7 @@ function StepTwo({ format, mode, config, onConfigChange, onBack: _onBack, onCanc
     {
       key: "enablePairingPredictor",
       label: "Enable Pairing Predictor",
-      description: "Allow players to simulate upcoming pairings once the event is underway.",
+      description: "Allow players to simulate upcoming pairings.",
     },
   ];
 
@@ -1263,7 +1356,7 @@ function StepTwo({ format, mode, config, onConfigChange, onBack: _onBack, onCanc
 
   const renderTabSaveButton = () => (
     <div className="flex justify-end pt-4">
-      <Button onClick={onSave} disabled={saving}>
+      <Button type="button" onClick={onSave} disabled={saving}>
         {saving ? "Saving..." : "Save"}
       </Button>
     </div>
@@ -1764,6 +1857,21 @@ function StepTwo({ format, mode, config, onConfigChange, onBack: _onBack, onCanc
                     </p>
                   </div>
                   <div className="flex items-center gap-2">
+                    {collectFeesStatus !== "hidden" && (
+                      <Button
+                        type="button"
+                        className={cn("flex items-center gap-2", collectFeesButtonClass)}
+                        onClick={() => {
+                          if (tournamentId) {
+                            setLocation(`/tournaments/${tournamentId}/payments/setup`);
+                          }
+                        }}
+                        disabled={!tournamentId}
+                      >
+                        <CreditCard className="h-4 w-4" />
+                        Collect Entry Fees
+                      </Button>
+                    )}
                     <Button
                       type="button"
                       variant="ghost"
@@ -1896,14 +2004,6 @@ function StepTwo({ format, mode, config, onConfigChange, onBack: _onBack, onCanc
                             </div>
                           </div>
 
-                          <div>
-                            <Label className="text-xs font-semibold uppercase text-slate-500">Notes (optional)</Label>
-                            <Input
-                              value={fee.notes ?? ""}
-                              onChange={(event) => updateEntryFee(fee.id, { notes: event.target.value })}
-                              placeholder="e.g., Early bird pricing"
-                            />
-                          </div>
 
                           <p className="text-[11px] text-slate-500">
                             {inheritsSectionRange
@@ -1966,9 +2066,9 @@ function StepTwo({ format, mode, config, onConfigChange, onBack: _onBack, onCanc
                       <tr className="text-left text-xs font-semibold uppercase tracking-wide text-slate-600">
                         <th className="px-4 py-3">Section</th>
                         <th className="px-4 py-3">Rating cap (U)</th>
+                        <th className="px-4 py-3">Place</th>
                         <th className="px-4 py-3">Prize amount</th>
                         <th className="px-4 py-3">Currency</th>
-                        <th className="px-4 py-3">Notes</th>
                         <th className="px-4 py-3 text-right">Actions</th>
                       </tr>
                     </thead>
@@ -2029,6 +2129,14 @@ function StepTwo({ format, mode, config, onConfigChange, onBack: _onBack, onCanc
                               </td>
                               <td className="px-4 py-3">
                                 <Input
+                                  value={prize.place ?? ""}
+                                  onChange={(event) => handlePrizePlaceChange(prize.id, event.target.value)}
+                                  placeholder="e.g., 1st"
+                                />
+                                <p className="mt-1 text-[11px] text-slate-500">Label how this prize is awarded.</p>
+                              </td>
+                              <td className="px-4 py-3">
+                                <Input
                                   type="number"
                                   step="0.01"
                                   value={typeof prize.amount === "number" ? String(prize.amount) : ""}
@@ -2053,13 +2161,6 @@ function StepTwo({ format, mode, config, onConfigChange, onBack: _onBack, onCanc
                                   </SelectContent>
                                 </Select>
                               </td>
-                              <td className="px-4 py-3">
-                                <Input
-                                  value={prize.notes ?? ""}
-                                  onChange={(event) => handlePrizeNotesChange(prize.id, event.target.value)}
-                                  placeholder="Optional details"
-                                />
-                              </td>
                               <td className="px-4 py-3 text-right">
                                 <Button variant="ghost" className="text-red-600" onClick={() => removePrize(prize.id)}>
                                   Remove
@@ -2074,7 +2175,7 @@ function StepTwo({ format, mode, config, onConfigChange, onBack: _onBack, onCanc
                 </div>
 
                 <p className="text-xs text-slate-500">
-                  Export your Google Sheet as CSV with columns: Section, Rating, Amount, Currency, Notes.
+                  Export your Google Sheet as CSV with columns: Section, Rating, Place, Amount, Currency.
                 </p>
 
                 {renderTabSaveButton()}
@@ -2165,28 +2266,6 @@ function StepTwo({ format, mode, config, onConfigChange, onBack: _onBack, onCanc
                       updateRegisters({ byeLimit: Number.isFinite(parsed) ? parsed : config.registers.byeLimit ?? null });
                     }}
                     placeholder="Maximum half-point byes allowed"
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="early-bird">Early bird entry details</Label>
-                  <Textarea
-                    id="early-bird"
-                    rows={3}
-                    value={config.registers.earlyBirdDetails ?? ""}
-                    onChange={(event) => updateRegisters({ earlyBirdDetails: event.target.value })}
-                    placeholder="Outline pricing deadlines or incentives for early registration."
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="payment-info">Payment information</Label>
-                  <Textarea
-                    id="payment-info"
-                    rows={4}
-                    value={config.registers.paymentDetails ?? ""}
-                    onChange={(event) => updateRegisters({ paymentDetails: event.target.value })}
-                    placeholder="Provide payment methods, account references, or onsite instructions."
                   />
                 </div>
 
@@ -2471,6 +2550,7 @@ function StepTwo({ format, mode, config, onConfigChange, onBack: _onBack, onCanc
 
 export function TournamentBuilder({ mode, format: initialFormat, tournament, onCancel, onComplete }: TournamentBuilderProps) {
   const { toast } = useToast();
+  const queryClient = useQueryClient();
   const [format, setFormat] = useState<Tournament["format"]>(tournament?.format ?? initialFormat);
   const [config, setConfig] = useState<TournamentConfig>(() =>
     tournament ? parseTournamentConfig(tournament) : createDefaultConfig(initialFormat)
@@ -2537,6 +2617,19 @@ export function TournamentBuilder({ mode, format: initialFormat, tournament, onC
       });
     },
     onSuccess: (createdTournament) => {
+      const targetId = (createdTournament as Tournament | undefined)?.id ?? tournament?.id;
+      if (targetId) {
+        queryClient.invalidateQueries({ queryKey: ["tournament-payments-config", targetId] });
+        queryClient.invalidateQueries({ queryKey: [`/api/tournaments/${targetId}`] });
+      }
+      if (createdTournament && typeof createdTournament === "object") {
+        try {
+          const nextConfig = parseTournamentConfig(createdTournament as Tournament);
+          setConfig(nextConfig);
+        } catch (error) {
+          console.warn("Failed to parse updated tournament config", error);
+        }
+      }
       toast({ title: mode === "create" ? "Tournament created" : "Tournament updated" });
       onComplete?.(createdTournament);
     },
@@ -2699,7 +2792,6 @@ function createEntryFeeRow(section?: SectionDefinition, defaultCurrency = "USD")
     ratingMax: null,
     amount: 0,
     currency: defaultCurrency,
-    notes: "",
     effectiveAfter: null,
   };
 }
@@ -2710,9 +2802,9 @@ function createPrizeRow(section?: SectionDefinition, defaultCurrency = "USD"): P
     sectionId: section?.id,
     section: section?.name ?? "",
     ratingCap: section?.ratingMax ?? null,
+    place: "",
     amount: 0,
     currency: defaultCurrency,
-    notes: "",
   };
 }
 

@@ -40,8 +40,9 @@ import {
   Loader2,
   Copy,
   CheckCircle2,
+  X,
 } from "lucide-react";
-import type { Tournament, Player } from "@shared/schema";
+import type { Tournament, Player, Pairing } from "@shared/schema";
 
 interface PlayerManagerProps {
   tournament: Tournament;
@@ -65,12 +66,34 @@ export default function PlayerManager({ tournament, tournamentId }: PlayerManage
   const [messageBody, setMessageBody] = useState("");
   const [isCopyingRecipients, setIsCopyingRecipients] = useState(false);
   const [isCopyingMessage, setIsCopyingMessage] = useState(false);
+  const [removingByeIds, setRemovingByeIds] = useState<number[]>([]);
+  const [messageChannels, setMessageChannels] = useState({ email: true, sms: false });
+  const hasChannelSelected = messageChannels.email || messageChannels.sms;
 
   const { data: players = [], isLoading } = useQuery<Player[]>({
     queryKey: [`/api/tournaments/${tournamentId}/players`],
   });
 
+  const { data: pairings = [], isLoading: pairingsLoading } = useQuery<Pairing[]>({
+    queryKey: [`/api/tournaments/${tournamentId}/pairings`],
+  });
+
   const storageKey = useMemo(() => `tournament-${tournamentId}-confirmed-players`, [tournamentId]);
+
+  const playerByeMap = useMemo(() => {
+    const map = new Map<number, Pairing[]>();
+    pairings.forEach((pairing) => {
+      if (!pairing.isBye) return;
+      const entries = map.get(pairing.playerId) ?? [];
+      entries.push(pairing);
+      map.set(pairing.playerId, entries);
+    });
+    map.forEach((entries) => {
+      entries.sort((a, b) => (a.round ?? 0) - (b.round ?? 0));
+    });
+    return map;
+  }, [pairings]);
+
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -210,6 +233,30 @@ export default function PlayerManager({ tournament, tournamentId }: PlayerManage
       setIsDeleting(false);
     }
   }, [hasSelection, queryClient, selectedIds, selectionCount, toast, tournamentId]);
+
+  const handleRemoveBye = useCallback(
+    async (pairingId: number) => {
+      setRemovingByeIds((prev) => (prev.includes(pairingId) ? prev : [...prev, pairingId]));
+      try {
+        await apiRequest(`/api/pairings/${pairingId}`, {
+          method: "DELETE",
+        });
+        toast({ title: "Bye removed" });
+        queryClient.invalidateQueries({ queryKey: [`/api/tournaments/${tournamentId}/pairings`] });
+        queryClient.invalidateQueries({ queryKey: [`/api/tournaments/${tournamentId}/players`] });
+        queryClient.invalidateQueries({ queryKey: [`/api/tournaments/${tournamentId}/matches`] });
+      } catch (error: any) {
+        toast({
+          title: "Unable to remove bye",
+          description: error?.message ?? "Please try again.",
+          variant: "destructive",
+        });
+      } finally {
+        setRemovingByeIds((prev) => prev.filter((id) => id !== pairingId));
+      }
+    },
+    [queryClient, toast, tournamentId],
+  );
 
   const handleRoundToggle = useCallback((round: number) => {
     setSelectedRounds((prev) => {
@@ -395,7 +442,7 @@ export default function PlayerManager({ tournament, tournamentId }: PlayerManage
                         <TableHead className="w-12">#</TableHead>
                         <TableHead>Surname, Name</TableHead>
                         <TableHead>Rating</TableHead>
-                        <TableHead>Club</TableHead>
+                        <TableHead>Byes</TableHead>
                         <TableHead className="text-right">
                           <div className="flex items-center justify-end gap-2">
                             <span>Birthdate</span>
@@ -413,10 +460,15 @@ export default function PlayerManager({ tournament, tournamentId }: PlayerManage
                       {players.map((player, index) => {
                         const isSelected = selectedIds.includes(player.id);
                         const isConfirmed = Boolean(confirmedMap[player.id]);
+                        const playerByes = playerByeMap.get(player.id) ?? [];
+                        const rowClasses = isSelected
+                          ? "border-b border-slate-200 cursor-pointer transition bg-indigo-50/40 hover:bg-indigo-100/40 dark:bg-indigo-900/20 dark:hover:bg-indigo-900/30"
+                          : "border-b border-slate-200 cursor-pointer transition hover:bg-slate-50 dark:bg-slate-800/60 dark:hover:bg-slate-700/60";
                         return (
                           <TableRow
                             key={player.id}
-                            className={isSelected ? "bg-indigo-50/40" : undefined}
+                            className={rowClasses}
+                            onClick={() => setLocation(`/tournaments/${tournamentId}/players/${player.id}`)}
                           >
                             <TableCell>
                               <div className="text-sm font-medium text-gray-900">{index + 1}</div>
@@ -426,11 +478,66 @@ export default function PlayerManager({ tournament, tournamentId }: PlayerManage
                                 <span className="text-sm font-medium text-slate-900">
                                   {player.lastName}, {player.firstName}
                                 </span>
-                                <span className="text-xs text-muted-foreground">ID: {player.id}</span>
                               </div>
                             </TableCell>
                             <TableCell>{player.rating ?? "-"}</TableCell>
-                            <TableCell>-</TableCell>
+                            <TableCell>
+                              {pairingsLoading ? (
+                                <Loader2 className="h-4 w-4 animate-spin text-slate-400" />
+                              ) : playerByes.length > 0 ? (
+                                <div className="flex flex-wrap gap-2">
+                                  {playerByes.map((bye) => {
+                                    const isRequested = Boolean(bye.isRequested);
+                                    const isRemoving = removingByeIds.includes(bye.id);
+                                    const byeLabel = bye.byeType === "half_point"
+                                      ? "½ point"
+                                      : bye.byeType === "full_point"
+                                      ? "1 point"
+                                      : bye.byeType === "zero_point"
+                                      ? "0 point"
+                                      : bye.points === 1
+                                      ? "½ point"
+                                      : bye.points === 2
+                                      ? "1 point"
+                                      : "0 point";
+                                    const toneClass = isRequested
+                                      ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                                      : "border-slate-200 bg-slate-100 text-slate-600";
+                                    return (
+                                      <div
+                                        key={bye.id}
+                                        className={`inline-flex items-center gap-1 rounded-full border px-2 py-1 text-xs font-medium ${toneClass}`}
+                                        title={isRequested ? "Manual bye" : "System-assigned"}
+                                      >
+                                        <span>{`Rd ${bye.round}`}</span>
+                                        <span aria-hidden="true">·</span>
+                                        <span>{byeLabel}</span>
+                                        {isRequested ? (
+                                          <button
+                                            type="button"
+                                            onClick={(event) => {
+                                              event.stopPropagation();
+                                              handleRemoveBye(bye.id);
+                                            }}
+                                            className="ml-1 inline-flex h-4 w-4 items-center justify-center rounded-full text-emerald-700 transition hover:bg-emerald-100 hover:text-emerald-900"
+                                            disabled={isRemoving}
+                                            aria-label={`Remove bye in round ${bye.round}`}
+                                          >
+                                            {isRemoving ? (
+                                              <Loader2 className="h-3 w-3 animate-spin" />
+                                            ) : (
+                                              <X className="h-3 w-3" />
+                                            )}
+                                          </button>
+                                        ) : null}
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              ) : (
+                                <span className="text-xs text-muted-foreground">—</span>
+                              )}
+                            </TableCell>
                             <TableCell className="text-right">
                               <div className="flex items-center justify-end gap-2">
                                 <span className="text-sm text-muted-foreground">—</span>
@@ -440,6 +547,7 @@ export default function PlayerManager({ tournament, tournamentId }: PlayerManage
                                 <Checkbox
                                   checked={isSelected}
                                   onCheckedChange={(value) => toggleSelectPlayer(player.id, Boolean(value))}
+                                  onClick={(event) => event.stopPropagation()}
                                   aria-label={`Select ${player.lastName}, ${player.firstName}`}
                                   disabled={isDeleting || isProcessingStatus}
                                 />
@@ -526,6 +634,9 @@ export default function PlayerManager({ tournament, tournamentId }: PlayerManage
           )}
         </CardContent>
       </Card>
+
+    {/* Detail panel removed; players now open dedicated page */}
+
       <Dialog
         open={isStatusDialogOpen}
         onOpenChange={(open) => {
@@ -640,7 +751,7 @@ export default function PlayerManager({ tournament, tournamentId }: PlayerManage
           <DialogHeader>
             <DialogTitle>Message selected players</DialogTitle>
             <DialogDescription>
-              Create a quick message and copy it into your preferred email or messaging tool.
+              Choose delivery channels, draft your note, then copy it into the tools you use.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
@@ -674,6 +785,32 @@ export default function PlayerManager({ tournament, tournamentId }: PlayerManage
                 placeholder="Draft your message here…"
               />
             </div>
+            <div className="space-y-2">
+              <Label>Send via</Label>
+              <div className="flex flex-col gap-2 pt-1">
+                <label className="flex items-center gap-2 text-sm text-slate-700">
+                  <Checkbox
+                    checked={messageChannels.email}
+                    onCheckedChange={(checked) =>
+                      setMessageChannels((prev) => ({ ...prev, email: checked === true }))
+                    }
+                  />
+                  <span>Email</span>
+                </label>
+                <label className="flex items-center gap-2 text-sm text-slate-700">
+                  <Checkbox
+                    checked={messageChannels.sms}
+                    onCheckedChange={(checked) =>
+                      setMessageChannels((prev) => ({ ...prev, sms: checked === true }))
+                    }
+                  />
+                  <span>SMS</span>
+                </label>
+                {!hasChannelSelected && (
+                  <p className="text-xs text-destructive">Select at least one channel to continue.</p>
+                )}
+              </div>
+            </div>
           </div>
           <DialogFooter className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <Button
@@ -697,12 +834,19 @@ export default function PlayerManager({ tournament, tournamentId }: PlayerManage
                 type="button"
                 onClick={() => {
                   setMessageDialogOpen(false);
+                  const destinations = [
+                    messageChannels.email ? "email" : null,
+                    messageChannels.sms ? "SMS" : null,
+                  ].filter(Boolean);
                   toast({
                     title: "Message draft ready",
-                    description: "Paste the copied content into your email client to send.",
+                    description:
+                      destinations.length > 0
+                        ? `Share this update via ${destinations.join(" & ")}.`
+                        : "Paste the copied content into your communication tool to send.",
                   });
                 }}
-                disabled={!messageBody && !recipientsList}
+                disabled={(!messageBody && !recipientsList) || !hasChannelSelected}
               >
                 Done
               </Button>
