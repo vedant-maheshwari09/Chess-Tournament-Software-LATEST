@@ -33,7 +33,13 @@ import {
   testChessResultsConnection,
   updateChessResultsScheduler,
 } from "./services/chessResults";
-import { parseTournamentConfig, type PaymentSettings, type EntryFeeRule } from "@shared/tournament-config";
+import {
+  parseTournamentConfig,
+  serializeTournamentConfig,
+  type PaymentSettings,
+  type EntryFeeRule,
+  type AccountPaymentSettings,
+} from "@shared/tournament-config";
 
 type RatingSource = "uscf" | "fide";
 
@@ -182,6 +188,70 @@ function computePaymentTotals(
     total,
     currency,
   };
+}
+
+const paymentProviderEnum = z.enum(["stripe", "paypal"]);
+const paymentScopeEnum = z.enum(["tournament", "account"]);
+const offlineMethodEnum = z.enum(["cash", "check", "venmo", "zelle", "paypal", "other"]);
+
+const updateTournamentPaymentsSchema = z.object({
+  provider: paymentProviderEnum,
+  defaultCurrency: z.string().trim().length(3).optional(),
+  onlineEnabled: z.boolean().optional(),
+  requirePaymentOnRegistration: z.boolean().optional(),
+  allowProcessingContribution: z.boolean().optional(),
+  processingFeePercent: z
+    .number({ invalid_type_error: "processingFeePercent must be a number" })
+    .min(0)
+    .max(100)
+    .nullable()
+    .optional(),
+  stripeAccountId: z.string().trim().optional(),
+  stripePublishableKey: z.string().trim().optional(),
+  payoutStatementDescriptor: z.string().trim().optional(),
+  paypalMerchantId: z.string().trim().optional(),
+  paypalClientId: z.string().trim().optional(),
+  paypalEmail: z.string().trim().email().optional(),
+  connectionScope: paymentScopeEnum.optional(),
+  acceptedOfflineMethods: z.array(offlineMethodEnum).optional(),
+  offlineInstructions: z.string().trim().optional(),
+});
+
+const accountPaymentSettingsSchema = z.object({
+  preferredProvider: paymentProviderEnum.nullable().optional(),
+  stripeAccountId: z.string().trim().optional(),
+  stripePublishableKey: z.string().trim().optional(),
+  payoutStatementDescriptor: z.string().trim().optional(),
+  paypalMerchantId: z.string().trim().optional(),
+  paypalClientId: z.string().trim().optional(),
+  paypalEmail: z.string().trim().email().optional(),
+});
+
+function normalizeAccountPaymentSettings(raw: unknown): AccountPaymentSettings {
+  const base: AccountPaymentSettings = {
+    preferredProvider: null,
+  };
+  if (!raw || typeof raw !== "object") {
+    return base;
+  }
+  const parsed = accountPaymentSettingsSchema.partial().safeParse(raw);
+  if (!parsed.success) {
+    return base;
+  }
+  const data = parsed.data;
+  const result: AccountPaymentSettings = {
+    preferredProvider: data.preferredProvider ?? null,
+  };
+  if (data.stripeAccountId) result.stripeAccountId = data.stripeAccountId.trim();
+  if (data.stripePublishableKey) result.stripePublishableKey = data.stripePublishableKey.trim();
+  if (data.payoutStatementDescriptor) result.payoutStatementDescriptor = data.payoutStatementDescriptor.trim();
+  if (data.paypalMerchantId) result.paypalMerchantId = data.paypalMerchantId.trim();
+  if (data.paypalClientId) result.paypalClientId = data.paypalClientId.trim();
+  if (data.paypalEmail) result.paypalEmail = data.paypalEmail.trim();
+  if (typeof (raw as any)?.updatedAt === "string" && (raw as any).updatedAt.trim()) {
+    result.updatedAt = (raw as any).updatedAt.trim();
+  }
+  return result;
 }
 
 const geminiDraftSchema = z.object({
@@ -476,6 +546,81 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error('Get user error:', error);
       res.status(500).json({ message: "Failed to get user info" });
+    }
+  });
+
+  app.get("/api/account/payments", requireAuth, async (req, res) => {
+    try {
+      const user = req.user;
+      if (!user) {
+        return res.status(401).json({ message: "User not found" });
+      }
+      const freshUser = await storage.getUserById(user.id);
+      const settings = normalizeAccountPaymentSettings(freshUser?.paymentSettings ?? null);
+      res.json(settings);
+    } catch (error) {
+      console.error("Account payment settings fetch error", error);
+      res.status(500).json({ message: "Unable to load payment settings" });
+    }
+  });
+
+  app.put("/api/account/payments", requireAuth, async (req, res) => {
+    try {
+      const user = req.user;
+      if (!user) {
+        return res.status(401).json({ message: "User not found" });
+      }
+
+      const incoming = accountPaymentSettingsSchema.partial().parse(req.body ?? {});
+      const existingUser = await storage.getUserById(user.id);
+      const current = normalizeAccountPaymentSettings(existingUser?.paymentSettings ?? null);
+      const next: AccountPaymentSettings = { ...current };
+
+      if (Object.prototype.hasOwnProperty.call(incoming, "preferredProvider")) {
+        next.preferredProvider = incoming.preferredProvider ?? null;
+      }
+
+      const applyStringUpdate = (
+        key: keyof Omit<AccountPaymentSettings, "preferredProvider" | "updatedAt">,
+        value: string | undefined,
+      ) => {
+        if (value && value.trim()) {
+          (next as any)[key] = value.trim();
+        } else {
+          delete (next as any)[key];
+        }
+      };
+
+      if (Object.prototype.hasOwnProperty.call(incoming, "stripeAccountId")) {
+        applyStringUpdate("stripeAccountId", incoming.stripeAccountId);
+      }
+      if (Object.prototype.hasOwnProperty.call(incoming, "stripePublishableKey")) {
+        applyStringUpdate("stripePublishableKey", incoming.stripePublishableKey);
+      }
+      if (Object.prototype.hasOwnProperty.call(incoming, "payoutStatementDescriptor")) {
+        applyStringUpdate("payoutStatementDescriptor", incoming.payoutStatementDescriptor);
+      }
+      if (Object.prototype.hasOwnProperty.call(incoming, "paypalMerchantId")) {
+        applyStringUpdate("paypalMerchantId", incoming.paypalMerchantId);
+      }
+      if (Object.prototype.hasOwnProperty.call(incoming, "paypalClientId")) {
+        applyStringUpdate("paypalClientId", incoming.paypalClientId);
+      }
+      if (Object.prototype.hasOwnProperty.call(incoming, "paypalEmail")) {
+        applyStringUpdate("paypalEmail", incoming.paypalEmail);
+      }
+
+      next.updatedAt = new Date().toISOString();
+
+      const updated = await storage.updateUser(user.id, { paymentSettings: next });
+      const responsePayload = normalizeAccountPaymentSettings(updated?.paymentSettings ?? next);
+      res.json(responsePayload);
+    } catch (error) {
+      console.error("Account payment settings update error", error);
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ message: "Invalid payment settings", issues: error.flatten() });
+      }
+      res.status(500).json({ message: "Unable to update payment settings" });
     }
   });
 
@@ -1446,17 +1591,121 @@ Close with a friendly call-to-action for players or parents.`;
 
       const config = parseTournamentConfig(tournament);
       const payments = config.payments;
+      const stripeConfigured = Boolean(
+        payments.provider === "stripe" && payments.onlineEnabled && stripe && STRIPE_PUBLISHABLE_KEY,
+      );
+      const paypalConfigured = Boolean(
+        payments.provider === "paypal" && payments.onlineEnabled && payments.paypalMerchantId && payments.paypalEmail,
+      );
 
       res.json({
         payments,
-        publishableKey: STRIPE_PUBLISHABLE_KEY || null,
-        onlineConfigured: Boolean(stripe && STRIPE_PUBLISHABLE_KEY) && payments.onlineEnabled,
+        publishableKey: payments.provider === "stripe" ? STRIPE_PUBLISHABLE_KEY || null : null,
+        onlineConfigured: stripeConfigured || paypalConfigured,
       });
     } catch (error) {
       console.error("Fetch payment config error:", error);
       res.status(500).json({ message: "Failed to load payment settings" });
     }
   });
+
+  app.put(
+    "/api/tournaments/:id/payments",
+    requireAuth,
+    requireRole("tournament_director"),
+    requireTournamentAccess,
+    async (req, res) => {
+      try {
+        const tournamentId = Number.parseInt(req.params.id, 10);
+        if (!Number.isFinite(tournamentId)) {
+          return res.status(400).json({ message: "Invalid tournament id" });
+        }
+
+        const payload = updateTournamentPaymentsSchema.parse(req.body ?? {});
+        const tournament = await storage.getTournament(tournamentId);
+        if (!tournament) {
+          return res.status(404).json({ message: "Tournament not found" });
+        }
+
+        const config = parseTournamentConfig(tournament);
+        const payments: PaymentSettings = {
+          ...config.payments,
+        };
+
+        if (payload.defaultCurrency) {
+          payments.defaultCurrency = payload.defaultCurrency.trim().toUpperCase();
+        }
+
+        payments.provider = payload.provider;
+
+        if (payload.onlineEnabled !== undefined) {
+          payments.onlineEnabled = payload.onlineEnabled;
+        }
+        if (payload.requirePaymentOnRegistration !== undefined) {
+          payments.requirePaymentOnRegistration = payload.requirePaymentOnRegistration;
+        }
+        if (payload.allowProcessingContribution !== undefined) {
+          payments.allowProcessingContribution = payload.allowProcessingContribution;
+        }
+        if (Object.prototype.hasOwnProperty.call(payload, "processingFeePercent")) {
+          payments.processingFeePercent = payload.processingFeePercent ?? null;
+        }
+
+        const applyStringUpdate = (
+          key: keyof PaymentSettings,
+          value: string | undefined,
+        ) => {
+          if (value && value.trim()) {
+            (payments as any)[key] = value.trim();
+          } else {
+            delete (payments as any)[key];
+          }
+        };
+
+        if (Object.prototype.hasOwnProperty.call(payload, "stripeAccountId")) {
+          applyStringUpdate("stripeAccountId", payload.stripeAccountId);
+        }
+        if (Object.prototype.hasOwnProperty.call(payload, "stripePublishableKey")) {
+          applyStringUpdate("stripePublishableKey", payload.stripePublishableKey);
+        }
+        if (Object.prototype.hasOwnProperty.call(payload, "payoutStatementDescriptor")) {
+          applyStringUpdate("payoutStatementDescriptor", payload.payoutStatementDescriptor);
+        }
+        if (Object.prototype.hasOwnProperty.call(payload, "paypalMerchantId")) {
+          applyStringUpdate("paypalMerchantId", payload.paypalMerchantId);
+        }
+        if (Object.prototype.hasOwnProperty.call(payload, "paypalClientId")) {
+          applyStringUpdate("paypalClientId", payload.paypalClientId);
+        }
+        if (Object.prototype.hasOwnProperty.call(payload, "paypalEmail")) {
+          applyStringUpdate("paypalEmail", payload.paypalEmail);
+        }
+
+        if (payload.connectionScope) {
+          payments.connectionScope = payload.connectionScope;
+        }
+
+        if (payload.acceptedOfflineMethods) {
+          payments.acceptedOfflineMethods = Array.from(new Set(payload.acceptedOfflineMethods));
+        }
+
+        if (payload.offlineInstructions !== undefined) {
+          payments.offlineInstructions = payload.offlineInstructions?.trim() ?? "";
+        }
+
+        config.payments = payments;
+        const serialized = serializeTournamentConfig(config);
+        await storage.updateTournament(tournamentId, { roundTimings: serialized });
+        res.json(serialized.payments);
+      } catch (error) {
+        console.error("Update tournament payment settings error", error);
+        if (error instanceof z.ZodError) {
+          return res.status(400).json({ message: "Invalid payment settings", issues: error.flatten() });
+        }
+        res.status(500).json({ message: "Failed to update payment settings" });
+      }
+    },
+  );
 
   app.post("/api/tournaments/:id/payments/intent", requireAuth, async (req, res) => {
     try {

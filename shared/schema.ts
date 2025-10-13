@@ -15,6 +15,7 @@ export const users = pgTable("users", {
   carrier: varchar("carrier", { length: 60 }),
   notifyEmail: boolean("notify_email").default(true),
   notifySms: boolean("notify_sms").default(false),
+  paymentSettings: jsonb("payment_settings"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -150,6 +151,7 @@ export const insertUserSchema = createInsertSchema(users).omit({
   id: true,
   createdAt: true,
   updatedAt: true,
+  paymentSettings: true,
 });
 
 export const loginSchema = z.object({

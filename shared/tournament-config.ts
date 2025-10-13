@@ -136,8 +136,25 @@ export interface SectionDefinition {
   description?: string;
 }
 
-export type PaymentProvider = "stripe";
+export type PaymentProvider = "stripe" | "paypal";
 export type OfflinePaymentMethod = "cash" | "check" | "venmo" | "zelle" | "paypal" | "other";
+
+export interface ScoringRules {
+  win: number;
+  draw: number;
+  loss: number;
+}
+
+export interface AccountPaymentSettings {
+  preferredProvider: PaymentProvider | null;
+  stripeAccountId?: string;
+  stripePublishableKey?: string;
+  payoutStatementDescriptor?: string;
+  paypalMerchantId?: string;
+  paypalClientId?: string;
+  paypalEmail?: string;
+  updatedAt?: string;
+}
 
 export interface PaymentSettings {
   defaultCurrency: string;
@@ -147,7 +164,12 @@ export interface PaymentSettings {
   allowProcessingContribution: boolean;
   processingFeePercent: number | null;
   stripeAccountId?: string;
+  stripePublishableKey?: string;
   payoutStatementDescriptor?: string;
+  paypalMerchantId?: string;
+  paypalClientId?: string;
+  paypalEmail?: string;
+  connectionScope: "tournament" | "account";
   acceptedOfflineMethods: OfflinePaymentMethod[];
   offlineInstructions: string;
 }
@@ -173,6 +195,9 @@ export interface TournamentConfig {
     rounds: number;
     tiebreakSystem: string;
     ratingType: string;
+    scoring: ScoringRules;
+    tiebreaksEnabled: boolean;
+    tiebreaks: string[];
   };
   schedule: ScheduleEvent[];
   sections: SectionDefinition[];
@@ -249,6 +274,13 @@ export function createDefaultConfig(format: Tournament["format"], mode: Tourname
       rounds: defaultRounds,
       tiebreakSystem: "rating",
       ratingType: "standard",
+      scoring: {
+        win: 1,
+        draw: 0.5,
+        loss: 0,
+      },
+      tiebreaksEnabled: true,
+      tiebreaks: [],
     },
     schedule: createDefaultSchedule(defaultRounds),
     sections: [],
@@ -262,7 +294,12 @@ export function createDefaultConfig(format: Tournament["format"], mode: Tourname
       allowProcessingContribution: true,
       processingFeePercent: 0,
       stripeAccountId: "",
+      stripePublishableKey: "",
       payoutStatementDescriptor: "",
+      paypalMerchantId: "",
+      paypalClientId: "",
+      paypalEmail: "",
+      connectionScope: "tournament",
       acceptedOfflineMethods: ["cash", "check"],
       offlineInstructions: "Pay at the venue before round 1.",
     },
@@ -364,6 +401,8 @@ export function parseTournamentConfig(tournament: Tournament): TournamentConfig 
           },
         ];
 
+    const defaults = createDefaultConfig(tournament.format, normalizedMode ?? "rated");
+
     const sanitizedEntryFees = sanitizeEntryFees((parsed as any)?.entryFees);
     const sanitizedPrizes = sanitizePrizes((parsed as any)?.prizes);
     const sanitizedSections = sanitizeSections((parsed as any)?.sections, sanitizedEntryFees, sanitizedPrizes);
@@ -399,22 +438,31 @@ export function parseTournamentConfig(tournament: Tournament): TournamentConfig 
       };
     });
     const sanitizedPayments = sanitizePaymentSettings((parsed as any)?.payments);
+    const scoring = sanitizeScoring((parsed as any)?.details?.scoring);
+    const tiebreaks = sanitizeTiebreaks((parsed as any)?.details?.tiebreaks);
+    const tiebreaksEnabled =
+      typeof (parsed as any)?.details?.tiebreaksEnabled === "boolean"
+        ? Boolean((parsed as any).details.tiebreaksEnabled)
+        : tiebreaks.length > 0 || defaults.details.tiebreaksEnabled;
 
     return {
-      ...createDefaultConfig(tournament.format, normalizedMode ?? "rated"),
+      ...defaults,
       ...parsed,
       basic: {
-        ...createDefaultConfig(tournament.format, normalizedMode ?? "rated").basic,
+        ...defaults.basic,
         ...parsed.basic,
         state: typeof parsed.basic?.state === "string" ? parsed.basic.state : "",
       },
       details: {
-        ...createDefaultConfig(tournament.format, normalizedMode ?? "rated").details,
+        ...defaults.details,
         ...parsed.details,
         timeControls: normalizedTimeControls,
+        scoring,
+        tiebreaksEnabled,
+        tiebreaks,
       },
       registers: {
-        ...createDefaultConfig(tournament.format, normalizedMode ?? "rated").registers,
+        ...defaults.registers,
         ...parsed.registers,
         notifyPairingsEmail: parsed.registers?.notifyPairingsEmail ?? true,
         notifyPairingsSms: parsed.registers?.notifyPairingsSms ?? false,
@@ -438,20 +486,20 @@ export function parseTournamentConfig(tournament: Tournament): TournamentConfig 
         paymentDetails: parsed.registers?.paymentDetails ?? "",
       },
       fide: {
-        ...createDefaultConfig(tournament.format, normalizedMode ?? "rated").fide,
+        ...defaults.fide,
         ...parsed.fide,
       },
       uscf: {
-        ...createDefaultConfig(tournament.format, normalizedMode ?? "rated").uscf,
+        ...defaults.uscf,
         ...parsed.uscf,
       },
       chessResults: {
-        ...createDefaultConfig(tournament.format, normalizedMode ?? "rated").chessResults,
+        ...defaults.chessResults,
         ...parsed.chessResults,
         autoSyncIntervalMinutes:
           parsed.chessResults?.autoSyncIntervalMinutes && Number.isFinite(parsed.chessResults.autoSyncIntervalMinutes)
             ? parsed.chessResults.autoSyncIntervalMinutes
-            : createDefaultConfig(tournament.format, normalizedMode ?? "rated").chessResults.autoSyncIntervalMinutes,
+            : defaults.chessResults.autoSyncIntervalMinutes,
       },
       sections: sanitizedSections,
       entryFees: normalizedEntryFees,
@@ -750,26 +798,38 @@ function generateSectionId(): string {
 
 function sanitizePaymentSettings(raw: any): PaymentSettings {
   const defaults = createDefaultConfig("swiss").payments;
-  const defaultCurrency = typeof raw?.defaultCurrency === "string" && raw.defaultCurrency.trim()
-    ? raw.defaultCurrency.trim().toUpperCase()
-    : defaults.defaultCurrency;
-  const provider: PaymentProvider = "stripe";
-  const onlineEnabled = Boolean(raw?.onlineEnabled);
+  const defaultCurrency =
+    typeof raw?.defaultCurrency === "string" && raw.defaultCurrency.trim()
+      ? raw.defaultCurrency.trim().toUpperCase()
+      : defaults.defaultCurrency;
+  const providerRaw =
+    typeof raw?.provider === "string" && raw.provider.trim()
+      ? raw.provider.trim().toLowerCase()
+      : defaults.provider;
+  const provider: PaymentProvider = providerRaw === "paypal" ? "paypal" : "stripe";
+  const onlineEnabled = raw?.onlineEnabled === true;
   const requirePaymentOnRegistration = raw?.requirePaymentOnRegistration === true;
   const allowProcessingContribution = raw?.allowProcessingContribution !== false;
   const processingFeePercent = coerceNullableNumber(raw?.processingFeePercent);
-  const stripeAccountId = typeof raw?.stripeAccountId === "string" ? raw.stripeAccountId.trim() : "";
-  const payoutStatementDescriptor = typeof raw?.payoutStatementDescriptor === "string"
-    ? raw.payoutStatementDescriptor.trim()
-    : "";
-  const offlineMethodWhitelist: OfflinePaymentMethod[] = [
-    "cash",
-    "check",
-    "venmo",
-    "zelle",
-    "paypal",
-    "other",
-  ];
+  const stripeAccountId =
+    typeof raw?.stripeAccountId === "string" && raw.stripeAccountId.trim() ? raw.stripeAccountId.trim() : undefined;
+  const stripePublishableKey =
+    typeof raw?.stripePublishableKey === "string" && raw.stripePublishableKey.trim()
+      ? raw.stripePublishableKey.trim()
+      : undefined;
+  const payoutStatementDescriptor =
+    typeof raw?.payoutStatementDescriptor === "string" && raw.payoutStatementDescriptor.trim()
+      ? raw.payoutStatementDescriptor.trim()
+      : undefined;
+  const paypalMerchantId =
+    typeof raw?.paypalMerchantId === "string" && raw.paypalMerchantId.trim() ? raw.paypalMerchantId.trim() : undefined;
+  const paypalClientId =
+    typeof raw?.paypalClientId === "string" && raw.paypalClientId.trim() ? raw.paypalClientId.trim() : undefined;
+  const paypalEmail =
+    typeof raw?.paypalEmail === "string" && raw.paypalEmail.trim() ? raw.paypalEmail.trim() : undefined;
+  const connectionScope: "tournament" | "account" = raw?.connectionScope === "account" ? "account" : "tournament";
+
+  const offlineMethodWhitelist: OfflinePaymentMethod[] = ["cash", "check", "venmo", "zelle", "paypal", "other"];
   const acceptedOfflineMethods: OfflinePaymentMethod[] = Array.isArray(raw?.acceptedOfflineMethods)
     ? Array.from(
         new Set(
@@ -783,22 +843,73 @@ function sanitizePaymentSettings(raw: any): PaymentSettings {
         ),
       )
     : defaults.acceptedOfflineMethods;
-  const offlineInstructions = typeof raw?.offlineInstructions === "string"
-    ? raw.offlineInstructions.trim()
-    : defaults.offlineInstructions;
 
-  return {
+  const offlineInstructions =
+    typeof raw?.offlineInstructions === "string" && raw.offlineInstructions.trim()
+      ? raw.offlineInstructions.trim()
+      : defaults.offlineInstructions;
+
+  const result: PaymentSettings = {
     defaultCurrency,
     provider,
     onlineEnabled,
     requirePaymentOnRegistration,
     allowProcessingContribution,
     processingFeePercent: processingFeePercent ?? defaults.processingFeePercent,
-    stripeAccountId,
-    payoutStatementDescriptor,
+    connectionScope,
     acceptedOfflineMethods,
     offlineInstructions,
   };
+
+  if (stripeAccountId) result.stripeAccountId = stripeAccountId;
+  if (stripePublishableKey) result.stripePublishableKey = stripePublishableKey;
+  if (payoutStatementDescriptor) result.payoutStatementDescriptor = payoutStatementDescriptor;
+  if (paypalMerchantId) result.paypalMerchantId = paypalMerchantId;
+  if (paypalClientId) result.paypalClientId = paypalClientId;
+  if (paypalEmail) result.paypalEmail = paypalEmail;
+
+  return result;
+}
+
+function sanitizeScoring(raw: any): ScoringRules {
+  const defaults = createDefaultConfig("swiss").details.scoring;
+  const win = coerceScore(raw?.win, defaults.win);
+  const draw = coerceScore(raw?.draw, defaults.draw);
+  const loss = coerceScore(raw?.loss, defaults.loss);
+  return {
+    win,
+    draw,
+    loss,
+  };
+}
+
+function coerceScore(value: unknown, fallback: number): number {
+  if (value === null || value === undefined || value === "") {
+    return fallback;
+  }
+  const numeric = typeof value === "string" ? Number(value) : (value as number);
+  if (!Number.isFinite(numeric)) {
+    return fallback;
+  }
+  return Number(numeric.toFixed(2));
+}
+
+function sanitizeTiebreaks(raw: any): string[] {
+  if (!Array.isArray(raw)) {
+    return [];
+  }
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const entry of raw) {
+    if (typeof entry !== "string") continue;
+    const trimmed = entry.trim();
+    if (!trimmed) continue;
+    const key = trimmed.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push(trimmed);
+  }
+  return result;
 }
 
 export function buildTournamentPayload(

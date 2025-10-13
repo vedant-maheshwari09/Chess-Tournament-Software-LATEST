@@ -1,6 +1,6 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation } from "@tanstack/react-query";
-import { Upload, Check, ChevronRight, Settings, X } from "lucide-react";
+import { Upload, Check, ChevronRight, Settings, X, ChevronUp, ChevronDown, Plus } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
@@ -23,6 +23,7 @@ import {
   type PrizeRule,
   type SectionDefinition,
   type OfflinePaymentMethod,
+  type ScoringRules,
   TimeControlDefinition,
   TimeAddonType,
   TimeControlType,
@@ -1268,6 +1269,49 @@ function StepTwo({ format, mode, config, onConfigChange, onBack: _onBack, onCanc
     </div>
   );
 
+  const defaultScoring = useMemo(() => createDefaultConfig(format).details.scoring, [format]);
+  const scoring = config.details.scoring ?? defaultScoring;
+  const tiebreaks = config.details.tiebreaks ?? [];
+  const handleScoreChange = (field: keyof ScoringRules, raw: string) => {
+    if (raw === "") {
+      updateDetails({ scoring: { ...scoring, [field]: 0 } });
+      return;
+    }
+    const numeric = Number(raw);
+    if (!Number.isFinite(numeric)) {
+      return;
+    }
+    const clamped = Math.max(-10, Math.min(10, Number(numeric.toFixed(2))));
+    updateDetails({ scoring: { ...scoring, [field]: clamped } });
+  };
+  const resetScoring = () => updateDetails({ scoring: { ...defaultScoring } });
+  const setTiebreaks = (next: string[]) => updateDetails({ tiebreaks: next });
+  const addTiebreakRule = () => {
+    const fallback = TIEBREAK_OPTIONS.find((option) => !tiebreaks.includes(option.label))?.label ?? "Buchholz";
+    setTiebreaks([...tiebreaks, fallback]);
+    updateDetails({ tiebreaksEnabled: true });
+  };
+  const updateTiebreakRule = (index: number, value: string) => {
+    const next = [...tiebreaks];
+    next[index] = value;
+    setTiebreaks(next);
+  };
+  const removeTiebreakRule = (index: number) => {
+    const next = tiebreaks.filter((_, position) => position !== index);
+    setTiebreaks(next);
+  };
+  const moveTiebreakRule = (index: number, delta: number) => {
+    const target = index + delta;
+    if (target < 0 || target >= tiebreaks.length) {
+      return;
+    }
+    const next = [...tiebreaks];
+    const [entry] = next.splice(index, 1);
+    next.splice(target, 0, entry);
+    setTiebreaks(next);
+  };
+  const toggleTiebreaks = (checked: boolean) => updateDetails({ tiebreaksEnabled: checked });
+
   return (
     <>
       <div className="space-y-6">
@@ -1355,6 +1399,37 @@ function StepTwo({ format, mode, config, onConfigChange, onBack: _onBack, onCanc
                       ))}
                     </SelectContent>
                   </Select>
+                </div>
+                <div className="space-y-4 rounded-lg border border-slate-200 bg-slate-50/70 p-4">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <h3 className="text-sm font-semibold text-slate-900">Scoring rules</h3>
+                      <p className="text-xs text-slate-600">Customize how many points players earn for each result.</p>
+                    </div>
+                    <Button type="button" variant="ghost" size="sm" onClick={resetScoring}>
+                      Reset to defaults
+                    </Button>
+                  </div>
+                  <div className="grid gap-4 md:grid-cols-3">
+                    <ScoreInput
+                      id="score-win"
+                      label="Win"
+                      value={scoring.win}
+                      onChange={(value) => handleScoreChange("win", value)}
+                    />
+                    <ScoreInput
+                      id="score-draw"
+                      label="Draw"
+                      value={scoring.draw}
+                      onChange={(value) => handleScoreChange("draw", value)}
+                    />
+                    <ScoreInput
+                      id="score-loss"
+                      label="Loss"
+                      value={scoring.loss}
+                      onChange={(value) => handleScoreChange("loss", value)}
+                    />
+                  </div>
                 </div>
 
                 <div className="space-y-3">
@@ -1480,6 +1555,53 @@ function StepTwo({ format, mode, config, onConfigChange, onBack: _onBack, onCanc
                       ))}
                     </SelectContent>
                   </Select>
+                </div>
+                <div className="space-y-4 rounded-lg border border-slate-200 bg-slate-50/70 p-4">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <h3 className="text-sm font-semibold text-slate-900">Tiebreak ordering</h3>
+                      <p className="text-xs text-slate-600">Enable and arrange the rules used to break tied scores.</p>
+                    </div>
+                    <div className="flex items-center gap-2 text-xs text-slate-600">
+                      <span>{config.details.tiebreaksEnabled ? "Enabled" : "Disabled"}</span>
+                      <Switch checked={config.details.tiebreaksEnabled} onCheckedChange={toggleTiebreaks} />
+                    </div>
+                  </div>
+                  {config.details.tiebreaksEnabled ? (
+                    <>
+                      <datalist id="tiebreak-option-list">
+                        {TIEBREAK_OPTIONS.map((option) => (
+                          <option key={option.value} value={option.label} />
+                        ))}
+                      </datalist>
+                      {tiebreaks.length === 0 ? (
+                        <div className="rounded-lg border border-dashed border-slate-300 bg-white p-4 text-xs text-slate-500">
+                          No tiebreak rules yet. Add one to start ordering tied results.
+                        </div>
+                      ) : (
+                        <div className="space-y-2">
+                          {tiebreaks.map((method, index) => (
+                            <TiebreakRow
+                              key={`${method}-${index}`}
+                              index={index}
+                              total={tiebreaks.length}
+                              value={method}
+                              onChange={(value) => updateTiebreakRule(index, value)}
+                              onRemove={() => removeTiebreakRule(index)}
+                              onMoveUp={() => moveTiebreakRule(index, -1)}
+                              onMoveDown={() => moveTiebreakRule(index, 1)}
+                            />
+                          ))}
+                        </div>
+                      )}
+                      <Button type="button" variant="outline" size="sm" onClick={addTiebreakRule}>
+                        <Plus className="mr-2 h-4 w-4" />
+                        Add tiebreak rule
+                      </Button>
+                    </>
+                  ) : (
+                    <p className="text-xs text-slate-500">Enable tiebreaks to configure their order.</p>
+                  )}
                 </div>
 
                 <div className="space-y-3 rounded-lg border border-slate-200 bg-slate-50/70 p-4">
@@ -2462,6 +2584,86 @@ export function TournamentBuilder({ mode, format: initialFormat, tournament, onC
       saving={mutation.isPending}
       tournament={tournament}
     />
+  );
+}
+
+interface ScoreInputProps {
+  id: string;
+  label: string;
+  value: number;
+  onChange: (value: string) => void;
+}
+
+function ScoreInput({ id, label, value, onChange }: ScoreInputProps) {
+  return (
+    <div className="space-y-2">
+      <Label htmlFor={id}>{label}</Label>
+      <Input
+        id={id}
+        type="number"
+        min={-1}
+        max={10}
+        step="0.25"
+        value={Number.isFinite(value) ? value : 0}
+        onChange={(event) => onChange(event.target.value)}
+      />
+    </div>
+  );
+}
+
+interface TiebreakRowProps {
+  index: number;
+  total: number;
+  value: string;
+  onChange: (value: string) => void;
+  onRemove: () => void;
+  onMoveUp: () => void;
+  onMoveDown: () => void;
+}
+
+function TiebreakRow({ index, total, value, onChange, onRemove, onMoveUp, onMoveDown }: TiebreakRowProps) {
+  return (
+    <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white p-3">
+      <span className="w-6 text-center text-xs font-semibold text-slate-500">{index + 1}</span>
+      <Input
+        className="flex-1"
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        placeholder="e.g., Buchholz"
+        list="tiebreak-option-list"
+      />
+      <div className="flex items-center gap-1">
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          aria-label="Move up"
+          disabled={index === 0}
+          onClick={onMoveUp}
+        >
+          <ChevronUp className="h-4 w-4" />
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          aria-label="Move down"
+          disabled={index === total - 1}
+          onClick={onMoveDown}
+        >
+          <ChevronDown className="h-4 w-4" />
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          aria-label="Remove"
+          onClick={onRemove}
+        >
+          <X className="h-4 w-4" />
+        </Button>
+      </div>
+    </div>
   );
 }
 
