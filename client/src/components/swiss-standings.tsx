@@ -1,11 +1,15 @@
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Download } from "lucide-react";
-import type { Player, Match, Tournament } from "@shared/schema";
+import type { Player, Match, Pairing, Tournament } from "@shared/schema";
+import { parseTournamentConfig } from "@/lib/tournament-config";
+import type { SectionDefinition } from "@shared/tournament-config";
 
 interface SwissStandingsProps {
   tournamentId: number;
+  showExportControls?: boolean;
 }
 
 interface PlayerRoundResult {
@@ -26,7 +30,7 @@ interface SwissPlayerStanding {
 
 
 
-export default function SwissStandings({ tournamentId }: SwissStandingsProps) {
+export default function SwissStandings({ tournamentId, showExportControls = true }: SwissStandingsProps) {
   const { data: tournament, isLoading: tournamentLoading } = useQuery<Tournament>({
     queryKey: [`/api/tournaments/${tournamentId}`],
   });
@@ -39,9 +43,90 @@ export default function SwissStandings({ tournamentId }: SwissStandingsProps) {
     queryKey: [`/api/tournaments/${tournamentId}/matches`],
   });
 
-  const { data: pairings, isLoading: pairingsLoading } = useQuery({
+  const { data: pairings, isLoading: pairingsLoading } = useQuery<Pairing[]>({
     queryKey: [`/api/tournaments/${tournamentId}/pairings`],
   });
+
+  const [selectedSectionId, setSelectedSectionId] = useState<string>("__all__");
+
+  const tournamentConfig = useMemo(() => (tournament ? parseTournamentConfig(tournament) : null), [tournament]);
+
+  const sections = useMemo<SectionDefinition[]>(() => {
+    if (!tournamentConfig) return [];
+    return (tournamentConfig.sections ?? []).filter((section) => section.name.trim().length > 0);
+  }, [tournamentConfig]);
+
+  useEffect(() => {
+    setSelectedSectionId((prev) => {
+      if (prev === "__all__") return prev;
+      return sections.some((section) => section.id === prev) ? prev : sections[0]?.id ?? "__all__";
+    });
+  }, [sections]);
+
+  const playerSectionMap = useMemo(() => {
+    const map = new Map<number, SectionDefinition>();
+    if (!players) return map;
+    const nameMap = new Map<string, SectionDefinition>();
+    sections.forEach((section) => {
+      nameMap.set(section.name.trim().toLowerCase(), section);
+    });
+
+    players.forEach((player) => {
+      let resolved: SectionDefinition | undefined;
+      if (player.sectionId) {
+        resolved = sections.find((section) => section.id === player.sectionId);
+      }
+      if (!resolved && player.sectionName) {
+        resolved = nameMap.get(player.sectionName.trim().toLowerCase());
+      }
+      if (!resolved && sections.length) {
+        resolved = sections[0];
+      }
+      if (resolved) {
+        map.set(player.id, resolved);
+      }
+    });
+
+    return map;
+  }, [players, sections]);
+
+  const filteredPlayers = useMemo(() => {
+    if (!players) return [] as Player[];
+    if (selectedSectionId === "__all__") return players;
+    return players.filter((player) => playerSectionMap.get(player.id)?.id === selectedSectionId);
+  }, [players, playerSectionMap, selectedSectionId]);
+
+  const filteredMatches = useMemo(() => {
+    if (!matches) return [] as Match[];
+    if (selectedSectionId === "__all__") return matches;
+    return matches.filter((match) => {
+      const whiteSection = match.whitePlayerId ? playerSectionMap.get(match.whitePlayerId)?.id : undefined;
+      const blackSection = match.blackPlayerId ? playerSectionMap.get(match.blackPlayerId)?.id : undefined;
+      if (match.whitePlayerId && match.blackPlayerId) {
+        return whiteSection === selectedSectionId && blackSection === selectedSectionId;
+      }
+      return whiteSection === selectedSectionId || blackSection === selectedSectionId;
+    });
+  }, [matches, playerSectionMap, selectedSectionId]);
+
+  const filteredPairings = useMemo(() => {
+    if (!pairings) return [] as Pairing[];
+    if (selectedSectionId === "__all__") return pairings;
+    return pairings.filter((pairing) => playerSectionMap.get(pairing.playerId)?.id === selectedSectionId);
+  }, [pairings, playerSectionMap, selectedSectionId]);
+
+  const selectedSectionLabel = useMemo(() => {
+    if (selectedSectionId === "__all__") return "All Sections";
+    return sections.find((section) => section.id === selectedSectionId)?.name ?? "All Sections";
+  }, [sections, selectedSectionId]);
+
+  const playerById = useMemo(() => {
+    const map = new Map<number, Player>();
+    if (players) {
+      players.forEach((player) => map.set(player.id, player));
+    }
+    return map;
+  }, [players]);
 
   if (tournamentLoading || playersLoading || matchesLoading || pairingsLoading) {
     return (
@@ -75,315 +160,322 @@ export default function SwissStandings({ tournamentId }: SwissStandingsProps) {
     );
   }
 
-  const calculateSwissStandings = (): SwissPlayerStanding[] => {
-    // Calculate current round from existing matches
-    const currentRound = matches.length > 0 ? Math.max(...matches.map(m => m.round)) : 0;
-    // Use the actual highest round number instead of planned rounds to show extended tournaments
-    const totalRounds = Math.max(currentRound, tournament.rounds || 5);
+  const calculateSwissStandings = useCallback(
+    (sourcePlayers: Player[], sourceMatches: Match[], sourcePairings: Pairing[]): SwissPlayerStanding[] => {
+      if (!tournament) return [];
 
-    // USCF Tiebreaker calculation functions (local scope)
-    const calculateModifiedMedian = (playerId: number): number => {
-      const opponentScores = getOpponentScores(playerId);
-      if (opponentScores.length <= 2) return opponentScores.reduce((sum, score) => sum + score, 0);
-      
-      const sortedScores = [...opponentScores].sort((a, b) => b - a);
-      const middleScores = sortedScores.slice(1, -1);
-      return middleScores.reduce((sum, score) => sum + score, 0) / middleScores.length;
-    };
+      const players = sourcePlayers;
+      const matches = sourceMatches;
+      const pairings = sourcePairings;
 
-    const calculateSolkoff = (playerId: number): number => {
-      const opponentScores = getOpponentScores(playerId);
-      return opponentScores.reduce((sum, score) => sum + score, 0);
-    };
+      // Calculate current round from existing matches
+      const currentRound = matches.length > 0 ? Math.max(...matches.map((m) => m.round)) : 0;
+      // Use the actual highest round number instead of planned rounds to show extended tournaments
+      const totalRounds = Math.max(currentRound, tournament.rounds || 5);
 
-    const calculateCumulative = (playerId: number): number => {
-      let cumulative = 0;
-      let runningTotal = 0;
-      
-      const playerMatches = matches
-        .filter(m => m.whitePlayerId === playerId || m.blackPlayerId === playerId)
-        .sort((a, b) => a.round - b.round);
-        
-      playerMatches.forEach(match => {
-        if (match.result && match.result !== 'Pending') {
-          const isWhite = match.whitePlayerId === playerId;
-          let points = 0;
-          
-          if (match.result === '1-0') points = isWhite ? 1 : 0;
-          else if (match.result === '0-1') points = isWhite ? 0 : 1;
-          else if (match.result === '1/2-1/2') points = 0.5;
-          else if (match.result === '1F-0F') points = isWhite ? 1 : 0;
-          else if (match.result === '0F-1F') points = isWhite ? 0 : 1;
-          
-          runningTotal += points;
-          cumulative += runningTotal;
-        }
-      });
-      
-      return cumulative;
-    };
+      // USCF Tiebreaker calculation functions (local scope)
+      const calculateModifiedMedian = (playerId: number): number => {
+        const opponentScores = getOpponentScores(playerId);
+        if (opponentScores.length <= 2) return opponentScores.reduce((sum, score) => sum + score, 0);
 
-    const getOpponentScores = (playerId: number): number[] => {
-      const opponentIds = new Set<number>();
-      
-      matches.forEach(match => {
-        if (match.whitePlayerId === playerId && match.blackPlayerId) {
-          opponentIds.add(match.blackPlayerId);
-        } else if (match.blackPlayerId === playerId && match.whitePlayerId) {
-          opponentIds.add(match.whitePlayerId);
-        }
-      });
-      
-      return Array.from(opponentIds).map(opponentId => {
-        let totalPoints = 0;
-        
-        matches.forEach(match => {
-          if (match.whitePlayerId === opponentId || match.blackPlayerId === opponentId) {
-            if (match.result && match.result !== 'Pending') {
-              const isWhite = match.whitePlayerId === opponentId;
-              
-              if (match.result === '1-0') totalPoints += isWhite ? 1 : 0;
-              else if (match.result === '0-1') totalPoints += isWhite ? 0 : 1;
-              else if (match.result === '1/2-1/2') totalPoints += 0.5;
-              else if (match.result === '1F-0F') totalPoints += isWhite ? 1 : 0;
-              else if (match.result === '0F-1F') totalPoints += isWhite ? 0 : 1;
-            }
+        const sortedScores = [...opponentScores].sort((a, b) => b - a);
+        const middleScores = sortedScores.slice(1, -1);
+        return middleScores.reduce((sum, score) => sum + score, 0) / middleScores.length;
+      };
+
+      const calculateSolkoff = (playerId: number): number => {
+        const opponentScores = getOpponentScores(playerId);
+        return opponentScores.reduce((sum, score) => sum + score, 0);
+      };
+
+      const calculateCumulative = (playerId: number): number => {
+        let cumulative = 0;
+        let runningTotal = 0;
+
+        const playerMatches = matches
+          .filter((m) => m.whitePlayerId === playerId || m.blackPlayerId === playerId)
+          .sort((a, b) => a.round - b.round);
+
+        playerMatches.forEach((match) => {
+          if (match.result && match.result !== "Pending") {
+            const isWhite = match.whitePlayerId === playerId;
+            let points = 0;
+
+            if (match.result === "1-0") points = isWhite ? 1 : 0;
+            else if (match.result === "0-1") points = isWhite ? 0 : 1;
+            else if (match.result === "1/2-1/2") points = 0.5;
+            else if (match.result === "1F-0F") points = isWhite ? 1 : 0;
+            else if (match.result === "0F-1F") points = isWhite ? 0 : 1;
+
+            runningTotal += points;
+            cumulative += runningTotal;
           }
         });
-        
-        return totalPoints;
-      });
-    };
 
-    // First pass: Calculate basic points and rankings
-    const basicStandings = players.map(player => {
-      const playerMatches = matches.filter(
-        match => match.whitePlayerId === player.id || match.blackPlayerId === player.id
-      );
-
-      // Get bye pairings for this player
-      const playerByes = Array.isArray(pairings) ? pairings.filter((pairing: any) => 
-        pairing.playerId === player.id && 
-        pairing.isBye && 
-        pairing.points !== null &&
-        pairing.round <= currentRound
-      ) : [];
-
-      let totalPoints = 0;
-
-      // Add points from matches
-      playerMatches.forEach(match => {
-        if (!match.result) return;
-        const isWhite = match.whitePlayerId === player.id;
-        
-        if (match.result === '1-0') {
-          totalPoints += isWhite ? 1 : 0;
-        } else if (match.result === '0-1') {
-          totalPoints += isWhite ? 0 : 1;
-        } else if (match.result === '1/2-1/2') {
-          totalPoints += 0.5;
-        } else if (match.result === '1F-0F') {
-          totalPoints += isWhite ? 1 : 0;
-        } else if (match.result === '0F-1F') {
-          totalPoints += isWhite ? 0 : 1;
-        }
-      });
-
-      // Add points from byes
-      playerByes.forEach((bye: any) => {
-        const byePoints = bye.points === 1 ? 0.5 : bye.points === 2 ? 1 : 0;
-        totalPoints += byePoints;
-      });
-
-      return {
-        player,
-        totalPoints,
-        isWithdrawn: false // Simplified for now
+        return cumulative;
       };
-    });
 
-    // Calculate tiebreakers for each player if using USCF system
-    const standingsWithTiebreakers = tournament?.tiebreakOrder === 'uscf' 
-      ? basicStandings.map(standing => ({
-          ...standing,
-          modifiedMedian: calculateModifiedMedian(standing.player.id),
-          solkoff: calculateSolkoff(standing.player.id),
-          cumulative: calculateCumulative(standing.player.id)
-        }))
-      : basicStandings;
+      const getOpponentScores = (playerId: number): number[] => {
+        const opponentIds = new Set<number>();
 
-    // Sort by points first, then by tiebreaker system
-    standingsWithTiebreakers.sort((a, b) => {
-      if (b.totalPoints !== a.totalPoints) return b.totalPoints - a.totalPoints;
-      
-      if (tournament?.tiebreakOrder === 'uscf') {
-        // USCF tiebreaker order: Modified Median → Solkoff → Cumulative
-        const aWithTiebreaks = a as any;
-        const bWithTiebreaks = b as any;
-        
-        if (bWithTiebreaks.modifiedMedian !== aWithTiebreaks.modifiedMedian) {
-          return bWithTiebreaks.modifiedMedian - aWithTiebreaks.modifiedMedian;
-        }
-        if (bWithTiebreaks.solkoff !== aWithTiebreaks.solkoff) {
-          return bWithTiebreaks.solkoff - aWithTiebreaks.solkoff;
-        }
-        if (bWithTiebreaks.cumulative !== aWithTiebreaks.cumulative) {
-          return bWithTiebreaks.cumulative - aWithTiebreaks.cumulative;
-        }
-      }
-      
-      // Final tiebreaker: rating
-      return (b.player.rating || 0) - (a.player.rating || 0);
-    });
+        matches.forEach((match) => {
+          if (match.whitePlayerId === playerId && match.blackPlayerId) {
+            opponentIds.add(match.blackPlayerId);
+          } else if (match.blackPlayerId === playerId && match.whitePlayerId) {
+            opponentIds.add(match.whitePlayerId);
+          }
+        });
 
-    // Assign positions
-    const standingsWithPositions = standingsWithTiebreakers.map((standing, index) => ({
-      ...standing,
-      position: index + 1
-    }));
+        return Array.from(opponentIds).map((opponentId) => {
+          let totalPoints = 0;
 
-    // Second pass: Calculate detailed round results
-    const detailedStandings: SwissPlayerStanding[] = standingsWithPositions.map(standing => {
-      const roundResults: PlayerRoundResult[] = [];
-      
-      for (let round = 1; round <= totalRounds; round++) {
-        if (round > currentRound) {
-          // Future rounds - show empty
-          roundResults.push({
-            opponent: null,
-            opponentPosition: 0,
-            result: 'withdrawn',
-            color: null,
-            points: 0
+          matches.forEach((match) => {
+            if (match.whitePlayerId === opponentId || match.blackPlayerId === opponentId) {
+              if (match.result && match.result !== "Pending") {
+                const isWhite = match.whitePlayerId === opponentId;
+
+                if (match.result === "1-0") totalPoints += isWhite ? 1 : 0;
+                else if (match.result === "0-1") totalPoints += isWhite ? 0 : 1;
+                else if (match.result === "1/2-1/2") totalPoints += 0.5;
+                else if (match.result === "1F-0F") totalPoints += isWhite ? 1 : 0;
+                else if (match.result === "0F-1F") totalPoints += isWhite ? 0 : 1;
+              }
+            }
           });
-          continue;
-        }
 
-        // Check for bye first
-        const byeThisRound = Array.isArray(pairings) ? pairings.find((pairing: any) => 
-          pairing.playerId === standing.player.id && 
-          pairing.isBye && 
-          pairing.round === round
-        ) : null;
+          return totalPoints;
+        });
+      };
 
-        if (byeThisRound) {
-          const byePoints = byeThisRound.points === 1 ? 0.5 : byeThisRound.points === 2 ? 1 : 0;
-          roundResults.push({
-            opponent: null,
-            opponentPosition: 0,
-            result: 'bye',
-            color: null,
-            points: byePoints
-          });
-          continue;
-        }
-
-        // Check for withdrawal - simplified without withdrawnRound field
-        if (standing.isWithdrawn) {
-          roundResults.push({
-            opponent: null,
-            opponentPosition: 0,
-            result: 'withdrawn',
-            color: null,
-            points: 0
-          });
-          continue;
-        }
-
-        // Find match for this round
-        const matchThisRound = matches.find(match => 
-          match.round === round && 
-          (match.whitePlayerId === standing.player.id || match.blackPlayerId === standing.player.id)
+      // First pass: Calculate basic points and rankings
+      const basicStandings = players.map((player) => {
+        const playerMatches = matches.filter(
+          (match) => match.whitePlayerId === player.id || match.blackPlayerId === player.id
         );
 
-        // Check if player has any pairing (match or bye) for this round
-        const pairingThisRound = Array.isArray(pairings) ? pairings.find((pairing: any) => 
-          pairing.playerId === standing.player.id && 
-          pairing.round === round
-        ) : null;
+        // Get bye pairings for this player
+        const playerByes = pairings.filter(
+          (pairing) =>
+            pairing.playerId === player.id && pairing.isBye && pairing.points !== null && pairing.round <= currentRound,
+        );
 
-        if (!matchThisRound && !pairingThisRound) {
-          // No match or pairing found - player joined late (unplayed round)
-          // Calculate points the player had at the beginning of this round
-          const pointsBeforeRound = roundResults.reduce((sum, result) => sum + result.points, 0);
-          
-          roundResults.push({
-            opponent: null,
-            opponentPosition: 0,
-            result: 'unplayed',
-            color: null,
-            points: pointsBeforeRound // Store the points they had at this round
-          });
-          continue;
-        }
+        let totalPoints = 0;
 
-        if (!matchThisRound) {
-          // No match found but has pairing - might be withdrawn or other issue
-          roundResults.push({
-            opponent: null,
-            opponentPosition: 0,
-            result: 'withdrawn',
-            color: null,
-            points: 0
-          });
-          continue;
-        }
+        // Add points from matches
+        playerMatches.forEach((match) => {
+          if (!match.result) return;
+          const isWhite = match.whitePlayerId === player.id;
 
-        const isWhite = matchThisRound.whitePlayerId === standing.player.id;
-        const opponentId = isWhite ? matchThisRound.blackPlayerId : matchThisRound.whitePlayerId;
-        const opponent = players.find(p => p.id === opponentId) || null;
-        const opponentStanding = standingsWithPositions.find(s => s.player.id === opponentId);
-        const opponentPosition = opponentStanding?.position || 0;
+          if (match.result === "1-0") {
+            totalPoints += isWhite ? 1 : 0;
+          } else if (match.result === "0-1") {
+            totalPoints += isWhite ? 0 : 1;
+          } else if (match.result === "1/2-1/2") {
+            totalPoints += 0.5;
+          } else if (match.result === "1F-0F") {
+            totalPoints += isWhite ? 1 : 0;
+          } else if (match.result === "0F-1F") {
+            totalPoints += isWhite ? 0 : 1;
+          }
+        });
 
-        let result: PlayerRoundResult['result'] = 'withdrawn';
-        let points = 0;
+        // Add points from byes
+        playerByes.forEach((bye) => {
+          const byePoints = bye.points === 1 ? 0.5 : bye.points === 2 ? 1 : 0;
+          totalPoints += byePoints;
+        });
 
-        if (matchThisRound.result) {
-          if (matchThisRound.result === '1-0') {
-            result = isWhite ? 'W' : 'L';
-            points = isWhite ? 1 : 0;
-          } else if (matchThisRound.result === '0-1') {
-            result = isWhite ? 'L' : 'W';
-            points = isWhite ? 0 : 1;
-          } else if (matchThisRound.result === '1/2-1/2') {
-            result = 'D';
-            points = 0.5;
-          } else if (matchThisRound.result === '1F-0F') {
-            result = isWhite ? 'forfeit-win' : 'forfeit-loss';
-            points = isWhite ? 1 : 0;
-          } else if (matchThisRound.result === '0F-1F') {
-            result = isWhite ? 'forfeit-loss' : 'forfeit-win';
-            points = isWhite ? 0 : 1;
-          } else if (matchThisRound.result === '1-bye') {
-            result = 'bye';
-            points = 1; // 1-point bye
+        return {
+          player,
+          totalPoints,
+          isWithdrawn: false, // Simplified for now
+        };
+      });
+
+      // Calculate tiebreakers for each player if using USCF system
+      const standingsWithTiebreakers = tournament?.tiebreakOrder === "uscf"
+        ? basicStandings.map((standing) => ({
+            ...standing,
+            modifiedMedian: calculateModifiedMedian(standing.player.id),
+            solkoff: calculateSolkoff(standing.player.id),
+            cumulative: calculateCumulative(standing.player.id),
+          }))
+        : basicStandings;
+
+      // Sort by points first, then by tiebreaker system
+      standingsWithTiebreakers.sort((a, b) => {
+        if (b.totalPoints !== a.totalPoints) return b.totalPoints - a.totalPoints;
+
+        if (tournament?.tiebreakOrder === "uscf") {
+          // USCF tiebreaker order: Modified Median → Solkoff → Cumulative
+          const aWithTiebreaks = a as any;
+          const bWithTiebreaks = b as any;
+
+          if (bWithTiebreaks.modifiedMedian !== aWithTiebreaks.modifiedMedian) {
+            return bWithTiebreaks.modifiedMedian - aWithTiebreaks.modifiedMedian;
+          }
+          if (bWithTiebreaks.solkoff !== aWithTiebreaks.solkoff) {
+            return bWithTiebreaks.solkoff - aWithTiebreaks.solkoff;
+          }
+          if (bWithTiebreaks.cumulative !== aWithTiebreaks.cumulative) {
+            return bWithTiebreaks.cumulative - aWithTiebreaks.cumulative;
           }
         }
 
-        roundResults.push({
-          opponent,
-          opponentPosition,
-          result,
-          color: isWhite ? 'white' : 'black',
-          points
-        });
-      }
+        // Final tiebreaker: rating
+        return (b.player.rating || 0) - (a.player.rating || 0);
+      });
 
-      return {
-        player: standing.player,
-        position: standing.position,
-        totalPoints: standing.totalPoints,
-        roundResults,
-        isWithdrawn: standing.isWithdrawn
-      };
-    });
+      // Assign positions
+      const standingsWithPositions = standingsWithTiebreakers.map((standing, index) => ({
+        ...standing,
+        position: index + 1,
+      }));
 
-    return detailedStandings;
-  };
+      // Second pass: Calculate detailed round results
+      const detailedStandings: SwissPlayerStanding[] = standingsWithPositions.map((standing) => {
+        const roundResults: PlayerRoundResult[] = [];
 
-  const standings = calculateSwissStandings();
-  const currentRound = matches.length > 0 ? Math.max(...matches.map(m => m.round)) : 0;
-  const totalRounds = Math.max(currentRound, tournament.rounds || 5);
+        for (let round = 1; round <= totalRounds; round++) {
+          if (round > currentRound) {
+            // Future rounds - show empty
+            roundResults.push({
+              opponent: null,
+              opponentPosition: 0,
+              result: "withdrawn",
+              color: null,
+              points: 0,
+            });
+            continue;
+          }
+
+          // Check for bye first
+          const byeThisRound = pairings.find(
+            (pairing) => pairing.playerId === standing.player.id && pairing.isBye && pairing.round === round,
+          );
+
+          if (byeThisRound) {
+            const byePoints = byeThisRound.points === 1 ? 0.5 : byeThisRound.points === 2 ? 1 : 0;
+            roundResults.push({
+              opponent: null,
+              opponentPosition: 0,
+              result: "bye",
+              color: null,
+              points: byePoints,
+            });
+            continue;
+          }
+
+          // Check for withdrawal - simplified without withdrawnRound field
+          if (standing.isWithdrawn) {
+            roundResults.push({
+              opponent: null,
+              opponentPosition: 0,
+              result: "withdrawn",
+              color: null,
+              points: 0,
+            });
+            continue;
+          }
+
+          // Find match for this round
+          const matchThisRound = matches.find(
+            (match) =>
+              match.round === round &&
+              (match.whitePlayerId === standing.player.id || match.blackPlayerId === standing.player.id),
+          );
+
+          // Check if player has any pairing (match or bye) for this round
+          const pairingThisRound = pairings.find(
+            (pairing) => pairing.playerId === standing.player.id && pairing.round === round,
+          );
+
+          if (!matchThisRound && !pairingThisRound) {
+            // No match or pairing found - player joined late (unplayed round)
+            const pointsBeforeRound = roundResults.reduce((sum, result) => sum + result.points, 0);
+
+            roundResults.push({
+              opponent: null,
+              opponentPosition: 0,
+              result: "unplayed",
+              color: null,
+              points: pointsBeforeRound,
+            });
+            continue;
+          }
+
+          if (!matchThisRound) {
+            // No match found but has pairing - might be withdrawn or other issue
+            roundResults.push({
+              opponent: null,
+              opponentPosition: 0,
+              result: "withdrawn",
+              color: null,
+              points: 0,
+            });
+            continue;
+          }
+
+          const isWhite = matchThisRound.whitePlayerId === standing.player.id;
+          const opponentId = isWhite ? matchThisRound.blackPlayerId : matchThisRound.whitePlayerId;
+          const opponent = opponentId ? playerById.get(opponentId) ?? null : null;
+          const opponentStanding = standingsWithPositions.find((s) => s.player.id === opponentId);
+          const opponentPosition = opponentStanding?.position || 0;
+
+          let result: PlayerRoundResult["result"] = "withdrawn";
+          let points = 0;
+
+          if (matchThisRound.result) {
+            if (matchThisRound.result === "1-0") {
+              result = isWhite ? "W" : "L";
+              points = isWhite ? 1 : 0;
+            } else if (matchThisRound.result === "0-1") {
+              result = isWhite ? "L" : "W";
+              points = isWhite ? 0 : 1;
+            } else if (matchThisRound.result === "1/2-1/2") {
+              result = "D";
+              points = 0.5;
+            } else if (matchThisRound.result === "1F-0F") {
+              result = isWhite ? "forfeit-win" : "forfeit-loss";
+              points = isWhite ? 1 : 0;
+            } else if (matchThisRound.result === "0F-1F") {
+              result = isWhite ? "forfeit-loss" : "forfeit-win";
+              points = isWhite ? 0 : 1;
+            } else if (matchThisRound.result === "1-bye") {
+              result = "bye";
+              points = 1;
+            }
+          }
+
+          roundResults.push({
+            opponent,
+            opponentPosition,
+            result,
+            color: isWhite ? "white" : "black",
+            points,
+          });
+        }
+
+        return {
+          player: standing.player,
+          position: standing.position,
+          totalPoints: standing.totalPoints,
+          roundResults,
+          isWithdrawn: standing.isWithdrawn,
+        };
+      });
+
+      return detailedStandings;
+    },
+    [playerById, tournament],
+  );
+
+  const standings = useMemo(
+    () => calculateSwissStandings(filteredPlayers, filteredMatches, filteredPairings),
+    [calculateSwissStandings, filteredPlayers, filteredMatches, filteredPairings],
+  );
+  const currentRound = filteredMatches.length > 0 ? Math.max(...filteredMatches.map((m) => m.round)) : 0;
+  const totalRounds = Math.max(currentRound, tournament?.rounds || 5);
 
   const downloadStandings = () => {
     // Create CSV content with tiebreakers if using USCF system
@@ -412,15 +504,19 @@ export default function SwissStandings({ tournamentId }: SwissStandingsProps) {
     });
 
     const csvContent = [headers, ...rows]
-      .map(row => row.map(cell => `"${cell}"`).join(','))
+      .map((row) => row.map((cell) => `"${cell}"`).join(','))
       .join('\n');
+
+    const sectionSlug = selectedSectionId === "__all__"
+      ? "all-sections"
+      : selectedSectionLabel.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "") || "section";
 
     // Create download link
     const blob = new Blob([csvContent], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `${tournament.name}_standings_round_${currentRound}.csv`;
+    link.download = `${tournament.name}_standings_${sectionSlug}_round_${currentRound}.csv`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -501,27 +597,52 @@ export default function SwissStandings({ tournamentId }: SwissStandingsProps) {
   return (
     <Card>
       <CardHeader>
-        <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
             <CardTitle>Swiss Tournament Standings</CardTitle>
-            <p className="text-sm text-gray-600 mt-1">
-              Detailed round-by-round results and current rankings
-            </p>
-            {tournament?.tiebreakOrder === 'uscf' && (
-              <p className="text-xs text-gray-400 mt-1">
-                MM: Modified Median | SK: Solkoff | CU: Cumulative
-              </p>
+            <p className="mt-1 text-sm text-gray-600">Detailed round-by-round results and current rankings</p>
+            {selectedSectionId !== "__all__" && (
+              <p className="text-xs text-muted-foreground">Showing Section: {selectedSectionLabel}</p>
+            )}
+            {tournament?.tiebreakOrder === "uscf" && (
+              <p className="mt-1 text-xs text-gray-400">MM: Modified Median | SK: Solkoff | CU: Cumulative</p>
             )}
           </div>
-          <Button
-            onClick={downloadStandings}
-            variant="outline"
-            size="sm"
-            className="flex items-center gap-2"
-          >
-            <Download className="w-4 h-4" />
-            Download CSV
-          </Button>
+          <div className="flex flex-col items-end gap-3">
+            {sections.length > 0 && (
+              <div className="flex flex-wrap justify-end gap-2">
+                <Button
+                  variant={selectedSectionId === "__all__" ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => setSelectedSectionId("__all__")}
+                >
+                  All Sections
+                </Button>
+                {sections.map((section) => (
+                  <Button
+                    key={section.id}
+                    variant={selectedSectionId === section.id ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => setSelectedSectionId(section.id)}
+                  >
+                    {section.name}
+                  </Button>
+                ))}
+              </div>
+            )}
+            {showExportControls ? (
+              <Button
+                onClick={downloadStandings}
+                variant="outline"
+                size="sm"
+                className="flex items-center gap-2"
+                disabled={standings.length === 0}
+              >
+                <Download className="h-4 w-4" />
+                Download CSV
+              </Button>
+            ) : null}
+          </div>
         </div>
       </CardHeader>
       <CardContent>

@@ -502,7 +502,7 @@ export default function PlayerDashboard() {
               </CardHeader>
               <CardContent>
                 {selectedTournament.format === "swiss" || selectedTournament.format === "roundrobin" ? (
-                  <SwissPairings tournamentId={selectedTournament.id} />
+                  <SwissPairings tournamentId={selectedTournament.id} showExportControls={false} />
                 ) : (
                   <p className="text-gray-600 dark:text-gray-400">
                     Pairings view not available for {getFormatName(selectedTournament.format)} format
@@ -522,9 +522,9 @@ export default function PlayerDashboard() {
                 {selectedTournament.format === "roundrobin" ? (
                   <RoundRobinCrosstable tournamentId={selectedTournament.id} />
                 ) : selectedTournament.format === "swiss" ? (
-                  <SwissStandings tournamentId={selectedTournament.id} />
+                  <SwissStandings tournamentId={selectedTournament.id} showExportControls={false} />
                 ) : (
-                  <Standings tournamentId={selectedTournament.id} />
+                  <Standings tournamentId={selectedTournament.id} showExportControls={false} />
                 )}
               </CardContent>
             </Card>

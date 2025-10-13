@@ -13,6 +13,7 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { parseTournamentConfig } from "@/lib/tournament-config";
 import type { Player, Tournament } from "@shared/schema";
+import type { SectionDefinition } from "@shared/tournament-config";
 import { useAuth } from "@/hooks/useAuth";
 
 type SourceKey = "uscf" | "fide";
@@ -200,6 +201,27 @@ export default function AddPlayerPage({ tournamentId }: AddPlayerPageProps) {
       ? FEDERATION_OPTIONS
       : [defaultFederation, ...FEDERATION_OPTIONS];
   }, [defaultFederation]);
+  const sections = useMemo<SectionDefinition[]>(() => {
+    const source = tournamentConfig.sections ?? [];
+    return source.filter((section) => section.name.trim().length > 0);
+  }, [tournamentConfig]);
+  const primarySection = sections[0];
+  const resolveSectionByRating = useCallback(
+    (ratingValue: number | null | undefined) => {
+      if (!sections.length) return undefined;
+      if (ratingValue === null || ratingValue === undefined || Number.isNaN(ratingValue)) {
+        return sections[0];
+      }
+      return (
+        sections.find((section) => {
+          const minOk = section.ratingMin === null || ratingValue >= section.ratingMin;
+          const maxOk = section.ratingMax === null || ratingValue <= section.ratingMax;
+          return minOk && maxOk;
+        }) ?? sections[0]
+      );
+    },
+    [sections],
+  );
 
   const [activeTab, setActiveTab] = useState<TabKey>("basic");
   const [searchInputs, setSearchInputs] = useState({ term: "", lastName: "", firstName: "", id: "" });
@@ -207,7 +229,7 @@ export default function AddPlayerPage({ tournamentId }: AddPlayerPageProps) {
   const [combinedNameInput, setCombinedNameInput] = useState("");
 
   const createEmptyForm = useCallback(
-    () => ({
+    (initialSection?: { id?: string; name?: string | null }) => ({
       firstName: "",
       lastName: "",
       federation: defaultFederation,
@@ -231,15 +253,51 @@ export default function AddPlayerPage({ tournamentId }: AddPlayerPageProps) {
       paymentDate: "",
       paymentMethod: "",
       paymentAmount: "",
+      sectionId: initialSection?.id ?? "",
+      sectionName: initialSection?.name ?? "",
     }),
     [defaultFederation],
   );
 
-  const [formState, setFormState] = useState(createEmptyForm);
+  const [formState, setFormState] = useState(() => createEmptyForm());
 
   useEffect(() => {
-    setFormState(createEmptyForm());
-  }, [createEmptyForm]);
+    setFormState((prev) => {
+      const hasUserInput = Object.values(prev).some((value) => typeof value === "string" && value.trim().length > 0);
+      if (hasUserInput) return prev;
+      return createEmptyForm(primarySection);
+    });
+  }, [createEmptyForm, primarySection]);
+
+  useEffect(() => {
+    setFormState((prev) => {
+      if (sections.length === 0) {
+        if (!prev.sectionId && !prev.sectionName) return prev;
+        return { ...prev, sectionId: "", sectionName: "" };
+      }
+
+      const currentById = prev.sectionId
+        ? sections.find((section) => section.id === prev.sectionId)
+        : undefined;
+
+      if (currentById) {
+        if (currentById.name === prev.sectionName) return prev;
+        return { ...prev, sectionName: currentById.name };
+      }
+
+      const matchByName = prev.sectionName
+        ? sections.find((section) => section.name === prev.sectionName)
+        : undefined;
+
+      if (matchByName) {
+        if (prev.sectionId === matchByName.id) return prev;
+        return { ...prev, sectionId: matchByName.id, sectionName: matchByName.name };
+      }
+
+      if (!primarySection) return prev;
+      return { ...prev, sectionId: primarySection.id, sectionName: primarySection.name };
+    });
+  }, [sections, primarySection]);
 
   useEffect(() => {
     const handle = setTimeout(() => {
@@ -380,11 +438,18 @@ export default function AddPlayerPage({ tournamentId }: AddPlayerPageProps) {
 
   const addPlayerMutation = useMutation<void, Error, "close" | "new">({
     mutationFn: async (_mode) => {
+      const selectedSectionDetails = formState.sectionId
+        ? sections.find((section) => section.id === formState.sectionId)
+        : formState.sectionName
+          ? sections.find((section) => section.name === formState.sectionName)
+          : undefined;
       const payload = {
         firstName: formState.firstName.trim() || "Player",
         lastName: formState.lastName.trim() || `#${players.length + 1}`,
         rating: Number(formState.rating) || 0,
         federation: formState.federation || "United States",
+        sectionId: formState.sectionId || selectedSectionDetails?.id || null,
+        sectionName: (selectedSectionDetails?.name ?? formState.sectionName)?.trim() || null,
       };
       return apiRequest(`/api/tournaments/${tournamentId}/players`, {
         method: "POST",
@@ -395,7 +460,7 @@ export default function AddPlayerPage({ tournamentId }: AddPlayerPageProps) {
       toast({ title: "Player added" });
       queryClient.invalidateQueries({ queryKey: [`/api/tournaments/${tournamentId}/players`] });
       if (mode === "new") {
-        const nextForm = createEmptyForm();
+        const nextForm = createEmptyForm(primarySection);
         setFormState(nextForm);
         setCombinedNameInput("");
         setSearchInputs({ term: "", lastName: "", firstName: "", id: "" });
@@ -433,6 +498,14 @@ export default function AddPlayerPage({ tournamentId }: AddPlayerPageProps) {
       next.rating = mainRating;
       if (!next.ratingLocal) {
         next.ratingLocal = mainRating;
+      }
+      const numericRating = Number(mainRating);
+      if (!Number.isNaN(numericRating)) {
+        const detectedSection = resolveSectionByRating(numericRating);
+        if (detectedSection) {
+          next.sectionId = detectedSection.id;
+          next.sectionName = detectedSection.name;
+        }
       }
 
       const rapidValue = extractRatingValue(rapidRating) || extractRatingValue(quickRating);
@@ -853,6 +926,40 @@ export default function AddPlayerPage({ tournamentId }: AddPlayerPageProps) {
                             value={formState.ratingBlitz}
                             onChange={(event) => setFormState((prev) => ({ ...prev, ratingBlitz: event.target.value }))}
                           />
+                        </div>
+                        <div className="md:col-span-4">
+                          <Label className="text-sm font-semibold text-slate-700">Section</Label>
+                          <Select
+                            value={formState.sectionId || ""}
+                            onValueChange={(value) => {
+                              setFormState((prev) => {
+                                const nextSection = sections.find((section) => section.id === value);
+                                return {
+                                  ...prev,
+                                  sectionId: value,
+                                  sectionName: nextSection?.name ?? prev.sectionName,
+                                };
+                              });
+                            }}
+                            disabled={sections.length === 0}
+                          >
+                            <SelectTrigger className="mt-1">
+                              <SelectValue placeholder={sections.length === 0 ? "Sections unavailable" : "Choose a section"} />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {sections.length === 0 ? (
+                                <SelectItem value="" disabled>
+                                  Sections not configured
+                                </SelectItem>
+                              ) : (
+                                sections.map((section) => (
+                                  <SelectItem key={section.id} value={section.id}>
+                                    {section.name}
+                                  </SelectItem>
+                                ))
+                              )}
+                            </SelectContent>
+                          </Select>
                         </div>
                       </div>
                     </div>

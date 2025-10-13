@@ -163,7 +163,7 @@ export default function TournamentView({ tournamentId }: TournamentViewProps) {
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <SwissPairings tournamentId={tournamentId} />
+                <SwissPairings tournamentId={tournamentId} showExportControls={false} />
               </CardContent>
             </Card>
           </TabsContent>
@@ -172,7 +172,7 @@ export default function TournamentView({ tournamentId }: TournamentViewProps) {
             {tournament.format === "roundrobin" ? (
               <RoundRobinCrosstable tournamentId={tournamentId} />
             ) : tournament.format === "swiss" ? (
-              <SwissStandings tournamentId={tournamentId} />
+              <SwissStandings tournamentId={tournamentId} showExportControls={false} />
             ) : (
               <Card>
                 <CardHeader>

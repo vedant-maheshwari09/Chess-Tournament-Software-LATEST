@@ -1,21 +1,24 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
-import { Play, RefreshCw, Crown as Chess, ChevronLeft, ChevronRight, RotateCcw } from "lucide-react";
+import { Play, RefreshCw, Crown as Chess, RotateCcw, Printer, Download } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import type { Match, Player, Pairing, Tournament } from "@shared/schema";
+import { parseTournamentConfig } from "@/lib/tournament-config";
+import type { SectionDefinition } from "@shared/tournament-config";
 
 interface TournamentPairingsProps {
   tournamentId: number;
+  showExportControls?: boolean;
 }
 
-export default function SwissPairings({ tournamentId }: TournamentPairingsProps) {
+export default function SwissPairings({ tournamentId, showExportControls = true }: TournamentPairingsProps) {
   const [currentRound, setCurrentRound] = useState(1);
   const [pendingResultChange, setPendingResultChange] = useState<{matchId: number, result: string, isPastRound: boolean} | null>(null);
   const [selectedPlayers, setSelectedPlayers] = useState<{
@@ -37,6 +40,17 @@ export default function SwissPairings({ tournamentId }: TournamentPairingsProps)
     queryKey: [`/api/tournaments/${tournamentId}`],
   });
 
+  const tournamentConfig = useMemo(() => (tournament ? parseTournamentConfig(tournament) : null), [tournament]);
+  const sections = useMemo<SectionDefinition[]>(() => {
+    if (!tournamentConfig) return [];
+    return (tournamentConfig.sections ?? []).filter((section) => section.name.trim().length > 0);
+  }, [tournamentConfig]);
+  const [selectedSectionId, setSelectedSectionId] = useState<string>("__all__");
+  const selectedSectionLabel = useMemo(() => {
+    if (selectedSectionId === "__all__") return "All Sections";
+    return sections.find((section) => section.id === selectedSectionId)?.name ?? "All Sections";
+  }, [sections, selectedSectionId]);
+
   // Check if user is a tournament director and owns this tournament
   const isTournamentDirector = user?.role === 'tournament_director';
   const isOwner = isTournamentDirector && tournament && user && tournament.createdBy === user.id;
@@ -50,6 +64,13 @@ export default function SwissPairings({ tournamentId }: TournamentPairingsProps)
     userRole: user?.role 
   });
 
+  useEffect(() => {
+    setSelectedSectionId((prev) => {
+      if (prev === "__all__") return prev;
+      return sections.some((section) => section.id === prev) ? prev : sections[0]?.id ?? "__all__";
+    });
+  }, [sections]);
+
   // Get all matches to determine the current round
   const { data: allMatches } = useQuery<Match[]>({
     queryKey: [`/api/tournaments/${tournamentId}/matches`],
@@ -62,6 +83,7 @@ export default function SwissPairings({ tournamentId }: TournamentPairingsProps)
       setCurrentRound(latestRound);
     }
   }, [allMatches]);
+
 
   // Auto-expire lastSwapState after 30 seconds
   useEffect(() => {
@@ -90,6 +112,52 @@ export default function SwissPairings({ tournamentId }: TournamentPairingsProps)
     queryKey: [`/api/tournaments/${tournamentId}/players`],
   });
 
+  const playerSectionMap = useMemo(() => {
+    const map = new Map<number, SectionDefinition>();
+    if (!players) return map;
+    const sectionsByName = new Map<string, SectionDefinition>();
+    sections.forEach((section) => {
+      sectionsByName.set(section.name.trim().toLowerCase(), section);
+    });
+    players.forEach((player) => {
+      let assigned: SectionDefinition | undefined;
+      if (player.sectionId) {
+        assigned = sections.find((section) => section.id === player.sectionId);
+      }
+      if (!assigned && player.sectionName) {
+        assigned = sectionsByName.get(player.sectionName.trim().toLowerCase());
+      }
+      if (!assigned) {
+        const rating = typeof player.rating === "number" ? player.rating : Number(player.rating);
+        if (!Number.isNaN(rating)) {
+          assigned = sections.find((section) => {
+            const minOk = section.ratingMin === null || rating >= section.ratingMin;
+            const maxOk = section.ratingMax === null || rating <= section.ratingMax;
+            return minOk && maxOk;
+          });
+        }
+      }
+      if (!assigned && sections.length) {
+        assigned = sections[0];
+      }
+      if (assigned) {
+        map.set(player.id, assigned);
+      }
+    });
+    return map;
+  }, [players, sections]);
+
+  const matchSectionFilter = useCallback(
+    (match: Match, targetSectionId: string) => {
+      if (targetSectionId === "__all__") return true;
+      const whiteSectionId = match.whitePlayerId ? playerSectionMap.get(match.whitePlayerId)?.id : undefined;
+      const blackSectionId = match.blackPlayerId ? playerSectionMap.get(match.blackPlayerId)?.id : undefined;
+      if (!whiteSectionId && !blackSectionId) return false;
+      return whiteSectionId === targetSectionId || blackSectionId === targetSectionId;
+    },
+    [playerSectionMap],
+  );
+
   // Get pairings to check for byes (current round)
   const { data: pairings } = useQuery<Pairing[]>({
     queryKey: [`/api/tournaments/${tournamentId}/pairings`, { round: currentRound }],
@@ -102,6 +170,80 @@ export default function SwissPairings({ tournamentId }: TournamentPairingsProps)
   const { data: allTournamentPairings } = useQuery<Pairing[]>({
     queryKey: [`/api/tournaments/${tournamentId}/pairings`],
   });
+
+  const filteredMatches = useMemo(() => {
+    if (!matches) return [] as Match[];
+    if (selectedSectionId === "__all__") return [...matches];
+    return matches.filter((match) => matchSectionFilter(match, selectedSectionId));
+  }, [matches, matchSectionFilter, selectedSectionId]);
+
+  const roundRobinGroups = useMemo(() => {
+    if (!matches || tournament?.format !== 'roundrobin') return [] as Array<{ round: number; matches: Match[] }>;
+    const grouped = new Map<number, Match[]>();
+    matches.forEach((match) => {
+      if (!matchSectionFilter(match, selectedSectionId)) return;
+      const list = grouped.get(match.round) ?? [];
+      list.push(match);
+      grouped.set(match.round, list);
+    });
+    return Array.from(grouped.entries())
+      .sort((a, b) => a[0] - b[0])
+      .map(([round, items]) => ({
+        round,
+        matches: [...items].sort((a, b) => (a.board || 0) - (b.board || 0)),
+      }));
+  }, [matches, matchSectionFilter, selectedSectionId, tournament?.format]);
+
+  const swissMatches = useMemo(() => {
+    if (tournament?.format !== 'swiss') return [] as Match[];
+    return [...filteredMatches].sort((a, b) => (a.board || 0) - (b.board || 0));
+  }, [filteredMatches, tournament?.format]);
+
+  const filteredByes = useMemo(() => {
+    if (!pairings) return [] as Pairing[];
+    const byes = pairings.filter((pairing) => pairing.isBye);
+    if (selectedSectionId === "__all__") return byes;
+    return byes.filter((pairing) => playerSectionMap.get(pairing.playerId)?.id === selectedSectionId);
+  }, [pairings, playerSectionMap, selectedSectionId]);
+
+  const pairingGroups = useMemo(() => {
+    if (tournament?.format === 'roundrobin') {
+      return roundRobinGroups;
+    }
+    if (tournament?.format === 'swiss') {
+      return swissMatches.length ? [{ round: currentRound, matches: swissMatches }] : [];
+    }
+    return [] as Array<{ round: number; matches: Match[] }>;
+  }, [currentRound, roundRobinGroups, swissMatches, tournament?.format]);
+
+  const hasPrintableMatches = pairingGroups.some((group) => group.matches.length > 0);
+  const hasDisplayData = hasPrintableMatches || (tournament?.format === 'swiss' && filteredByes.length > 0);
+
+  const matchesForStatus = useMemo(() => {
+    if (tournament?.format === 'roundrobin') {
+      return roundRobinGroups.find((group) => group.round === currentRound)?.matches ?? [];
+    }
+    if (tournament?.format === 'swiss') {
+      return swissMatches;
+    }
+    return filteredMatches;
+  }, [currentRound, filteredMatches, roundRobinGroups, swissMatches, tournament?.format]);
+
+  const maxRoundFromMatches = useMemo(() => {
+    if (!allMatches || allMatches.length === 0) return 0;
+    return Math.max(...allMatches.map((match) => match.round));
+  }, [allMatches]);
+  const plannedRounds = tournament?.rounds ?? 0;
+  const totalRounds = Math.max(maxRoundFromMatches, plannedRounds, 1);
+  const roundNumbers = useMemo(() => Array.from({ length: totalRounds }, (_, index) => index + 1), [totalRounds]);
+
+  useEffect(() => {
+    setCurrentRound((prev) => {
+      if (prev < 1) return 1;
+      if (prev > totalRounds) return totalRounds;
+      return prev;
+    });
+  }, [totalRounds]);
 
   const generatePairingsMutation = useMutation({
     mutationFn: async ({ regenerate = false }: { regenerate?: boolean } = {}) => {
@@ -309,67 +451,172 @@ export default function SwissPairings({ tournamentId }: TournamentPairingsProps)
     },
   });
 
-  const getPlayerName = (playerId: number | null) => {
-    if (!playerId || !players) return "BYE";
-    const player = players.find(p => p.id === playerId);
-    if (!player) return "Unknown";
-    
-    const fullName = `${player.firstName} ${player.lastName}`;
-    // Add substitute player note for houseplayers
-    if (player.isActiveTd) {
-      return `${fullName} (substitute player)`;
-    }
-    return fullName;
-  };
+  const getPlayerName = useCallback(
+    (playerId: number | null) => {
+      if (!playerId || !players) return "BYE";
+      const player = players.find((p) => p.id === playerId);
+      if (!player) return "Unknown";
 
-  const getPlayerRating = (playerId: number | null) => {
-    if (!playerId || !players) return 0;
-    const player = players.find(p => p.id === playerId);
-    return player?.rating || 0;
-  }
+      const fullName = `${player.firstName} ${player.lastName}`;
+      if (player.isActiveTd) {
+        return `${fullName} (substitute player)`;
+      }
+      return fullName;
+    },
+    [players],
+  );
 
-  const getPlayerPoints = (playerId: number | null, beforeRound: number = 999) => {
-    if (!playerId || !allMatches) return 0;
-    
-    let points = 0;
-    
-    // Calculate points from completed matches BEFORE the specified round
-    for (const match of allMatches) {
-      if ((match.whitePlayerId === playerId || match.blackPlayerId === playerId) && 
-          match.round < beforeRound) {
-        if (match.result && match.result !== 'Pending') {
-          if (match.result === '1/2-1/2') {
-            // Draw - both players get 0.5 points
-            points += 0.5;
-          } else if (
-            (match.result === '1-0' && match.whitePlayerId === playerId) ||
-            (match.result === '0-1' && match.blackPlayerId === playerId) ||
-            (match.result === '1F-0F' && match.whitePlayerId === playerId) ||
-            (match.result === '0F-1F' && match.blackPlayerId === playerId)
-          ) {
-            // Win - player gets 1 point (including forfeit wins)
-            points += 1;
+  const getPlayerRating = useCallback(
+    (playerId: number | null) => {
+      if (!playerId || !players) return 0;
+      const player = players.find((p) => p.id === playerId);
+      return player?.rating || 0;
+    },
+    [players],
+  );
+
+  const getPlayerPoints = useCallback(
+    (playerId: number | null, beforeRound: number = 999) => {
+      if (!playerId || !allMatches) return 0;
+
+      let points = 0;
+
+      for (const match of allMatches) {
+        if ((match.whitePlayerId === playerId || match.blackPlayerId === playerId) && match.round < beforeRound) {
+          if (match.result && match.result !== 'Pending') {
+            if (match.result === '1/2-1/2') {
+              points += 0.5;
+            } else if (
+              (match.result === '1-0' && match.whitePlayerId === playerId) ||
+              (match.result === '0-1' && match.blackPlayerId === playerId) ||
+              (match.result === '1F-0F' && match.whitePlayerId === playerId) ||
+              (match.result === '0F-1F' && match.blackPlayerId === playerId)
+            ) {
+              points += 1;
+            }
           }
-          // Loss - player gets 0 points (no need to add anything)
         }
       }
-    }
-    
-    // Add points from bye pairings BEFORE the specified round (convert from integer mapping)
-    if (allTournamentPairings) {
-      for (const pairing of allTournamentPairings) {
-        if (pairing.playerId === playerId && 
-            pairing.isBye && 
-            pairing.round < beforeRound) {
-          // Convert from integer mapping: 0=0pts, 1=0.5pts, 2=1pt
-          const byePoints = pairing.points === 1 ? 0.5 : pairing.points === 2 ? 1 : 0;
-          points += byePoints;
+
+      if (allTournamentPairings) {
+        for (const pairing of allTournamentPairings) {
+          if (
+            pairing.playerId === playerId &&
+            pairing.isBye &&
+            pairing.round < beforeRound
+          ) {
+            const byePoints = pairing.points === 1 ? 0.5 : pairing.points === 2 ? 1 : 0;
+            points += byePoints;
+          }
         }
       }
+
+      return points;
+    },
+    [allMatches, allTournamentPairings],
+  );
+
+  const handlePrintPairings = useCallback(() => {
+    if (!hasPrintableMatches || typeof window === "undefined") return;
+    const headingSuffix = selectedSectionId === "__all__" ? "" : ` – ${selectedSectionLabel}`;
+    const title = `${tournament?.name ?? "Tournament"} Pairings${headingSuffix}`;
+    const printWindow = window.open("", "_blank");
+    if (!printWindow) return;
+
+    printWindow.document.write(
+      `<html><head><title>${title}</title><style>body{font-family:Arial,Helvetica,sans-serif;padding:24px;color:#0f172a;}h1{font-size:24px;margin-bottom:16px;}h2{font-size:18px;margin:24px 0 12px;}table{width:100%;border-collapse:collapse;margin-bottom:24px;}th,td{border:1px solid #cbd5f5;padding:8px;text-align:left;font-size:14px;}th{background:#f1f5f9;text-transform:uppercase;letter-spacing:0.05em;font-size:12px;color:#475569;}</style></head><body>`,
+    );
+    printWindow.document.write(`<h1>${title}</h1>`);
+
+    pairingGroups.forEach(({ round, matches }) => {
+      if (!matches.length) return;
+      printWindow.document.write(
+        `<h2>Round ${round}</h2><table><thead><tr><th>Board</th><th>White</th><th>Black</th><th>Result</th></tr></thead><tbody>`,
+      );
+      matches.forEach((match) => {
+        const whiteName = getPlayerName(match.whitePlayerId);
+        const blackName = match.blackPlayerId ? getPlayerName(match.blackPlayerId) : "Bye";
+        const result = match.result ?? "";
+        printWindow.document.write(
+          `<tr><td>${match.board ?? ""}</td><td>${whiteName}</td><td>${blackName}</td><td>${result}</td></tr>`,
+        );
+      });
+      printWindow.document.write(`</tbody></table>`);
+    });
+
+    if (tournament?.format === 'swiss' && filteredByes.length > 0) {
+      printWindow.document.write(
+        `<h2>Byes</h2><table><thead><tr><th>Player</th><th>Points</th><th>Type</th></tr></thead><tbody>`,
+      );
+      filteredByes.forEach((bye) => {
+        const playerName = getPlayerName(bye.playerId);
+        const points = bye.points === 1 ? "0.5" : bye.points === 2 ? "1" : "0";
+        const type = bye.byeType === 'half_point' ? '½ Point Bye' : bye.byeType === 'zero_point' ? '0 Point Bye' : '1 Point Bye';
+        printWindow.document.write(`<tr><td>${playerName}</td><td>${points}</td><td>${type}</td></tr>`);
+      });
+      printWindow.document.write(`</tbody></table>`);
     }
-    
-    return points;
-  };
+
+    printWindow.document.write(`</body></html>`);
+    printWindow.document.close();
+    printWindow.focus();
+    printWindow.print();
+  }, [filteredByes, getPlayerName, hasPrintableMatches, pairingGroups, selectedSectionId, selectedSectionLabel, tournament?.name]);
+
+  const handleDownloadPairings = useCallback(() => {
+    if (!hasPrintableMatches || typeof window === "undefined") return;
+    const rows: string[][] = [["Round", "Board", "White", "Black", "Result"]];
+
+    pairingGroups.forEach(({ round, matches }) => {
+      matches.forEach((match) => {
+        rows.push([
+          String(round),
+          match.board ? String(match.board) : "",
+          getPlayerName(match.whitePlayerId),
+          match.blackPlayerId ? getPlayerName(match.blackPlayerId) : "Bye",
+          match.result ?? "",
+        ]);
+      });
+    });
+
+    if (tournament?.format === 'swiss' && filteredByes.length > 0) {
+      filteredByes.forEach((bye) => {
+        rows.push([
+          String(currentRound),
+          "",
+          getPlayerName(bye.playerId),
+          "Bye",
+          bye.byeType ?? "Bye",
+        ]);
+      });
+    }
+
+    const csv = rows
+      .map((row) =>
+        row
+          .map((value) => {
+            const safe = value.replace(/"/g, '""');
+            return `"${safe}"`;
+          })
+          .join(","),
+      )
+      .join("\r\n");
+
+    const sectionSlug = selectedSectionId === "__all__"
+      ? "all-sections"
+      : selectedSectionLabel.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "") || "section";
+    const baseName = (tournament?.name ?? "tournament").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "") || "event";
+    const roundLabel = tournament?.format === 'swiss' ? `round-${currentRound}` : "all-rounds";
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `${baseName}-pairings-${roundLabel}-${sectionSlug}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  }, [currentRound, filteredByes, getPlayerName, hasPrintableMatches, pairingGroups, selectedSectionId, selectedSectionLabel, tournament?.format, tournament?.name]);
 
   const handleResultChange = (matchId: number, result: string) => {
     console.log(`Attempting to change match ${matchId} result to: ${result}`);
@@ -509,171 +756,322 @@ export default function SwissPairings({ tournamentId }: TournamentPairingsProps)
   return (
     <Card>
       <CardHeader className="space-y-6">
-        {/* Header Row */}
-        <div className="flex justify-between items-start">
+        <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
             <CardTitle className="flex items-center gap-2">
               <Chess className="h-5 w-5" />
               Round {currentRound} Pairings
             </CardTitle>
-            <p className="text-sm text-gray-600 mt-1">
+            <p className="mt-1 text-sm text-gray-600">
               {tournament?.format === 'roundrobin' ? 'Round Robin - Complete Schedule' : 'Swiss System - USCF Tournament Rules'}
             </p>
           </div>
-          
-          {/* Round Navigation */}
-          {allMatches && allMatches.length > 0 && (
-            <div className="flex items-center space-x-2">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setCurrentRound(Math.max(1, currentRound - 1))}
-                disabled={currentRound <= 1}
-              >
-                <ChevronLeft className="h-4 w-4" />
-                Previous
-              </Button>
-              <span className="text-sm font-medium px-3 py-1 bg-gray-100 rounded">
-                Round {currentRound} of {tournament?.format === 'roundrobin' 
-                  ? Math.max(...allMatches.map(m => m.round)) 
-                  : (tournament?.rounds || Math.max(...allMatches.map(m => m.round)))}
-              </span>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  const maxRound = Math.max(...allMatches.map(m => m.round));
-                  setCurrentRound(Math.min(maxRound, currentRound + 1));
-                }}
-                disabled={currentRound >= Math.max(...allMatches.map(m => m.round))}
-              >
-                Next
-                <ChevronRight className="h-4 w-4" />
-              </Button>
-            </div>
-          )}
+          <div className="flex flex-col items-end gap-3">
+            {sections.length > 0 && (
+              <div className="flex flex-wrap justify-end gap-2">
+                <Button
+                  variant={selectedSectionId === "__all__" ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => setSelectedSectionId("__all__")}
+                >
+                  All Sections
+                </Button>
+                {sections.map((section) => (
+                  <Button
+                    key={section.id}
+                    variant={selectedSectionId === section.id ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => setSelectedSectionId(section.id)}
+                  >
+                    {section.name}
+                  </Button>
+                ))}
+              </div>
+            )}
+            {roundNumbers.length > 0 && (
+              <div className="flex flex-col items-end gap-2">
+                <div className="flex flex-wrap justify-end gap-2">
+                  {roundNumbers.map((round) => {
+                    const isCurrent = round === currentRound;
+                    const isCompleted = round < currentRound;
+                    const buttonClasses = `h-9 w-9 rounded-md border ${
+                      isCurrent
+                        ? "bg-amber-50 text-amber-800 border-amber-200 hover:bg-amber-100"
+                        : isCompleted
+                          ? "bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100"
+                          : "border-slate-200 text-slate-600 hover:bg-slate-50"
+                    }`;
+                    return (
+                      <Button
+                        key={`round-${round}`}
+                        variant="outline"
+                        size="icon"
+                        className={buttonClasses}
+                        onClick={() => setCurrentRound(round)}
+                      >
+                        {round}
+                      </Button>
+                    );
+                  })}
+                </div>
+                <span className="text-xs text-muted-foreground">
+                  Round {currentRound} of {roundNumbers[roundNumbers.length - 1]}
+                </span>
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Controls Row */}
-        <div className="flex items-center justify-between pt-4 border-t">
-          <div className="flex items-center space-x-2">
-            {/* Match Status Indicator */}
-            {matches && matches.length > 0 ? (
+        <div className="flex flex-wrap items-center justify-between gap-4 border-t pt-4">
+          <div className="flex items-center gap-2">
+            {matchesForStatus.length > 0 ? (
               <>
-                <div className={`w-3 h-3 rounded-full ${
-                  matches.every(m => m.result && m.result !== 'Pending') 
-                    ? 'bg-green-500' 
-                    : matches.some(m => m.result && m.result !== 'Pending')
-                    ? 'bg-yellow-500'
-                    : 'bg-red-500'
-                }`} />
+                <div
+                  className={`h-3 w-3 rounded-full ${
+                    matchesForStatus.every((m) => m.result && m.result !== 'Pending')
+                      ? 'bg-green-500'
+                      : matchesForStatus.some((m) => m.result && m.result !== 'Pending')
+                        ? 'bg-yellow-500'
+                        : 'bg-red-500'
+                  }`}
+                />
                 <span className="text-sm font-medium">
-                  {matches.filter(m => m.result && m.result !== 'Pending').length} / {matches.length} complete
+                  {matchesForStatus.filter((m) => m.result && m.result !== 'Pending').length} / {matchesForStatus.length} complete
                 </span>
               </>
             ) : (
               <span className="text-sm text-gray-500">No pairings generated yet</span>
             )}
           </div>
-          
-          {isOwner && (
-            <div className="flex flex-wrap gap-2">
-              {/* Regenerate Complete Schedule Button - Round Robin only */}
-              {tournament?.format === 'roundrobin' && (
-              <AlertDialog>
-                <AlertDialogTrigger asChild>
-                  <Button
-                    variant="outline"
-                    disabled={generatePairingsMutation.isPending}
-                    className="border-purple-600 text-purple-600 hover:bg-purple-50"
-                    size="sm"
-                  >
-                    <RefreshCw className="h-4 w-4 mr-1" />
-                    {generatePairingsMutation.isPending ? "Regenerating..." : "Regenerate Schedule"}
-                  </Button>
-                </AlertDialogTrigger>
-                <AlertDialogContent>
-                  <AlertDialogHeader>
-                    <AlertDialogTitle>Regenerate Complete Round Robin Schedule?</AlertDialogTitle>
-                    <AlertDialogDescription>
-                      This will delete and recreate all pairings for ALL rounds in the Round Robin tournament. 
-                      Any existing match results will be lost. This action cannot be undone.
-                    </AlertDialogDescription>
-                  </AlertDialogHeader>
-                  <AlertDialogFooter>
-                    <AlertDialogCancel>Cancel</AlertDialogCancel>
-                    <AlertDialogAction
-                      onClick={() => generatePairingsMutation.mutate({ regenerate: true })}
-                      className="bg-purple-600 hover:bg-purple-700"
-                    >
-                      Regenerate All Rounds
-                    </AlertDialogAction>
-                  </AlertDialogFooter>
-                </AlertDialogContent>
-              </AlertDialog>
-            )}
 
-            {/* Generate Next Round Button - only show for Swiss tournaments */}
-            {tournament?.format === 'swiss' && (
+          <div className="flex flex-wrap justify-end gap-2">
+            {showExportControls ? (
               <>
-                {tournament && tournament.rounds && currentRound >= tournament.rounds ? (
-                  /* Tournament has reached planned rounds - show as extension */
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handlePrintPairings}
+                  disabled={!hasPrintableMatches}
+                >
+                  <Printer className="mr-2 h-4 w-4" />
+                  Print
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleDownloadPairings}
+                  disabled={!hasPrintableMatches}
+                >
+                  <Download className="mr-2 h-4 w-4" />
+                  Download
+                </Button>
+              </>
+            ) : null}
+            {isOwner && (
+              <>
+                {tournament?.format === "roundrobin" && (
                   <AlertDialog>
                     <AlertDialogTrigger asChild>
                       <Button
+                        variant="outline"
                         disabled={generatePairingsMutation.isPending}
-                        className="bg-green-600 hover:bg-green-700"
+                        className="border-purple-600 text-purple-600 hover:bg-purple-50"
                         size="sm"
                       >
-                        <Play className="h-4 w-4 mr-1" />
-                        {generatePairingsMutation.isPending ? "Generating..." : `Generate Round ${currentRound + 1}`}
+                        <RefreshCw className="mr-1 h-4 w-4" />
+                        {generatePairingsMutation.isPending ? "Regenerating..." : "Regenerate Schedule"}
                       </Button>
                     </AlertDialogTrigger>
                     <AlertDialogContent>
                       <AlertDialogHeader>
-                        <AlertDialogTitle>Generate Round {currentRound + 1}?</AlertDialogTitle>
+                        <AlertDialogTitle>Regenerate Complete Round Robin Schedule?</AlertDialogTitle>
                         <AlertDialogDescription>
-                          This will extend the tournament beyond the planned {tournament.rounds} rounds. Make sure all results from Round {currentRound} have been entered first.
+                          This will delete and recreate all pairings for all rounds in the round-robin tournament. Existing match results will be lost.
                         </AlertDialogDescription>
                       </AlertDialogHeader>
                       <AlertDialogFooter>
                         <AlertDialogCancel>Cancel</AlertDialogCancel>
                         <AlertDialogAction
-                          onClick={() => generatePairingsMutation.mutate({ regenerate: false })}
-                          className="bg-green-600 hover:bg-green-700"
+                          onClick={() => generatePairingsMutation.mutate({ regenerate: true })}
+                          className="bg-purple-600 hover:bg-purple-700"
                         >
-                          Generate Round {currentRound + 1}
+                          Regenerate All Rounds
                         </AlertDialogAction>
                       </AlertDialogFooter>
                     </AlertDialogContent>
                   </AlertDialog>
-                ) : (
-                  /* Normal next round generation - Swiss only */
+                )}
+
+                {tournament?.format === "swiss" && (
+                  <>
+                    {tournament?.rounds && currentRound >= tournament.rounds ? (
+                      <AlertDialog>
+                        <AlertDialogTrigger asChild>
+                          <Button
+                            disabled={generatePairingsMutation.isPending}
+                            className="bg-green-600 hover:bg-green-700"
+                            size="sm"
+                          >
+                            <Play className="mr-1 h-4 w-4" />
+                            {generatePairingsMutation.isPending ? "Generating..." : `Generate Round ${currentRound + 1}`}
+                          </Button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent>
+                          <AlertDialogHeader>
+                            <AlertDialogTitle>Generate Round {currentRound + 1}?</AlertDialogTitle>
+                            <AlertDialogDescription>
+                              This will extend the tournament beyond the planned {tournament.rounds} rounds. Confirm all Round {currentRound} results first.
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel>Cancel</AlertDialogCancel>
+                            <AlertDialogAction
+                              onClick={() => generatePairingsMutation.mutate({ regenerate: false })}
+                              className="bg-green-600 hover:bg-green-700"
+                            >
+                              Generate Round {currentRound + 1}
+                            </AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
+                    ) : (
+                      <AlertDialog>
+                        <AlertDialogTrigger asChild>
+                          <Button
+                            disabled={generatePairingsMutation.isPending}
+                            className="bg-green-600 hover:bg-green-700"
+                            size="sm"
+                          >
+                            <Play className="mr-1 h-4 w-4" />
+                            {generatePairingsMutation.isPending ? "Generating..." : "Generate Next Round"}
+                          </Button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent>
+                          <AlertDialogHeader>
+                            <AlertDialogTitle>Generate Round {currentRound + 1}?</AlertDialogTitle>
+                            <AlertDialogDescription>
+                              This will create pairings for the next round. Ensure Round {currentRound} results are complete first.
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel>Cancel</AlertDialogCancel>
+                            <AlertDialogAction
+                              onClick={() => generatePairingsMutation.mutate({ regenerate: false })}
+                              className="bg-green-600 hover:bg-green-700"
+                            >
+                              Generate Round {currentRound + 1}
+                            </AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
+                    )}
+                  </>
+                )}
+
+                <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                    <Button
+                      variant="outline"
+                      disabled={finishTournamentMutation.isPending}
+                      className="border-blue-600 text-blue-600 hover:bg-blue-50"
+                      size="sm"
+                    >
+                      <Chess className="mr-1 h-4 w-4" />
+                      {finishTournamentMutation.isPending ? "Finishing..." : "Finish Tournament"}
+                    </Button>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>Finish Tournament Early?</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        Completing now will finalize standings through Round {currentRound}. This action cannot be undone.
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>Cancel</AlertDialogCancel>
+                      <AlertDialogAction
+                        onClick={() => finishTournamentMutation.mutate()}
+                        className="bg-blue-600 hover:bg-blue-700"
+                      >
+                        Finish Tournament
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
+
+                {(tournament?.format === "swiss" || tournament?.format === "roundrobin") && (
                   <AlertDialog>
                     <AlertDialogTrigger asChild>
                       <Button
+                        variant="outline"
                         disabled={generatePairingsMutation.isPending}
-                        className="bg-green-600 hover:bg-green-700"
                         size="sm"
                       >
-                        <Play className="h-4 w-4 mr-1" />
-                        {generatePairingsMutation.isPending ? "Generating..." : "Generate Next Round"}
+                        <RefreshCw className="mr-1 h-4 w-4" />
+                        Repair
                       </Button>
                     </AlertDialogTrigger>
                     <AlertDialogContent>
                       <AlertDialogHeader>
-                        <AlertDialogTitle>Generate Round {currentRound + 1}?</AlertDialogTitle>
+                        <AlertDialogTitle>Repair Round {currentRound} Pairings?</AlertDialogTitle>
                         <AlertDialogDescription>
-                          This will create pairings for Round {currentRound + 1}. Make sure all results from Round {currentRound} have been entered first.
+                          This will delete and recreate all pairings for Round {currentRound}. Any existing results will be cleared.
                         </AlertDialogDescription>
                       </AlertDialogHeader>
                       <AlertDialogFooter>
                         <AlertDialogCancel>Cancel</AlertDialogCancel>
                         <AlertDialogAction
-                          onClick={() => generatePairingsMutation.mutate({ regenerate: false })}
-                          className="bg-green-600 hover:bg-green-700"
+                          onClick={() => generatePairingsMutation.mutate({ regenerate: true })}
+                          className="bg-red-600 hover:bg-red-700"
                         >
-                          Generate Round {currentRound + 1}
+                          Repair Round {currentRound}
+                        </AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
+                )}
+
+                {lastSwapState && (
+                  <Button
+                    variant="outline"
+                    disabled={undoSwapMutation.isPending}
+                    onClick={() => undoSwapMutation.mutate()}
+                    size="sm"
+                    className="border-orange-600 text-orange-600 hover:bg-orange-50"
+                  >
+                    <RotateCcw className="mr-1 h-4 w-4" />
+                    {undoSwapMutation.isPending ? "Undoing..." : "Undo Swap"}
+                  </Button>
+                )}
+
+                {false && (allMatches?.length || 0) > 0 && (
+                  <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                      <Button
+                        variant="outline"
+                        disabled={regenerateFutureRoundsMutation.isPending}
+                        className="border-red-300 text-red-600 hover:bg-red-50"
+                        size="sm"
+                      >
+                        <RefreshCw className="mr-1 h-4 w-4" />
+                        {regenerateFutureRoundsMutation.isPending ? "Regenerating..." : `Regenerate Round ${currentRound + 1}+`}
+                      </Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>Regenerate Rounds {currentRound + 1}+?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                          This will rebuild future rounds based on results through Round {currentRound}. Existing future results will be lost.
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        <AlertDialogAction
+                          onClick={() => regenerateFutureRoundsMutation.mutate({ fromRound: currentRound + 1 })}
+                          className="bg-red-600 hover:bg-red-700"
+                        >
+                          Regenerate Round {currentRound + 1}+
                         </AlertDialogAction>
                       </AlertDialogFooter>
                     </AlertDialogContent>
@@ -681,125 +1079,7 @@ export default function SwissPairings({ tournamentId }: TournamentPairingsProps)
                 )}
               </>
             )}
-
-            {/* Finish Tournament Button - always available for tournament directors */}
-            <AlertDialog>
-              <AlertDialogTrigger asChild>
-                <Button
-                  variant="outline"
-                  disabled={finishTournamentMutation.isPending}
-                  className="border-blue-600 text-blue-600 hover:bg-blue-50"
-                  size="sm"
-                >
-                  <Chess className="h-4 w-4 mr-1" />
-                  {finishTournamentMutation.isPending ? "Finishing..." : "Finish Tournament"}
-                </Button>
-              </AlertDialogTrigger>
-              <AlertDialogContent>
-                <AlertDialogHeader>
-                  <AlertDialogTitle>Finish Tournament Early?</AlertDialogTitle>
-                  <AlertDialogDescription>
-                    This will complete the tournament with the current standings as final results. 
-                    The tournament will end at Round {currentRound} instead of the planned {tournament?.rounds || 'full'} rounds. 
-                    This action cannot be undone.
-                  </AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                  <AlertDialogCancel>Cancel</AlertDialogCancel>
-                  <AlertDialogAction
-                    onClick={() => finishTournamentMutation.mutate()}
-                    className="bg-blue-600 hover:bg-blue-700"
-                  >
-                    Finish Tournament
-                  </AlertDialogAction>
-                </AlertDialogFooter>
-              </AlertDialogContent>
-            </AlertDialog>
-
-            {/* Repair Round with Confirmation - Swiss and Round Robin */}
-            {(tournament?.format === 'swiss' || tournament?.format === 'roundrobin') && (
-              <AlertDialog>
-                <AlertDialogTrigger asChild>
-                  <Button
-                    variant="outline"
-                    disabled={generatePairingsMutation.isPending}
-                    size="sm"
-                  >
-                    <RefreshCw className="h-4 w-4 mr-1" />
-                    Repair
-                  </Button>
-                </AlertDialogTrigger>
-              <AlertDialogContent>
-                <AlertDialogHeader>
-                  <AlertDialogTitle>Repair Round {currentRound} Pairings?</AlertDialogTitle>
-                  <AlertDialogDescription>
-                    This will delete and recreate all pairings for Round {currentRound}. Any existing match results will be lost. This action cannot be undone.
-                  </AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                  <AlertDialogCancel>Cancel</AlertDialogCancel>
-                  <AlertDialogAction
-                    onClick={() => generatePairingsMutation.mutate({ regenerate: true })}
-                    className="bg-red-600 hover:bg-red-700"
-                  >
-                    Repair Round {currentRound}
-                  </AlertDialogAction>
-                </AlertDialogFooter>
-              </AlertDialogContent>
-              </AlertDialog>
-            )}
-
-            {/* Undo Last Swap Button */}
-            {lastSwapState && (
-              <Button
-                variant="outline"
-                disabled={undoSwapMutation.isPending}
-                onClick={() => undoSwapMutation.mutate()}
-                size="sm"
-                className="border-orange-600 text-orange-600 hover:bg-orange-50"
-              >
-                <RotateCcw className="h-4 w-4 mr-1" />
-                {undoSwapMutation.isPending ? "Undoing..." : "Undo Swap"}
-              </Button>
-            )}
-
-            {/* Regenerate Future Rounds - HIDDEN: available on every round if future rounds exist */}
-            {false && (allMatches?.length || 0) > 0 && (
-              <AlertDialog>
-                <AlertDialogTrigger asChild>
-                  <Button
-                    variant="outline"
-                    disabled={regenerateFutureRoundsMutation.isPending}
-                    className="border-red-300 text-red-600 hover:bg-red-50"
-                    size="sm"
-                  >
-                    <RefreshCw className="h-4 w-4 mr-1" />
-                    {regenerateFutureRoundsMutation.isPending ? "Regenerating..." : `Regenerate Round ${currentRound + 1}+`}
-                  </Button>
-                </AlertDialogTrigger>
-                <AlertDialogContent>
-                  <AlertDialogHeader>
-                    <AlertDialogTitle>Regenerate Rounds {currentRound + 1}+?</AlertDialogTitle>
-                    <AlertDialogDescription>
-                      This will regenerate all rounds from Round {currentRound + 1} onwards based on current results through Round {currentRound}. 
-                      Any existing future round results will be lost. This action cannot be undone.
-                    </AlertDialogDescription>
-                  </AlertDialogHeader>
-                  <AlertDialogFooter>
-                    <AlertDialogCancel>Cancel</AlertDialogCancel>
-                    <AlertDialogAction
-                      onClick={() => regenerateFutureRoundsMutation.mutate({ fromRound: currentRound + 1 })}
-                      className="bg-red-600 hover:bg-red-700"
-                    >
-                      Regenerate Round {currentRound + 1}+
-                    </AlertDialogAction>
-                  </AlertDialogFooter>
-                </AlertDialogContent>
-              </AlertDialog>
-            )}
-
-            </div>
-          )}
+          </div>
         </div>
       </CardHeader>
       <CardContent>
@@ -811,9 +1091,9 @@ export default function SwissPairings({ tournamentId }: TournamentPairingsProps)
               </div>
             ))}
           </div>
-        ) : !matches || matches.length === 0 ? (
-          <div className="text-center py-8">
-            <p className="text-gray-500 mb-4">No pairings generated yet</p>
+        ) : !hasDisplayData ? (
+          <div className="py-8 text-center">
+            <p className="mb-4 text-gray-500">No pairings available for this selection yet.</p>
             {isOwner && (
               <Button onClick={() => generatePairingsMutation.mutate({ regenerate: false })}>
                 Generate Pairings
@@ -823,219 +1103,223 @@ export default function SwissPairings({ tournamentId }: TournamentPairingsProps)
         ) : (
           <div className="space-y-6">
             {tournament?.format === 'roundrobin' ? (
-              // Round Robin - Show all rounds with matches organized by round
-              (() => {
-                const roundGroups = matches.reduce((acc, match) => {
-                  if (!acc[match.round]) acc[match.round] = [];
-                  acc[match.round].push(match);
-                  return acc;
-                }, {} as Record<number, typeof matches>);
-                
-                const sortedRounds = Object.keys(roundGroups).map(Number).sort((a, b) => a - b);
-                
-                return (
-                  <div className="space-y-8">
-                    {sortedRounds.map(round => (
-                      <div key={round} className="border rounded-lg p-4">
-                        <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
-                          <span>Round {round}</span>
-                          <Badge variant={round === currentRound ? "default" : "secondary"}>
-                            {round === currentRound ? "Current" : round < currentRound ? "Completed" : "Upcoming"}
-                          </Badge>
-                        </h3>
-                        <div className="overflow-x-auto">
-                          <table className="min-w-full divide-y divide-gray-200">
-                            <thead className="bg-gray-50">
-                              <tr>
-                                <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Board</th>
-                                <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">White</th>
-                                <th className="px-4 py-2 text-center text-xs font-medium text-gray-500 uppercase">vs</th>
-                                <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Black</th>
-                                <th className="px-4 py-2 text-center text-xs font-medium text-gray-500 uppercase">Result</th>
-                                <th className="px-4 py-2 text-center text-xs font-medium text-gray-500 uppercase">Status</th>
+              roundRobinGroups.length === 0 ? (
+                <div className="py-8 text-center">
+                  <p className="text-gray-500">No pairings generated yet</p>
+                </div>
+              ) : (
+                <div className="space-y-8">
+                  {roundRobinGroups.map(({ round, matches: roundMatches }) => (
+                    <div key={round} className="rounded-lg border p-4">
+                      <h3 className="mb-4 flex items-center gap-3 text-lg font-semibold">
+                        <span>Round {round}</span>
+                        {(() => {
+                          const isCurrent = round === currentRound;
+                          const isCompleted = round < currentRound;
+                          const badgeClass = isCurrent
+                            ? "bg-amber-50 text-amber-800 border border-amber-200"
+                            : isCompleted
+                              ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
+                              : "bg-slate-100 text-slate-600 border border-transparent";
+                          return (
+                            <Badge variant="outline" className={badgeClass}>
+                              {isCurrent ? "In Progress" : isCompleted ? "Completed" : "Upcoming"}
+                            </Badge>
+                          );
+                        })()}
+                      </h3>
+                      <div className="overflow-x-auto">
+                        <table className="min-w-full divide-y divide-gray-200">
+                          <thead className="bg-gray-50">
+                            <tr>
+                              <th className="px-4 py-2 text-left text-xs font-medium uppercase text-gray-500">Board</th>
+                              <th className="px-4 py-2 text-left text-xs font-medium uppercase text-gray-500">White</th>
+                              <th className="px-4 py-2 text-center text-xs font-medium uppercase text-gray-500">vs</th>
+                              <th className="px-4 py-2 text-left text-xs font-medium uppercase text-gray-500">Black</th>
+                              <th className="px-4 py-2 text-center text-xs font-medium uppercase text-gray-500">Result</th>
+                              <th className="px-4 py-2 text-center text-xs font-medium uppercase text-gray-500">Status</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-gray-200 bg-white">
+                            {roundMatches.map((match) => (
+                              <tr key={match.id}>
+                                <td className="whitespace-nowrap px-4 py-3">
+                                  <div className="text-sm font-medium text-gray-900">{match.board}</div>
+                                </td>
+                                <td className="whitespace-nowrap px-4 py-3">
+                                  <PlayerBox
+                                    playerId={match.whitePlayerId}
+                                    playerName={getPlayerName(match.whitePlayerId)}
+                                    rating={getPlayerRating(match.whitePlayerId)}
+                                    points={getPlayerPoints(match.whitePlayerId, round)}
+                                    matchId={match.id}
+                                    color="white"
+                                    round={round}
+                                  />
+                                </td>
+                                <td className="whitespace-nowrap px-4 py-3 text-center">
+                                  <span className="text-gray-400">vs</span>
+                                </td>
+                                <td className="whitespace-nowrap px-4 py-3">
+                                  <PlayerBox
+                                    playerId={match.blackPlayerId}
+                                    playerName={match.blackPlayerId ? getPlayerName(match.blackPlayerId) : "See T.D."}
+                                    rating={match.blackPlayerId ? getPlayerRating(match.blackPlayerId) : 0}
+                                    points={match.blackPlayerId ? getPlayerPoints(match.blackPlayerId, round) : 0}
+                                    matchId={match.id}
+                                    color="black"
+                                    round={round}
+                                  />
+                                </td>
+                                <td className="whitespace-nowrap px-4 py-3 text-center">
+                                  <Select
+                                    value={match.result || "Pending"}
+                                    onValueChange={(value) => handleResultChange(match.id, value)}
+                                  >
+                                    <SelectTrigger className="w-24">
+                                      <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      <SelectItem value="Pending">Pending</SelectItem>
+                                      {match.blackPlayerId ? (
+                                        <>
+                                          <SelectItem value="1-0">1-0</SelectItem>
+                                          <SelectItem value="0-1">0-1</SelectItem>
+                                          <SelectItem value="1/2-1/2">½-½</SelectItem>
+                                          <SelectItem value="1F-0F">1F-0F</SelectItem>
+                                          <SelectItem value="0F-1F">0F-1F</SelectItem>
+                                        </>
+                                      ) : (
+                                        <>
+                                          <SelectItem value="1-0">1-0 (Win)</SelectItem>
+                                          <SelectItem value="0-1">0-1 (Loss)</SelectItem>
+                                          <SelectItem value="1/2-1/2">½-½ (Draw)</SelectItem>
+                                          <SelectItem value="1-bye">1-point bye</SelectItem>
+                                        </>
+                                      )}
+                                    </SelectContent>
+                                  </Select>
+                                </td>
+                                <td className="whitespace-nowrap px-4 py-3 text-center">{getStatusBadge(match.status)}</td>
                               </tr>
-                            </thead>
-                            <tbody className="bg-white divide-y divide-gray-200">
-                              {roundGroups[round].sort((a, b) => (a.board || 0) - (b.board || 0)).map((match) => (
-                                <tr key={match.id}>
-                                  <td className="px-4 py-3 whitespace-nowrap">
-                                    <div className="text-sm font-medium text-gray-900">{match.board}</div>
-                                  </td>
-                                  <td className="px-4 py-3 whitespace-nowrap">
-                                    <PlayerBox
-                                      playerId={match.whitePlayerId}
-                                      playerName={getPlayerName(match.whitePlayerId)}
-                                      rating={getPlayerRating(match.whitePlayerId)}
-                                      points={getPlayerPoints(match.whitePlayerId, round)}
-                                      matchId={match.id}
-                                      color="white"
-                                      round={round}
-                                    />
-                                  </td>
-                                  <td className="px-4 py-3 whitespace-nowrap text-center">
-                                    <span className="text-gray-400">vs</span>
-                                  </td>
-                                  <td className="px-4 py-3 whitespace-nowrap">
-                                    <PlayerBox
-                                      playerId={match.blackPlayerId}
-                                      playerName={match.blackPlayerId ? getPlayerName(match.blackPlayerId) : "See T.D."}
-                                      rating={match.blackPlayerId ? getPlayerRating(match.blackPlayerId) : 0}
-                                      points={match.blackPlayerId ? getPlayerPoints(match.blackPlayerId, round) : 0}
-                                      matchId={match.id}
-                                      color="black"
-                                      round={round}
-                                    />
-                                  </td>
-                                  <td className="px-4 py-3 whitespace-nowrap text-center">
-                                    <Select
-                                      value={match.result || "Pending"}
-                                      onValueChange={(value) => handleResultChange(match.id, value)}
-                                    >
-                                      <SelectTrigger className="w-24">
-                                        <SelectValue />
-                                      </SelectTrigger>
-                                      <SelectContent>
-                                        <SelectItem value="Pending">Pending</SelectItem>
-                                        {match.blackPlayerId ? (
-                                          <>
-                                            <SelectItem value="1-0">1-0</SelectItem>
-                                            <SelectItem value="0-1">0-1</SelectItem>
-                                            <SelectItem value="1/2-1/2">½-½</SelectItem>
-                                            <SelectItem value="1F-0F">1F-0F</SelectItem>
-                                            <SelectItem value="0F-1F">0F-1F</SelectItem>
-                                          </>
-                                        ) : (
-                                          <>
-                                            <SelectItem value="1-0">1-0 (Win)</SelectItem>
-                                            <SelectItem value="0-1">0-1 (Loss)</SelectItem>
-                                            <SelectItem value="1/2-1/2">½-½ (Draw)</SelectItem>
-                                            <SelectItem value="1-bye">1-point bye</SelectItem>
-                                          </>
-                                        )}
-                                      </SelectContent>
-                                    </Select>
-                                  </td>
-                                  <td className="px-4 py-3 whitespace-nowrap text-center">
-                                    {getStatusBadge(match.status)}
-                                  </td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
+                            ))}
+                          </tbody>
+                        </table>
                       </div>
-                    ))}
-                  </div>
-                );
-              })()
+                    </div>
+                  ))}
+                </div>
+              )
             ) : (
               // Swiss - Show current round only
               <div className="space-y-6">
                 <div className="overflow-x-auto">
-                  <table className="min-w-full divide-y divide-gray-200">
-                    <thead className="bg-gray-50">
-                      <tr>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          Board
-                        </th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          White
-                        </th>
-                        <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          vs
-                        </th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          Black
-                        </th>
-                        <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          Result
-                        </th>
-                        <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          Status
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody className="bg-white divide-y divide-gray-200">
-                      {matches.sort((a, b) => (a.board || 0) - (b.board || 0)).map((match) => (
-                        <tr key={match.id}>
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            <div className="text-sm font-medium text-gray-900">{match.board}</div>
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            <PlayerBox
-                              playerId={match.whitePlayerId}
-                              playerName={getPlayerName(match.whitePlayerId)}
-                              rating={getPlayerRating(match.whitePlayerId)}
-                              points={getPlayerPoints(match.whitePlayerId, match.round)}
-                              matchId={match.id}
-                              color="white"
-                              round={match.round}
-                            />
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-center">
-                            <span className="text-gray-400">vs</span>
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            <PlayerBox
-                              playerId={match.blackPlayerId}
-                              playerName={match.blackPlayerId ? getPlayerName(match.blackPlayerId) : "See T.D."}
-                              rating={match.blackPlayerId ? getPlayerRating(match.blackPlayerId) : 0}
-                              points={match.blackPlayerId ? getPlayerPoints(match.blackPlayerId, match.round) : 0}
-                              matchId={match.id}
-                              color="black"
-                              round={match.round}
-                            />
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-center">
-                            {isTournamentDirector ? (
-                              <Select
-                                value={match.result || "Pending"}
-                                onValueChange={(value) => handleResultChange(match.id, value)}
-                              >
-                                <SelectTrigger className="w-24">
-                                  <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  <SelectItem value="Pending">Pending</SelectItem>
-                                  {match.blackPlayerId ? (
-                                    <>
-                                      <SelectItem value="1-0">1-0</SelectItem>
-                                      <SelectItem value="0-1">0-1</SelectItem>
-                                      <SelectItem value="1/2-1/2">½-½</SelectItem>
-                                      <SelectItem value="1F-0F">1F-0F</SelectItem>
-                                      <SelectItem value="0F-1F">0F-1F</SelectItem>
-                                    </>
-                                  ) : (
-                                    <>
-                                      <SelectItem value="1-0">1-0 (Win)</SelectItem>
-                                      <SelectItem value="0-1">0-1 (Loss)</SelectItem>
-                                      <SelectItem value="1/2-1/2">½-½ (Draw)</SelectItem>
-                                      <SelectItem value="1-bye">1-point bye</SelectItem>
-                                    </>
-                                  )}
-                                </SelectContent>
-                              </Select>
-                            ) : (
-                              <span className="text-sm font-medium">
-                                {match.result || "Pending"}
-                              </span>
-                            )}
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-center">
-                            {getStatusBadge(match.status)}
-                          </td>
+                  {swissMatches.length === 0 ? (
+                    <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
+                      No pairings for this section in Round {currentRound}.
+                    </div>
+                  ) : (
+                    <table className="min-w-full divide-y divide-gray-200">
+                      <thead className="bg-gray-50">
+                        <tr>
+                          <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
+                            Board
+                          </th>
+                          <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
+                            White
+                          </th>
+                          <th className="px-6 py-3 text-center text-xs font-medium uppercase tracking-wider text-gray-500">
+                            vs
+                          </th>
+                          <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
+                            Black
+                          </th>
+                          <th className="px-6 py-3 text-center text-xs font-medium uppercase tracking-wider text-gray-500">
+                            Result
+                          </th>
+                          <th className="px-6 py-3 text-center text-xs font-medium uppercase tracking-wider text-gray-500">
+                            Status
+                          </th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                      </thead>
+                      <tbody className="divide-y divide-gray-200 bg-white">
+                        {swissMatches.map((match) => (
+                          <tr key={match.id}>
+                            <td className="whitespace-nowrap px-6 py-4">
+                              <div className="text-sm font-medium text-gray-900">{match.board}</div>
+                            </td>
+                            <td className="whitespace-nowrap px-6 py-4">
+                              <PlayerBox
+                                playerId={match.whitePlayerId}
+                                playerName={getPlayerName(match.whitePlayerId)}
+                                rating={getPlayerRating(match.whitePlayerId)}
+                                points={getPlayerPoints(match.whitePlayerId, match.round)}
+                                matchId={match.id}
+                                color="white"
+                                round={match.round}
+                              />
+                            </td>
+                            <td className="whitespace-nowrap px-6 py-4 text-center">
+                              <span className="text-gray-400">vs</span>
+                            </td>
+                            <td className="whitespace-nowrap px-6 py-4">
+                              <PlayerBox
+                                playerId={match.blackPlayerId}
+                                playerName={match.blackPlayerId ? getPlayerName(match.blackPlayerId) : "See T.D."}
+                                rating={match.blackPlayerId ? getPlayerRating(match.blackPlayerId) : 0}
+                                points={match.blackPlayerId ? getPlayerPoints(match.blackPlayerId, match.round) : 0}
+                                matchId={match.id}
+                                color="black"
+                                round={match.round}
+                              />
+                            </td>
+                            <td className="whitespace-nowrap px-6 py-4 text-center">
+                              {isTournamentDirector ? (
+                                <Select
+                                  value={match.result || "Pending"}
+                                  onValueChange={(value) => handleResultChange(match.id, value)}
+                                >
+                                  <SelectTrigger className="w-24">
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="Pending">Pending</SelectItem>
+                                    {match.blackPlayerId ? (
+                                      <>
+                                        <SelectItem value="1-0">1-0</SelectItem>
+                                        <SelectItem value="0-1">0-1</SelectItem>
+                                        <SelectItem value="1/2-1/2">½-½</SelectItem>
+                                        <SelectItem value="1F-0F">1F-0F</SelectItem>
+                                        <SelectItem value="0F-1F">0F-1F</SelectItem>
+                                      </>
+                                    ) : (
+                                      <>
+                                        <SelectItem value="1-0">1-0 (Win)</SelectItem>
+                                        <SelectItem value="0-1">0-1 (Loss)</SelectItem>
+                                        <SelectItem value="1/2-1/2">½-½ (Draw)</SelectItem>
+                                        <SelectItem value="1-bye">1-point bye</SelectItem>
+                                      </>
+                                    )}
+                                  </SelectContent>
+                                </Select>
+                              ) : (
+                                <span className="text-sm font-medium">{match.result || "Pending"}</span>
+                              )}
+                            </td>
+                            <td className="whitespace-nowrap px-6 py-4 text-center">{getStatusBadge(match.status)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
                 </div>
 
                 {/* Byes Section */}
-                {pairings && pairings.filter((p: any) => p.isBye).length > 0 && (
+                {filteredByes.length > 0 && (
                   <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
                     <h4 className="text-sm font-medium text-yellow-800 mb-2">Byes This Round</h4>
                     <div className="space-y-1">
-                      {pairings.filter((p: any) => p.isBye).map((byePairing: any) => (
+                      {filteredByes.map((byePairing: any) => (
                         <div key={byePairing.id} className="flex items-center justify-between text-sm">
                           <span className="text-yellow-700">
                             {getPlayerName(byePairing.playerId)} [{getPlayerPoints(byePairing.playerId, currentRound)}] ({getPlayerRating(byePairing.playerId)})
