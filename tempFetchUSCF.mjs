@@ -1,4 +1,3 @@
-const res = await fetch("https://www.uschess.org/msa/thin.php?name=carlsen");
-const text = await res.text();
-const lines = text.split("\n").filter((line) => line.includes("|"));
-console.log(lines.slice(0, 5));
+version https://git-lfs.github.com/spec/v1
+oid sha256:2b0558d13411a642ad002772386d7d818c38a33b2d204fd1a7a4501a6e68695e
+size 210
