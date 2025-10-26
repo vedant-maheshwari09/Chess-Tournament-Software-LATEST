@@ -175,50 +175,32 @@ export default function AddPlayerPage({ tournamentId, playerId }: AddPlayerPageP
     },
   });
 
-  useEffect(() => {
-    if (!tournamentLoading && !tournament) {
-      setLocation(`/tournaments/${tournamentId}/manage`);
-    }
-  }, [tournament, tournamentId, tournamentLoading, setLocation]);
-
   const isOwner = useMemo(() => {
     if (!tournament || !user) return false;
     return user.role === "tournament_director" && tournament.createdBy === user.id;
   }, [tournament, user]);
 
-  useEffect(() => {
-    if (tournament && user && !isOwner) {
-      setLocation(`/tournaments/${tournamentId}`);
-    }
-  }, [tournament, user, isOwner, setLocation, tournamentId]);
+  const tournamentConfig = useMemo(() => {
+    if (!tournament) return null;
+    return parseTournamentConfig(tournament);
+  }, [tournament]);
 
-  if (tournamentLoading) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-slate-50">
-        <div className="text-center">
-          <div className="mx-auto h-12 w-12 animate-spin rounded-full border-b-2 border-indigo-600" />
-          <p className="mt-4 text-sm text-muted-foreground">Loading tournament…</p>
-        </div>
-      </div>
-    );
-  }
-
-  if (!tournament || !isOwner) {
-    return null;
-  }
-
-  const tournamentConfig = useMemo(() => parseTournamentConfig(tournament), [tournament]);
-  const defaultFederation = tournamentConfig.basic.federation || "United States";
+  const defaultFederation = tournamentConfig?.basic.federation || "United States";
   const federationOptions = useMemo(() => {
+    if (!defaultFederation) return FEDERATION_OPTIONS;
     return FEDERATION_OPTIONS.includes(defaultFederation)
       ? FEDERATION_OPTIONS
       : [defaultFederation, ...FEDERATION_OPTIONS];
   }, [defaultFederation]);
+
   const sections = useMemo<SectionDefinition[]>(() => {
+    if (!tournamentConfig) return [];
     const source = tournamentConfig.sections ?? [];
     return source.filter((section) => section.name.trim().length > 0);
   }, [tournamentConfig]);
+
   const primarySection = sections[0];
+
   const resolveSectionByRating = useCallback(
     (ratingValue: number | null | undefined) => {
       if (!sections.length) return undefined;
@@ -273,6 +255,148 @@ export default function AddPlayerPage({ tournamentId, playerId }: AddPlayerPageP
   );
 
   const [formState, setFormState] = useState(() => createEmptyForm());
+
+  const hasSearchInput = useMemo(
+    () => Object.values(debouncedSearchInputs).some((value) => value.length > 0),
+    [debouncedSearchInputs],
+  );
+
+  const { data: lookupDataRaw, isFetching: lookupFetching, error: lookupError } = useQuery<
+    RatingLookupResponse | null,
+    Error
+  >({
+    queryKey: [
+      "rating-lookup",
+      debouncedSearchInputs.term,
+      debouncedSearchInputs.lastName,
+      debouncedSearchInputs.firstName,
+      debouncedSearchInputs.id,
+    ],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (debouncedSearchInputs.term) params.set("q", debouncedSearchInputs.term);
+      if (debouncedSearchInputs.lastName) params.set("lastName", debouncedSearchInputs.lastName);
+      if (debouncedSearchInputs.firstName) params.set("firstName", debouncedSearchInputs.firstName);
+      if (debouncedSearchInputs.id) params.set("id", debouncedSearchInputs.id);
+      if (!params.toString()) return null;
+      return await apiRequest(`/api/rating-lookup?${params.toString()}`);
+    },
+    enabled: hasSearchInput,
+    staleTime: 1000 * 30,
+    retry: false,
+  });
+
+  const lookupData = hasSearchInput ? lookupDataRaw : null;
+
+  const lookupResults = useMemo(() => {
+    if (!lookupData || lookupError) {
+      return { uscf: [] as RatingLookupEntry[], fide: [] as RatingLookupEntry[] };
+    }
+    return {
+      uscf: lookupData.uscf ?? [],
+      fide: lookupData.fide ?? [],
+    };
+  }, [lookupData, lookupError]);
+
+  const totalLookupResults = useMemo(
+    () => lookupResults.uscf.length + lookupResults.fide.length,
+    [lookupResults],
+  );
+
+  const sourceErrors = useMemo(() => {
+    if (!lookupData?.errors) return [] as Array<{ source: SourceKey; label: string; message: string }>;
+    return (Object.entries(lookupData.errors) as Array<[SourceKey, string | undefined]>)
+      .filter((entry): entry is [SourceKey, string] => Boolean(entry[1]))
+      .map(([source, message]) => ({
+        source,
+        label: SOURCE_META[source]?.label ?? source.toUpperCase(),
+        message: message.trim(),
+      }));
+  }, [lookupData]);
+
+  const matchingTournamentPlayers = useMemo(() => {
+    const tokens = [searchInputs.term, searchInputs.lastName, searchInputs.firstName, searchInputs.id]
+      .map((value) => value.replace(/[^0-9a-zA-Z]+/g, " ").trim().toLowerCase())
+      .filter((value) => value.length > 0);
+    if (tokens.length === 0) return [] as Player[];
+    return players
+      .filter((player) => {
+        const fullName = `${player.lastName ?? ""} ${player.firstName ?? ""}`.toLowerCase();
+        return tokens.every((token) => fullName.includes(token));
+      })
+      .slice(0, 6);
+  }, [players, searchInputs]);
+
+  const isSearchDirty = useMemo(
+    () => Object.values(searchInputs).some((value) => value.length > 0),
+    [searchInputs],
+  );
+
+  const savePlayerMutation = useMutation<void, Error, "close" | "stay">({
+    mutationFn: async (_mode) => {
+      const selectedSectionDetails = formState.sectionId
+        ? sections.find((section) => section.id === formState.sectionId)
+        : formState.sectionName
+          ? sections.find((section) => section.name === formState.sectionName)
+          : undefined;
+      const payload = {
+        firstName: formState.firstName.trim() || "Player",
+        lastName: formState.lastName.trim() || `#${players.length + 1}`,
+        rating: Number(formState.rating) || 0,
+        federation: formState.federation || "United States",
+        sectionId: formState.sectionId || selectedSectionDetails?.id || null,
+        sectionName: (selectedSectionDetails?.name ?? formState.sectionName)?.trim() || null,
+      };
+      if (isEditing && resolvedPlayerId) {
+        return apiRequest(`/api/tournaments/${tournamentId}/players/${resolvedPlayerId}`, {
+          method: "PUT",
+          body: JSON.stringify(payload),
+        });
+      }
+      return apiRequest(`/api/tournaments/${tournamentId}/players`, {
+        method: "POST",
+        body: JSON.stringify(payload),
+      });
+    },
+    onSuccess: (_data, mode) => {
+      toast({ title: isEditing ? "Player updated" : "Player added" });
+      queryClient.invalidateQueries({ queryKey: [`/api/tournaments/${tournamentId}/players`] });
+      if (isEditing && resolvedPlayerId) {
+        queryClient.invalidateQueries({ queryKey: ["player-detail", tournamentId, resolvedPlayerId] });
+      }
+      if (mode === "close") {
+        setLocation(`/tournaments/${tournamentId}/manage`);
+        return;
+      }
+      if (!isEditing) {
+        const nextForm = createEmptyForm(primarySection);
+        setFormState(nextForm);
+        setCombinedNameInput("");
+        setSearchInputs({ term: "", lastName: "", firstName: "", id: "" });
+        setDebouncedSearchInputs({ term: "", lastName: "", firstName: "", id: "" });
+        setActiveTab("basic");
+      }
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Unable to save player",
+        description: error?.message ?? "Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  useEffect(() => {
+    if (!tournamentLoading && !tournament) {
+      setLocation(`/tournaments/${tournamentId}/manage`);
+    }
+  }, [tournament, tournamentId, tournamentLoading, setLocation]);
+
+  useEffect(() => {
+    if (tournament && user && !isOwner) {
+      setLocation(`/tournaments/${tournamentId}`);
+    }
+  }, [tournament, user, isOwner, setLocation, tournamentId]);
 
   useEffect(() => {
     setFormState((prev) => {
@@ -358,87 +482,11 @@ export default function AddPlayerPage({ tournamentId, playerId }: AddPlayerPageP
     return () => clearTimeout(handle);
   }, [searchInputs]);
 
-  const hasSearchInput = useMemo(
-    () => Object.values(debouncedSearchInputs).some((value) => value.length > 0),
-    [debouncedSearchInputs],
-  );
-
-  const { data: lookupDataRaw, isFetching: lookupFetching, error: lookupError } = useQuery<
-    RatingLookupResponse | null,
-    Error
-  >({
-    queryKey: [
-      "rating-lookup",
-      debouncedSearchInputs.term,
-      debouncedSearchInputs.lastName,
-      debouncedSearchInputs.firstName,
-      debouncedSearchInputs.id,
-    ],
-    queryFn: async () => {
-      const params = new URLSearchParams();
-      if (debouncedSearchInputs.term) params.set("q", debouncedSearchInputs.term);
-      if (debouncedSearchInputs.lastName) params.set("lastName", debouncedSearchInputs.lastName);
-      if (debouncedSearchInputs.firstName) params.set("firstName", debouncedSearchInputs.firstName);
-      if (debouncedSearchInputs.id) params.set("id", debouncedSearchInputs.id);
-      if (!params.toString()) return null;
-      return await apiRequest(`/api/rating-lookup?${params.toString()}`);
-    },
-    enabled: hasSearchInput,
-    staleTime: 1000 * 30,
-    retry: false,
-  });
-
-  const lookupData = hasSearchInput ? lookupDataRaw : null;
-
   useEffect(() => {
     if (lookupError) {
       console.warn("lookup failed", lookupError);
     }
   }, [lookupError]);
-
-  const lookupResults = useMemo(() => {
-    if (!lookupData || lookupError) {
-      return { uscf: [] as RatingLookupEntry[], fide: [] as RatingLookupEntry[] };
-    }
-    return {
-      uscf: lookupData.uscf ?? [],
-      fide: lookupData.fide ?? [],
-    };
-  }, [lookupData, lookupError]);
-
-  const totalLookupResults = useMemo(
-    () => lookupResults.uscf.length + lookupResults.fide.length,
-    [lookupResults],
-  );
-
-  const sourceErrors = useMemo(() => {
-    if (!lookupData?.errors) return [] as Array<{ source: SourceKey; label: string; message: string }>;
-    return (Object.entries(lookupData.errors) as Array<[SourceKey, string | undefined]>)
-      .filter((entry): entry is [SourceKey, string] => Boolean(entry[1]))
-      .map(([source, message]) => ({
-        source,
-        label: SOURCE_META[source]?.label ?? source.toUpperCase(),
-        message: message.trim(),
-      }));
-  }, [lookupData]);
-
-  const matchingTournamentPlayers = useMemo(() => {
-    const tokens = [searchInputs.term, searchInputs.lastName, searchInputs.firstName, searchInputs.id]
-      .map((value) => value.replace(/[^0-9a-zA-Z]+/g, " ").trim().toLowerCase())
-      .filter((value) => value.length > 0);
-    if (tokens.length === 0) return [] as Player[];
-    return players
-      .filter((player) => {
-        const fullName = `${player.lastName ?? ""} ${player.firstName ?? ""}`.toLowerCase();
-        return tokens.every((token) => fullName.includes(token));
-      })
-      .slice(0, 6);
-  }, [players, searchInputs]);
-
-  const isSearchDirty = useMemo(
-    () => Object.values(searchInputs).some((value) => value.length > 0),
-    [searchInputs],
-  );
 
   const handleCombinedNameChange = (value: string) => {
     setCombinedNameInput(value);
@@ -482,60 +530,6 @@ export default function AddPlayerPage({ tournamentId, playerId }: AddPlayerPageP
     setDebouncedSearchInputs({ term: "", lastName: "", firstName: "", id: "" });
     setCombinedNameInput("");
   };
-
-  const savePlayerMutation = useMutation<void, Error, "close" | "stay">({
-    mutationFn: async (_mode) => {
-      const selectedSectionDetails = formState.sectionId
-        ? sections.find((section) => section.id === formState.sectionId)
-        : formState.sectionName
-          ? sections.find((section) => section.name === formState.sectionName)
-          : undefined;
-      const payload = {
-        firstName: formState.firstName.trim() || "Player",
-        lastName: formState.lastName.trim() || `#${players.length + 1}`,
-        rating: Number(formState.rating) || 0,
-        federation: formState.federation || "United States",
-        sectionId: formState.sectionId || selectedSectionDetails?.id || null,
-        sectionName: (selectedSectionDetails?.name ?? formState.sectionName)?.trim() || null,
-      };
-      if (isEditing && resolvedPlayerId) {
-        return apiRequest(`/api/tournaments/${tournamentId}/players/${resolvedPlayerId}`, {
-          method: "PUT",
-          body: JSON.stringify(payload),
-        });
-      }
-      return apiRequest(`/api/tournaments/${tournamentId}/players`, {
-        method: "POST",
-        body: JSON.stringify(payload),
-      });
-    },
-    onSuccess: (_data, mode) => {
-      toast({ title: isEditing ? "Player updated" : "Player added" });
-      queryClient.invalidateQueries({ queryKey: [`/api/tournaments/${tournamentId}/players`] });
-      if (isEditing && resolvedPlayerId) {
-        queryClient.invalidateQueries({ queryKey: ["player-detail", tournamentId, resolvedPlayerId] });
-      }
-      if (mode === "close") {
-        setLocation(`/tournaments/${tournamentId}/manage`);
-        return;
-      }
-      if (!isEditing) {
-        const nextForm = createEmptyForm(primarySection);
-        setFormState(nextForm);
-        setCombinedNameInput("");
-        setSearchInputs({ term: "", lastName: "", firstName: "", id: "" });
-        setDebouncedSearchInputs({ term: "", lastName: "", firstName: "", id: "" });
-        setActiveTab("basic");
-      }
-    },
-    onError: (error: any) => {
-      toast({
-        title: "Unable to save player",
-        description: error?.message ?? "Please try again.",
-        variant: "destructive",
-      });
-    },
-  });
 
   const hasLookupResults = totalLookupResults > 0;
 
@@ -617,6 +611,21 @@ export default function AddPlayerPage({ tournamentId, playerId }: AddPlayerPageP
     setCombinedNameInput([cleanedLast, cleanedFirst].filter(Boolean).join(", "));
     setActiveTab("basic");
   };
+
+  if (tournamentLoading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-slate-50">
+        <div className="text-center">
+          <div className="mx-auto h-12 w-12 animate-spin rounded-full border-b-2 border-indigo-600" />
+          <p className="mt-4 text-sm text-muted-foreground">Loading tournament…</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!tournament || !isOwner) {
+    return null;
+  }
 
   return (
     <div className="min-h-screen bg-slate-50 py-10">

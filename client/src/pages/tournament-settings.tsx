@@ -80,9 +80,23 @@ export default function TournamentSettingsPage({ tournamentId, section }: Tourna
   const [baseline, setBaseline] = useState<TournamentConfig | null>(null);
   const [isDirty, setIsDirty] = useState(false);
 
+  const allowedSections = [
+    "basic",
+    "details",
+    "schedule",
+    "payments",
+    "prizes",
+    "player-signup",
+    "rate-tournament",
+    "registers",
+    "fide",
+    "uscf",
+    "chess-results",
+  ] satisfies SettingsSection[];
+
   const currentSection: SettingsSection = useMemo(() => {
     const normalized = (section ?? "basic") as SettingsSection;
-    return ["basic", "details", "schedule", "payments", "prizes", "player-signup", "rate-tournament"].includes(normalized)
+    return allowedSections.includes(normalized)
       ? normalized
       : "basic";
   }, [section]);
@@ -242,15 +256,7 @@ export default function TournamentSettingsPage({ tournamentId, section }: Tourna
     },
   });
 
-  const allowedSections = [
-    "basic",
-    "details",
-    "schedule",
-    "payments",
-    "prizes",
-    "player-signup",
-    "rate-tournament",
-  ] satisfies SettingsSection[];
+
 
   useEffect(() => {
     if (!config) return;
@@ -396,7 +402,7 @@ export default function TournamentSettingsPage({ tournamentId, section }: Tourna
             </div>
           )}
 
-          {currentSection === "fide" && allowedSections.includes("fide") && (
+          {currentSection === "fide" && (
             <FideRegistrationSection
               value={config.fide}
               onChange={updateFide}
@@ -407,11 +413,11 @@ export default function TournamentSettingsPage({ tournamentId, section }: Tourna
             />
           )}
 
-          {currentSection === "uscf" && allowedSections.includes("uscf") && (
+          {currentSection === "uscf" && (
             <UscfReportSection value={config.uscf} onChange={updateUscf} onDownload={handleDownloadUscf} />
           )}
 
-          {currentSection === "chess-results" && allowedSections.includes("chess-results") && (
+          {currentSection === "chess-results" && (
             <ChessResultsSettingsCard
               value={config.chessResults}
               onChange={updateChessResults}
