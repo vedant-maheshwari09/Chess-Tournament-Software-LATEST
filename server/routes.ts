@@ -1114,7 +1114,7 @@ ${(config as any).organizerInfo}` : ""}
     try {
       const tournaments = await storage.getAllTournaments();
       const visibleTournaments = tournaments.filter((tournament) =>
-        ["active", "upcoming", "completed"].includes(tournament.status)
+        ["active", "upcoming", "completed"].includes(tournament.status) && tournament.publishOnCalendar
       );
       res.json(visibleTournaments);
     } catch (error) {
@@ -2029,12 +2029,17 @@ ${(config as any).organizerInfo}` : ""}
         return res.status(404).json({ error: "Tournament not found" });
       }
 
+      const config = parseTournamentConfig(tournament);
+      if (!config.registers.allowPlayerToJoin) {
+        return res.status(403).json({ error: "Player registration is not allowed for this tournament" });
+      }
+
       // Check if user already registered for this tournament
       const existingRegistration = await storage.getPlayerRegistrationsByTournament(tournamentId);
       if (existingRegistration.some((registration) => registration.userId === user.id)) {
         return res.status(400).json({ error: "You are already registered for this tournament" });
       }
-      const config = parseTournamentConfig(tournament);
+      
       const payments = config.payments;
       const payload = playerRegistrationSchema.parse(req.body ?? {});
       const offlineAllowed = (payments.acceptedOfflineMethods ?? []).length > 0;

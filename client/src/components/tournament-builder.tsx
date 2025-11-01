@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Upload, Check, ChevronRight, Settings, X, ChevronUp, ChevronDown, Plus, CreditCard } from "lucide-react";
+import { QRCodeCanvas } from "qrcode.react";
 import { ChessResultsSettingsCard } from "@/components/tournament-settings/sections";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
@@ -44,6 +44,8 @@ import {
   type TemplateSectionKey,
   type TournamentTemplateSnapshot,
 } from "@/lib/tournament-templates";
+import { Upload, Check, ChevronRight, Settings, X, ChevronUp, ChevronDown, Plus, CreditCard, ExternalLink } from "lucide-react";
+import qrcode from "qrcode";
 
 type BuilderMode = "create" | "edit";
 type SettingsShortcutTab = "rate-tournament" | "fide" | "uscf" | "chess-results";
@@ -56,7 +58,7 @@ interface TournamentBuilderProps {
   onComplete?: (tournament: Tournament) => void;
 }
 
-const FORMAT_CARDS: Array<{
+const FORMAT_CARDS: Array<{ 
   id: Tournament["format"];
   title: string;
   description: string;
@@ -196,7 +198,7 @@ function BasicInformationFields({ config, onConfigChange, variant = "full" }: Ba
     if (!query) return;
     const url =
       provider === "google"
-        ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`
+        ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}` 
         : `https://maps.apple.com/?q=${encodeURIComponent(query)}`;
     window.open(url, "_blank");
   };
@@ -496,7 +498,7 @@ function StepOne({
                   type="button"
                   key={card.id}
                   onClick={() => onFormatChange(card.id)}
-                  className={`text-left border rounded-lg p-4 transition-colors ${
+                  className={`text-left border rounded-lg p-4 transition-colors ${ 
                     isSelected ? "border-primary bg-primary/5" : "hover:border-primary/40"
                   }`}
                 >
@@ -533,7 +535,7 @@ function StepOne({
                   type="button"
                   key={option.id}
                   onClick={() => onModeChange(option.id)}
-                  className={`text-left border rounded-lg p-4 transition-colors ${
+                  className={`text-left border rounded-lg p-4 transition-colors ${ 
                     isSelected ? "border-primary bg-primary/5" : "hover:border-primary/40"
                   }`}
                 >
@@ -925,7 +927,7 @@ function StepTwo({ format, mode, config, onConfigChange, onBack: _onBack, onCanc
       return;
     }
     const normalized = Number(trimmed.replace(/[^0-9.-]/g, ""));
-    const amount = Number.isFinite(normalized) ? Math.max(0, Number(normalized.toFixed(2))) : 0;
+    const amount = Number.isFinite(normalized) ? Number(normalized.toFixed(2)) : 0;
     updatePrize(id, { amount });
   };
 
@@ -962,8 +964,7 @@ function StepTwo({ format, mode, config, onConfigChange, onBack: _onBack, onCanc
 
   const handlePrizePrint = () => {
     if (typeof window === "undefined") return;
-    const printWindow = window.open("", "print-prizes", "width=900,height=600,noopener,noreferrer");
-    if (!printWindow) return;
+
     const rowsHtml = prizes
       .map((prize) => {
         const sectionLabel = escapeHtml(prize.section || "");
@@ -976,17 +977,80 @@ function StepTwo({ format, mode, config, onConfigChange, onBack: _onBack, onCanc
     const tableHtml = prizes.length
       ? `<table><thead><tr><th>Section</th><th>Rating</th><th>Place</th><th>Prize</th></tr></thead><tbody>${rowsHtml}</tbody></table>`
       : `<p>No prizes configured.</p>`;
-    printWindow.document.write(`<!doctype html><html><head><title>Prize payouts</title><style>
+
+    const content = `<!doctype html><html><head><title>Prize payouts</title><style>
       body { font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; padding: 24px; }
       h1 { font-size: 20px; margin-bottom: 16px; }
       table { width: 100%; border-collapse: collapse; }
       th, td { border: 1px solid #cbd5f5; padding: 8px 12px; text-align: left; }
       th { background-color: #eef2ff; }
-    </style></head><body><h1>Prize payouts</h1>${tableHtml}</body></html>`);
-    printWindow.document.close();
-    printWindow.focus();
-    printWindow.print();
-    printWindow.close();
+    </style></head><body><h1>Prize payouts</h1>${tableHtml}</body></html>`;
+
+    const iframe = document.createElement("iframe");
+    iframe.style.position = "absolute";
+    iframe.style.width = "0";
+    iframe.style.height = "0";
+    iframe.style.border = "none";
+    document.body.appendChild(iframe);
+
+    const doc = iframe.contentWindow?.document;
+    if (doc) {
+      doc.open();
+      doc.write(content);
+      doc.close();
+      iframe.contentWindow?.focus();
+      iframe.contentWindow?.print();
+    }
+
+    setTimeout(() => {
+      document.body.removeChild(iframe);
+    }, 1000);
+  };
+
+  const handleSpectatorLinkPrint = async () => {
+    if (typeof window === "undefined") return;
+
+    const currentSpectatorLink = tournamentId ? `${window.location.origin}/tournaments/${tournamentId}` : "";
+    let qrCodeDataUrl = "";
+    try {
+      qrCodeDataUrl = await qrcode.toDataURL(currentSpectatorLink, { errorCorrectionLevel: "H", width: 200 });
+      console.log("Generated QR Code Data URL:", qrCodeDataUrl);
+    } catch (error) {
+      console.error("Failed to generate QR code", error);
+    }
+
+    const content = `<!doctype html><html><head><title>Spectator Link</title><style>
+      body { font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; padding: 24px; text-align: center; }
+      h1 { font-size: 24px; margin-bottom: 16px; }
+      p { margin-bottom: 16px; }
+      img { margin: 0 auto; display: block; }
+    </style></head><body>
+      <h1>Spectator Link for ${escapeHtml(config.basic.name)}</h1>
+      <p>Share this link to allow others to spectate the event:</p>
+      <p><a href="${currentSpectatorLink}">${currentSpectatorLink}</a></p>
+      ${qrCodeDataUrl ? `<img src="${qrCodeDataUrl}" alt="QR Code" style="width: 200px; height: 200px;"/>` : ""}
+      ${config.registers.allowPlayerToJoin ? `<p>Players can register for this tournament.</p>` : `<p>Players cannot register for this tournament.</p>`}
+    </body></html>`;
+
+    const iframe = document.createElement("iframe");
+    iframe.style.position = "absolute";
+    iframe.style.width = "0";
+    iframe.style.height = "0";
+    iframe.style.border = "none";
+    document.body.appendChild(iframe);
+
+    const doc = iframe.contentWindow?.document;
+    if (doc) {
+      doc.open();
+      doc.write(content);
+      doc.close();
+      iframe.contentWindow?.focus();
+      iframe.contentWindow?.print();
+    }
+
+    setTimeout(() => {
+      document.body.removeChild(iframe);
+    }, 1000);
   };
 
   const handlePrizeDownload = () => {
@@ -1119,7 +1183,7 @@ function StepTwo({ format, mode, config, onConfigChange, onBack: _onBack, onCanc
       });
       toast({
         title: "Prizes imported",
-        description: `Loaded ${imported.length} prize ${imported.length === 1 ? "row" : "rows"}.`,
+        description: `Loaded ${imported.length} prize ${imported.length === 1 ? "row" : "rows"}`,
       });
     } catch (error) {
       toast({
@@ -1150,6 +1214,8 @@ function StepTwo({ format, mode, config, onConfigChange, onBack: _onBack, onCanc
   const [paymentsDialogOpen, setPaymentsDialogOpen] = useState(false);
   const [paymentSettingsDraft, setPaymentSettingsDraft] = useState(config.payments);
   const [chessResultsEnabled, setChessResultsEnabled] = useState(false);
+  const [qrCodeModalOpen, setQrCodeModalOpen] = useState(false);
+  const spectatorLink = tournamentId ? `${window.location.origin}/tournaments/${tournamentId}` : "";
 
   const testMutation = useMutation({
     mutationFn: async () => {
@@ -1257,6 +1323,62 @@ function StepTwo({ format, mode, config, onConfigChange, onBack: _onBack, onCanc
       data: config.chessResults,
     });
   };
+
+  const handleSchedulePrint = () => {
+    if (typeof window === "undefined") return;
+
+    const scheduleHtml = config.schedule
+      .map((event) => {
+        const date = event.date ? new Date(event.date).toLocaleDateString() : "";
+        const time = event.time || "";
+        const label = escapeHtml(event.label || "");
+        return `<tr><td>${date}</td><td>${time}</td><td>${label}</td></tr>`;
+      })
+      .join("");
+
+    const tableHtml = config.schedule.length
+      ? `<table><thead><tr><th>Date</th><th>Time</th><th>Event</th></tr></thead><tbody>${scheduleHtml}</tbody></table>`
+      : `<p>No schedule configured.</p>`;
+
+    const content = `<!doctype html><html><head><title>${escapeHtml(
+      config.basic.name,
+    )}</title><style>
+      body { font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; padding: 24px; }
+      h1 { font-size: 24px; margin-bottom: 16px; }
+      h2 { font-size: 20px; margin-top: 24px; margin-bottom: 16px; }
+      p { margin-bottom: 16px; }
+      table { width: 100%; border-collapse: collapse; }
+      th, td { border: 1px solid #cbd5f5; padding: 8px 12px; text-align: left; }
+      th { background-color: #eef2ff; }
+    </style></head><body>
+      <h1>${escapeHtml(config.basic.name)}</h1>
+      <p>${escapeHtml(config.basic.description)}</p>
+      <h2>Schedule</h2>
+      ${tableHtml}
+    </body></html>`;
+
+    const iframe = document.createElement("iframe");
+    iframe.style.position = "absolute";
+    iframe.style.width = "0";
+    iframe.style.height = "0";
+    iframe.style.border = "none";
+    document.body.appendChild(iframe);
+
+    const doc = iframe.contentWindow?.document;
+    if (doc) {
+      doc.open();
+      doc.write(content);
+      doc.close();
+      iframe.contentWindow?.focus();
+      iframe.contentWindow?.print();
+    }
+
+    setTimeout(() => {
+      document.body.removeChild(iframe);
+    }, 1000);
+  };
+
+
 
   const defaultTimeControlFor = (type: TimeControlType): TimeControlDefinition => {
     switch (type) {
@@ -1851,9 +1973,14 @@ function StepTwo({ format, mode, config, onConfigChange, onBack: _onBack, onCanc
                       Plan rounds and ceremonies. These entries appear on reports and public pages.
                     </p>
                   </div>
-                  <Button variant="outline" onClick={addScheduleRow}>
-                    Add Event
-                  </Button>
+                  <div className="flex gap-2">
+                    <Button variant="outline" onClick={addScheduleRow}>
+                      Add Event
+                    </Button>
+                    <Button variant="outline" onClick={handleSchedulePrint}>
+                      Print Schedule
+                    </Button>
+                  </div>
                 </div>
 
                 <div className="space-y-3">
@@ -2363,52 +2490,162 @@ function StepTwo({ format, mode, config, onConfigChange, onBack: _onBack, onCanc
               </TabsContent>
 
               <TabsContent value="options" className="bg-white p-6 space-y-4">
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between rounded-lg border px-4 py-3">
-                    <div>
-                      <Label className="text-sm font-medium">Enable Pairing Predictor</Label>
-                      <p className="text-xs text-muted-foreground">Allow players to simulate upcoming pairings.</p>
-                    </div>
-                    <Switch
-                      checked={config.registers.enablePairingPredictor}
-                      onCheckedChange={(checked) => updateRegisters({ enablePairingPredictor: checked })}
-                    />
-                  </div>
-                  <div className="flex items-center justify-between rounded-lg border px-4 py-3">
-                    <div>
-                      <Label className="text-sm font-medium">Show on Calendar</Label>
-                      <p className="text-xs text-muted-foreground">Publish this event on the public calendar.</p>
-                    </div>
-                    <Switch
-                      checked={config.registers.showOnCalendar}
-                      onCheckedChange={(checked) => updateRegisters({ showOnCalendar: checked })}
-                    />
-                  </div>
-                  <div className="flex items-center justify-between rounded-lg border px-4 py-3">
-                    <div>
-                      <Label className="text-sm font-medium">Allow Online Registration</Label>
-                      <p className="text-xs text-muted-foreground">Players can sign up directly from the portal.</p>
-                    </div>
-                    <Switch
-                      checked={config.registers.allowSignup}
-                      onCheckedChange={(checked) => updateRegisters({ allowSignup: checked })}
-                    />
-                  </div>
-                  <ChessResultsSettingsCard
-                    value={config.chessResults}
-                    onChange={updateChessResults}
-                    onTest={() => testMutation.mutate()}
-                    onSync={() => syncMutation.mutate()}
-                    testing={testMutation.isPending}
-                    syncing={syncMutation.isPending}
-                    disabled={config.chessResults.syncMode === "disabled"}
-                    onDownload={handleDownloadChessResults}
-                    enabled={chessResultsEnabled}
-                    onEnabledChange={setChessResultsEnabled}
-                  />
-                </div>
-                {renderTabSaveButton()}
-              </TabsContent>
+
+                              <div className="space-y-4">
+
+                                <div className="flex items-center justify-between rounded-lg border px-4 py-3">
+
+                                  <div>
+
+                                    <Label className="text-sm font-medium">Enable Pairing Predictor</Label>
+
+                                    <p className="text-xs text-muted-foreground">Allow players to simulate upcoming pairings.</p>
+
+                                  </div>
+
+                                  <Switch
+
+                                    checked={config.registers.enablePairingPredictor}
+
+                                    onCheckedChange={(checked) => updateRegisters({ enablePairingPredictor: checked })}
+
+                                  />
+
+                                </div>
+
+                                <div className="flex items-center justify-between rounded-lg border px-4 py-3">
+
+                                  <div>
+
+                                    <Label className="text-sm font-medium">Show on Calendar</Label>
+
+                                    <p className="text-xs text-muted-foreground">Publish this event on the public calendar.</p>
+
+                                  </div>
+
+                                  <Switch
+
+                                    checked={config.registers.showOnCalendar}
+
+                                    onCheckedChange={(checked) => updateRegisters({ showOnCalendar: checked })}
+
+                                  />
+
+                                </div>
+
+                                                <div className="space-y-2">
+
+                                                  <Label>Spectator Link</Label>
+
+                                                  <div className="flex items-center gap-2">
+
+                                                    <Input
+
+                                                      readOnly
+
+                                                      value={`${window.location.origin}/tournaments/${tournamentId}`}
+
+                                                    />
+
+                                                                                            <Button
+
+                                                                                              variant="outline"
+
+                                                                                              size="sm"
+
+                                                                                              onClick={() => setQrCodeModalOpen(true)}
+
+                                                                                            >
+
+                                                                                              Show QR Code
+
+                                                                                            </Button>
+
+                                                                                                                <Button
+
+                                                                                                                  variant="outline"
+
+                                                                                                                  size="sm"
+
+                                                                                                                  onClick={handleSpectatorLinkPrint}
+
+                                                                                                                >
+
+                                                                                                                  Print
+
+                                                                                                                </Button>
+
+                                                                                            
+
+                                                  </div>
+
+                                                  <p className="text-xs text-muted-foreground">
+
+                                                    Share this link to allow others to spectate the event.
+
+                                                  </p>
+
+                                                  <div className="flex items-center space-x-2 pt-2">
+
+                                                    <Switch
+
+                                                      id="allow-player-to-join"
+
+                                                      checked={config.registers.allowPlayerToJoin}
+
+                                                      onCheckedChange={(checked) =>
+
+                                                        updateRegisters({ allowPlayerToJoin: checked })
+
+                                                      }
+
+                                                    />
+
+                                                                        <Label htmlFor="allow-player-to-join">
+
+                                                                          Allow Players to Join
+
+                                                                        </Label>
+
+                                                                      </div>
+
+                                                                      <p className="text-xs text-muted-foreground">
+
+                                                                        If enabled, players can complete the registration form; otherwise, they can just spectate.
+
+                                                                      </p>
+
+                                                </div>
+
+                                <ChessResultsSettingsCard
+
+                                  value={config.chessResults}
+
+                                  onChange={updateChessResults}
+
+                                  onTest={() => testMutation.mutate()}
+
+                                  onSync={() => syncMutation.mutate()}
+
+                                  testing={testMutation.isPending}
+
+                                  syncing={syncMutation.isPending}
+
+                                  disabled={config.chessResults.syncMode === "disabled"}
+
+                                  onDownload={handleDownloadChessResults}
+
+                                  enabled={chessResultsEnabled}
+
+                                  onEnabledChange={setChessResultsEnabled}
+
+                                />
+
+                              </div>
+
+                              {renderTabSaveButton()}
+
+                            </TabsContent>
             </Tabs>
           </CardContent>
         </Card>
@@ -2611,6 +2848,19 @@ function StepTwo({ format, mode, config, onConfigChange, onBack: _onBack, onCanc
         </DialogFooter>
       </div>
     </DialogContent>
+      </Dialog>
+      <Dialog open={qrCodeModalOpen} onOpenChange={setQrCodeModalOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Spectator QR Code</DialogTitle>
+            <DialogDescription>
+              Scan this QR code to spectate the tournament.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex justify-center p-4">
+
+          </div>
+        </DialogContent>
       </Dialog>
     </>
   );

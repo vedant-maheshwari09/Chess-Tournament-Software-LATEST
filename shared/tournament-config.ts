@@ -22,6 +22,7 @@ export interface ScheduleEvent {
 export interface RegistersConfig {
   showOnCalendar: boolean;
   allowSignup: boolean;
+  allowPlayerToJoin: boolean;
   fideRated: boolean;
   uscfRated: boolean;
   disableSms: boolean;
@@ -320,6 +321,7 @@ export function createDefaultConfig(format: Tournament["format"], mode: Tourname
     registers: {
       showOnCalendar: false,
       allowSignup: false,
+      allowPlayerToJoin: false,
       fideRated: mode === "rated",
       uscfRated: mode === "rated",
       disableSms: false,
