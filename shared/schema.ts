@@ -53,6 +53,10 @@ export const tournaments = pgTable("tournaments", {
   directorPhone: text("director_phone"), // Tournament director phone number
   directorEmail: text("director_email"), // Tournament director email
   roundTimings: jsonb("round_timings"), // Array of {round: number, date: string, time: string}
+  publishOnCalendar: boolean("publish_on_calendar").default(false),
+  allowOnlineRegistration: boolean("allow_online_registration").default(false),
+  enablePairingPredictor: boolean("enable_pairing_predictor").default(false),
+  chessResultsUrl: text("chess_results_url"),
   createdBy: integer("created_by").notNull(), // User ID of tournament director
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),

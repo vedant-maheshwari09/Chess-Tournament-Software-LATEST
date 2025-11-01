@@ -13,185 +13,10 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   type ChessResultsConfig,
   type FideRegistrationData,
-  type RegistersConfig,
   type UscfReportData,
 } from "@/lib/tournament-config";
 import { cn } from "@/lib/utils";
 import { Download, ExternalLink } from "lucide-react";
-
-interface RegistersSettingsCardProps {
-  value: RegistersConfig;
-  onChange: (update: Partial<RegistersConfig>) => void;
-}
-
-export function RegistersSettingsCard({ value, onChange }: RegistersSettingsCardProps) {
-  const controls = [
-    {
-      key: "showOnCalendar" as const,
-      label: "Show this tournament on the public calendar",
-      description: "Publish event details on the player-facing schedule.",
-    },
-    {
-      key: "allowSignup" as const,
-      label: "Allow players to sign up online",
-      description: "Enable registration through the player portal.",
-    },
-    {
-      key: "fideRated" as const,
-      label: "FIDE rated tournament",
-      description: "Reveal the Data for FIDE page after you save.",
-    },
-    {
-      key: "uscfRated" as const,
-      label: "USCF rated tournament",
-      description: "Reveal the Data for USCF page after you save.",
-    },
-    {
-      key: "hideTeams" as const,
-      label: "Hide team / school / grade fields",
-      description: "Keep the registration form focused on individual players.",
-    },
-    {
-      key: "disableSms" as const,
-      label: "Disable SMS notifications",
-      description: "Turn off outbound pairing texts for this tournament.",
-    },
-  ];
-
-  return (
-    <Card className="shadow-sm">
-      <CardHeader className="border-b pb-6">
-        <CardTitle className="text-2xl font-semibold text-indigo-900">Registers</CardTitle>
-        <CardDescription>
-          Manage visibility, registration, and federation requirements. Changes to FIDE or USCF switches apply after you
-          save.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-8 pt-6">
-        <div className="space-y-3">
-          {controls.map(({ key, label, description }) => {
-            const switchId = `registers-${key}`;
-            return (
-              <div
-                key={key}
-                className="flex items-center gap-4 rounded-lg border border-slate-200 bg-white px-4 py-3 shadow-sm"
-              >
-                <Switch
-                  id={switchId}
-                  checked={value[key] ?? false}
-                  onCheckedChange={(checked) => onChange({ [key]: checked })}
-                />
-                <div className="space-y-1">
-                  <Label htmlFor={switchId} className="text-sm font-medium text-slate-700">
-                    {label}
-                  </Label>
-                  <p className="text-xs text-muted-foreground">{description}</p>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-
-        <div className="grid gap-6 md:grid-cols-2">
-          <div className="space-y-2">
-            <Label htmlFor="player-limit">Player cap</Label>
-            <Input
-              id="player-limit"
-              type="number"
-              min={0}
-              value={typeof value.playerLimit === "number" ? String(value.playerLimit) : ""}
-              placeholder="Leave blank for no limit"
-              onChange={(event) => {
-                const trimmed = event.target.value.trim();
-                if (trimmed.length === 0) {
-                  onChange({ playerLimit: null });
-                  return;
-                }
-                const parsed = Number(trimmed);
-                onChange({ playerLimit: Number.isFinite(parsed) ? parsed : value.playerLimit ?? null });
-              }}
-            />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="bye-limit">Bye limit</Label>
-            <Input
-              id="bye-limit"
-              type="number"
-              min={0}
-              value={typeof value.byeLimit === "number" ? String(value.byeLimit) : ""}
-              placeholder="Maximum half-point byes"
-              onChange={(event) => {
-                const trimmed = event.target.value.trim();
-                if (trimmed.length === 0) {
-                  onChange({ byeLimit: null });
-                  return;
-                }
-                const parsed = Number(trimmed);
-                onChange({ byeLimit: Number.isFinite(parsed) ? parsed : value.byeLimit ?? null });
-              }}
-            />
-          </div>
-        </div>
-
-        <div className="space-y-2">
-          <Label htmlFor="early-bird">Early bird entry details</Label>
-          <Textarea
-            id="early-bird"
-            rows={3}
-            value={value.earlyBirdDetails ?? ""}
-            placeholder="Outline pricing deadlines or incentives for early registration."
-            onChange={(event) => onChange({ earlyBirdDetails: event.target.value })}
-          />
-        </div>
-
-        <div className="space-y-2">
-          <Label htmlFor="payment-info">Payment information</Label>
-          <Textarea
-            id="payment-info"
-            rows={4}
-            value={value.paymentDetails ?? ""}
-            placeholder="Provide payment methods, account references, or onsite instructions."
-            onChange={(event) => onChange({ paymentDetails: event.target.value })}
-          />
-        </div>
-
-        <div className="grid gap-6 md:grid-cols-2">
-          <div className="flex items-center gap-4 rounded-lg border border-slate-200 bg-white px-4 py-3 shadow-sm">
-            <Switch
-              id="notify-email"
-              checked={value.notifyPairingsEmail ?? false}
-              onCheckedChange={(checked) => onChange({ notifyPairingsEmail: checked })}
-            />
-            <div className="space-y-1">
-              <Label htmlFor="notify-email" className="text-sm font-medium text-slate-700">
-                Email notifications
-              </Label>
-              <p className="text-xs text-muted-foreground">Send pairing updates by email.</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-4 rounded-lg border border-slate-200 bg-white px-4 py-3 shadow-sm">
-            <Switch
-              id="notify-sms"
-              checked={value.notifyPairingsSms ?? false}
-              onCheckedChange={(checked) => onChange({ notifyPairingsSms: checked })}
-            />
-            <div className="space-y-1">
-              <Label htmlFor="notify-sms" className="text-sm font-medium text-slate-700">
-                SMS notifications
-              </Label>
-              <p className="text-xs text-muted-foreground">Deliver pairing texts when players opt in.</p>
-            </div>
-          </div>
-        </div>
-
-        <div className="rounded-lg border border-dashed border-indigo-200 bg-indigo-50/70 px-4 py-3 text-xs text-indigo-700">
-          Toggle FIDE or USCF rating, click <strong>Save changes</strong>, and the corresponding data pages will appear or
-          disappear automatically.
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
 
 interface FideRegistrationSectionProps {
   value: FideRegistrationData;
@@ -676,6 +501,8 @@ interface ChessResultsSettingsCardProps {
   syncing: boolean;
   disabled?: boolean;
   onDownload?: () => void;
+  enabled: boolean;
+  onEnabledChange: (enabled: boolean) => void;
 }
 
 export function ChessResultsSettingsCard({
@@ -687,6 +514,8 @@ export function ChessResultsSettingsCard({
   syncing,
   disabled,
   onDownload,
+  enabled,
+  onEnabledChange,
 }: ChessResultsSettingsCardProps) {
   const syncDisabled = value.syncMode === "disabled" || disabled;
   const trimmedTournamentId = value.tournamentId?.trim();
@@ -701,220 +530,225 @@ export function ChessResultsSettingsCard({
 
   return (
     <Card className="shadow-sm">
-      <CardHeader className="border-b pb-6">
-        <CardTitle className="text-2xl font-semibold text-indigo-900">Chess-Results Server Integration</CardTitle>
-        <CardDescription>
-          <a
-            href="https://chess-results.com"
-            target="_blank"
-            rel="noreferrer"
-            className="inline-flex items-center gap-2 text-indigo-700 hover:text-indigo-800 hover:underline"
-          >
-            https://chess-results.com
-            <ExternalLink className="h-4 w-4" />
-          </a>
-        </CardDescription>
+      <CardHeader className="border-b pb-6 flex flex-row items-center justify-between">
+        <div>
+          <CardTitle className="text-2xl font-semibold text-indigo-900">Chess-Results Server Integration</CardTitle>
+          <CardDescription>
+            <a
+              href="https://chess-results.com"
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-2 text-indigo-700 hover:text-indigo-800 hover:underline"
+            >
+              https://chess-results.com
+              <ExternalLink className="h-4 w-4" />
+            </a>
+          </CardDescription>
+        </div>
+        <Switch checked={enabled} onCheckedChange={onEnabledChange} />
       </CardHeader>
-      <CardContent className="space-y-8 pt-6">
-        <div className="grid gap-8 md:grid-cols-2">
-          <div className="space-y-3">
-            <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Synchronization</h3>
-            <RadioGroup
-              value={value.syncMode}
-              onValueChange={(next) => onChange({ syncMode: next as ChessResultsConfig["syncMode"] })}
-              className="space-y-3"
-            >
-              {[
-                { key: "disabled", label: "Disabled", hint: "Do not export or sync." },
-                { key: "manual", label: "Manual", hint: "Run exports on demand." },
-                { key: "automatic", label: "Automatic", hint: "Sync on a repeating schedule." },
-              ].map((option) => (
-                <label
-                  key={option.key}
-                  className={cn(
-                    "flex items-start gap-3 rounded-lg border border-slate-200 bg-white px-4 py-3 shadow-sm",
-                    value.syncMode === option.key && "border-indigo-500"
-                  )}
-                >
-                  <RadioGroupItem value={option.key} className="mt-1" />
-                  <div className="space-y-1">
+      {enabled && (
+        <CardContent className="space-y-8 pt-6">
+          <div className="grid gap-8 md:grid-cols-2">
+            <div className="space-y-3">
+              <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Synchronization</h3>
+              <RadioGroup
+                value={value.syncMode}
+                onValueChange={(next) => onChange({ syncMode: next as ChessResultsConfig["syncMode"] })}
+                className="space-y-3"
+              >
+                {[
+                  { key: "disabled", label: "Disabled", hint: "Do not export or sync." },
+                  { key: "manual", label: "Manual", hint: "Run exports on demand." },
+                  { key: "automatic", label: "Automatic", hint: "Sync on a repeating schedule." },
+                ].map((option) => (
+                  <label
+                    key={option.key}
+                    className={cn(
+                      "flex items-start gap-3 rounded-lg border border-slate-200 bg-white px-4 py-3 shadow-sm",
+                      value.syncMode === option.key && "border-indigo-500"
+                    )}
+                  >
+                    <RadioGroupItem value={option.key} className="mt-1" />
+                    <div className="space-y-1">
+                      <span className="text-sm font-medium text-slate-700">{option.label}</span>
+                      <p className="text-xs text-muted-foreground">{option.hint}</p>
+                    </div>
+                    {value.syncMode === option.key && <Badge variant="secondary" className="ml-auto">Active</Badge>}
+                  </label>
+                ))}
+              </RadioGroup>
+            </div>
+            <div className="space-y-3">
+              <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Export scope</h3>
+              <RadioGroup
+                value={value.exportMode}
+                onValueChange={(next) => onChange({ exportMode: next as ChessResultsConfig["exportMode"] })}
+                className="space-y-3"
+              >
+                {[
+                  { key: "page", label: "Tournament Page" },
+                  { key: "participants", label: "Tournament Page + Participants" },
+                  { key: "participants_standings", label: "Tournament Page + Participants + Standings" },
+                  {
+                    key: "participants_standings_rounds",
+                    label: "Tournament Page + Participants + Standings + Rounds",
+                  },
+                ].map((option) => (
+                  <label
+                    key={option.key}
+                    className={cn(
+                      "flex items-start gap-3 rounded-lg border border-slate-200 bg-white px-4 py-3 shadow-sm",
+                      value.exportMode === option.key && "border-indigo-500"
+                    )}
+                  >
+                    <RadioGroupItem value={option.key} className="mt-1" />
                     <span className="text-sm font-medium text-slate-700">{option.label}</span>
-                    <p className="text-xs text-muted-foreground">{option.hint}</p>
-                  </div>
-                  {value.syncMode === option.key && <Badge variant="secondary" className="ml-auto">Active</Badge>}
-                </label>
-              ))}
-            </RadioGroup>
+                  </label>
+                ))}
+              </RadioGroup>
+            </div>
           </div>
-          <div className="space-y-3">
-            <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Export scope</h3>
-            <RadioGroup
-              value={value.exportMode}
-              onValueChange={(next) => onChange({ exportMode: next as ChessResultsConfig["exportMode"] })}
-              className="space-y-3"
+
+          <div className="grid gap-6 md:grid-cols-2">
+            <div className="space-y-2">
+              <Label htmlFor="chess-results-endpoint">Chess-Results endpoint</Label>
+              <Input
+                id="chess-results-endpoint"
+                value={value.endpoint ?? ""}
+                placeholder="https://chess-results.com/tnr_api/"
+                onChange={(event) => onChange({ endpoint: event.target.value })}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="chess-results-tnr">Tournament number (TNR)</Label>
+              <Input
+                id="chess-results-tnr"
+                value={value.tournamentId ?? ""}
+                placeholder="e.g. 842391"
+                onChange={(event) => onChange({ tournamentId: event.target.value })}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="chess-results-pno">Organizer personal number (PNo)</Label>
+              <Input
+                id="chess-results-pno"
+                value={value.personalNumber ?? ""}
+                placeholder="Assigned Chess-Results account ID"
+                onChange={(event) => onChange({ personalNumber: event.target.value })}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="chess-results-password">Password</Label>
+              <Input
+                id="chess-results-password"
+                type="password"
+                value={value.password ?? ""}
+                placeholder="••••••••"
+                onChange={(event) => onChange({ password: event.target.value })}
+              />
+            </div>
+          </div>
+
+          <div className="grid gap-6 md:grid-cols-2">
+            <div className="space-y-2">
+              <Label htmlFor="chess-results-organizer">Organizer name</Label>
+              <Input
+                id="chess-results-organizer"
+                value={value.organizerName ?? ""}
+                onChange={(event) => onChange({ organizerName: event.target.value })}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="chess-results-email">Organizer email</Label>
+              <Input
+                id="chess-results-email"
+                type="email"
+                value={value.organizerEmail ?? ""}
+                onChange={(event) => onChange({ organizerEmail: event.target.value })}
+              />
+            </div>
+            <div className="space-y-2 md:col-span-2">
+              <Label htmlFor="chess-results-event-code">Event code or remarks</Label>
+              <Input
+                id="chess-results-event-code"
+                value={value.eventCode ?? ""}
+                onChange={(event) => onChange({ eventCode: event.target.value })}
+              />
+            </div>
+          </div>
+
+          <div className="grid gap-6 md:grid-cols-2">
+            <div className="space-y-2">
+              <Label htmlFor="chess-results-interval">Auto-sync interval (minutes)</Label>
+              <Input
+                id="chess-results-interval"
+                type="number"
+                min={5}
+                step={5}
+                value={value.autoSyncIntervalMinutes ? String(value.autoSyncIntervalMinutes) : ""}
+                onChange={(event) => {
+                  const trimmed = event.target.value.trim();
+                  if (!trimmed) {
+                    onChange({ autoSyncIntervalMinutes: undefined });
+                    return;
+                  }
+                  const parsed = Number(trimmed);
+                  onChange({
+                    autoSyncIntervalMinutes: Number.isFinite(parsed) ? parsed : value.autoSyncIntervalMinutes,
+                  });
+                }}
+              />
+            </div>
+            <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50 px-3 py-3 text-xs text-slate-600">
+              Automatic mode will upload participants, pairings, and standings on the interval provided. Manual mode only
+              syncs when you trigger it.
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white p-4 text-sm shadow-sm">
+            <div>
+              <p className="font-medium text-slate-700">Last synchronization</p>
+              <p className="text-xs text-muted-foreground">
+                {value.lastSyncAt ? new Date(value.lastSyncAt).toLocaleString() : "No syncs recorded yet."}
+              </p>
+              {value.lastSyncMessage && (
+                <p className="text-xs text-muted-foreground">{value.lastSyncMessage}</p>
+              )}
+            </div>
+            <Badge
+              className={cn(
+                value.lastSyncStatus === "success" && "bg-green-600 text-white",
+                value.lastSyncStatus === "error" && "bg-red-600 text-white",
+                value.lastSyncStatus === "pending" && "bg-yellow-500 text-white",
+                !value.lastSyncStatus && "bg-slate-200 text-slate-600"
+              )}
             >
-              {[
-                { key: "page", label: "Tournament Page" },
-                { key: "participants", label: "Tournament Page + Participants" },
-                { key: "participants_standings", label: "Tournament Page + Participants + Standings" },
-                {
-                  key: "participants_standings_rounds",
-                  label: "Tournament Page + Participants + Standings + Rounds",
-                },
-              ].map((option) => (
-                <label
-                  key={option.key}
-                  className={cn(
-                    "flex items-start gap-3 rounded-lg border border-slate-200 bg-white px-4 py-3 shadow-sm",
-                    value.exportMode === option.key && "border-indigo-500"
-                  )}
-                >
-                  <RadioGroupItem value={option.key} className="mt-1" />
-                  <span className="text-sm font-medium text-slate-700">{option.label}</span>
-                </label>
-              ))}
-            </RadioGroup>
+              {value.lastSyncStatus ? value.lastSyncStatus.toUpperCase() : "NEVER"}
+            </Badge>
           </div>
-        </div>
 
-        <div className="grid gap-6 md:grid-cols-2">
-          <div className="space-y-2">
-            <Label htmlFor="chess-results-endpoint">Chess-Results endpoint</Label>
-            <Input
-              id="chess-results-endpoint"
-              value={value.endpoint ?? ""}
-              placeholder="https://chess-results.com/tnr_api/"
-              onChange={(event) => onChange({ endpoint: event.target.value })}
-            />
+          <div className="flex flex-wrap gap-2">
+            <Button type="button" variant="outline" onClick={onTest} disabled={testing || syncDisabled}>
+              {testing ? "Testing..." : "Test connection"}
+            </Button>
+            <Button type="button" onClick={onSync} disabled={syncDisabled || syncing}>
+              {syncing ? "Syncing..." : "Sync now"}
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={openTournamentPage}
+              disabled={!trimmedTournamentId}
+            >
+              <ExternalLink className="mr-2 h-4 w-4" /> View event on Chess-Results
+            </Button>
+            <Button type="button" variant="outline" onClick={onDownload}>
+              <Download className="mr-2 h-4 w-4" /> Download configuration
+            </Button>
           </div>
-          <div className="space-y-2">
-            <Label htmlFor="chess-results-tnr">Tournament number (TNR)</Label>
-            <Input
-              id="chess-results-tnr"
-              value={value.tournamentId ?? ""}
-              placeholder="e.g. 842391"
-              onChange={(event) => onChange({ tournamentId: event.target.value })}
-            />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="chess-results-pno">Organizer personal number (PNo)</Label>
-            <Input
-              id="chess-results-pno"
-              value={value.personalNumber ?? ""}
-              placeholder="Assigned Chess-Results account ID"
-              onChange={(event) => onChange({ personalNumber: event.target.value })}
-            />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="chess-results-password">Password</Label>
-            <Input
-              id="chess-results-password"
-              type="password"
-              value={value.password ?? ""}
-              placeholder="••••••••"
-              onChange={(event) => onChange({ password: event.target.value })}
-            />
-          </div>
-        </div>
-
-        <div className="grid gap-6 md:grid-cols-2">
-          <div className="space-y-2">
-            <Label htmlFor="chess-results-organizer">Organizer name</Label>
-            <Input
-              id="chess-results-organizer"
-              value={value.organizerName ?? ""}
-              onChange={(event) => onChange({ organizerName: event.target.value })}
-            />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="chess-results-email">Organizer email</Label>
-            <Input
-              id="chess-results-email"
-              type="email"
-              value={value.organizerEmail ?? ""}
-              onChange={(event) => onChange({ organizerEmail: event.target.value })}
-            />
-          </div>
-          <div className="space-y-2 md:col-span-2">
-            <Label htmlFor="chess-results-event-code">Event code or remarks</Label>
-            <Input
-              id="chess-results-event-code"
-              value={value.eventCode ?? ""}
-              onChange={(event) => onChange({ eventCode: event.target.value })}
-            />
-          </div>
-        </div>
-
-        <div className="grid gap-6 md:grid-cols-2">
-          <div className="space-y-2">
-            <Label htmlFor="chess-results-interval">Auto-sync interval (minutes)</Label>
-            <Input
-              id="chess-results-interval"
-              type="number"
-              min={5}
-              step={5}
-              value={value.autoSyncIntervalMinutes ? String(value.autoSyncIntervalMinutes) : ""}
-              onChange={(event) => {
-                const trimmed = event.target.value.trim();
-                if (!trimmed) {
-                  onChange({ autoSyncIntervalMinutes: undefined });
-                  return;
-                }
-                const parsed = Number(trimmed);
-                onChange({
-                  autoSyncIntervalMinutes: Number.isFinite(parsed) ? parsed : value.autoSyncIntervalMinutes,
-                });
-              }}
-            />
-          </div>
-          <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50 px-3 py-3 text-xs text-slate-600">
-            Automatic mode will upload participants, pairings, and standings on the interval provided. Manual mode only
-            syncs when you trigger it.
-          </div>
-        </div>
-
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white p-4 text-sm shadow-sm">
-          <div>
-            <p className="font-medium text-slate-700">Last synchronization</p>
-            <p className="text-xs text-muted-foreground">
-              {value.lastSyncAt ? new Date(value.lastSyncAt).toLocaleString() : "No syncs recorded yet."}
-            </p>
-            {value.lastSyncMessage && (
-              <p className="text-xs text-muted-foreground">{value.lastSyncMessage}</p>
-            )}
-          </div>
-          <Badge
-            className={cn(
-              value.lastSyncStatus === "success" && "bg-green-600 text-white",
-              value.lastSyncStatus === "error" && "bg-red-600 text-white",
-              value.lastSyncStatus === "pending" && "bg-yellow-500 text-white",
-              !value.lastSyncStatus && "bg-slate-200 text-slate-600"
-            )}
-          >
-            {value.lastSyncStatus ? value.lastSyncStatus.toUpperCase() : "NEVER"}
-          </Badge>
-        </div>
-
-        <div className="flex flex-wrap gap-2">
-          <Button type="button" variant="outline" onClick={onTest} disabled={testing || syncDisabled}>
-            {testing ? "Testing..." : "Test connection"}
-          </Button>
-          <Button type="button" onClick={onSync} disabled={syncDisabled || syncing}>
-            {syncing ? "Syncing..." : "Sync now"}
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            onClick={openTournamentPage}
-            disabled={!trimmedTournamentId}
-          >
-            <ExternalLink className="mr-2 h-4 w-4" /> View event on Chess-Results
-          </Button>
-          <Button type="button" variant="outline" onClick={onDownload}>
-            <Download className="mr-2 h-4 w-4" /> Download configuration
-          </Button>
-        </div>
-      </CardContent>
+        </CardContent>
+      )}
     </Card>
   );
 }

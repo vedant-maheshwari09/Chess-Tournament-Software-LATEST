@@ -167,7 +167,7 @@ function parseLimitParam(value: unknown, fallback: number, max: number): number 
 function getGeminiConfig() {
   return {
     apiKey: process.env.GEMINI_API_KEY,
-    model: process.env.GEMINI_MODEL ?? "gemini-1.5-flash",
+    model: process.env.GEMINI_MODEL ?? "gemini-2.5-pro",
   } as const;
 }
 
@@ -962,33 +962,68 @@ export async function registerRoutes(app: Express): Promise<Server> {
       ),
     );
 
-    const prompt = `You are assisting a chess tournament director by drafting the public tournament page copy.
+const prompt = `You are assisting a chess tournament director by drafting the public tournament page copy.
 Use a professional but welcoming tone and produce concise Markdown with short headings and paragraphs.
 Include an Overview, Schedule, and Highlights section referencing the data below.
 
 Tournament data:
-- Name: ${basic.name ?? "TBD"}
-- Location: ${basic.city ?? "TBD"}
-- Dates: ${basic.startDate ?? "TBD"} to ${basic.endDate ?? "TBD"}
-- Federation focus: ${basic.federation ?? "General"}
-- Format: ${(config as any)?.format ?? details.pairingSystem ?? "Unknown"}
-- Rounds: ${details.rounds ?? "TBD"}
-- Time control: ${details.timeControl ?? "TBD"} (${details.ratingType ?? "standard"})
-- Description: ${basic.description ?? ""}
+${basic.name ? `- Name: ${basic.name}` : ""}
+${basic.city ? `- Location: ${basic.city}` : ""}
+${(basic.startDate && basic.endDate) ? `- Dates: ${basic.startDate} to ${basic.endDate}` : ""}
+${basic.federation ? `- Federation focus: ${basic.federation}` : ""}
+${(config as any)?.format || details.pairingSystem ? `- Format: ${(config as any)?.format ?? details.pairingSystem}` : ""}
+${details.rounds ? `- Rounds: ${details.rounds}` : ""}
+${details.timeControl ? `- Time control: ${details.timeControl} (${details.ratingType ?? "standard"})` : ""}
+${basic.description ? `- Description: ${basic.description}` : ""}
 
-Schedule:
-${scheduleLines || "No detailed schedule supplied."}
+${fide?.prizeFund ? `Prize Fund: ${fide.prizeFund}` : ""}
 
-Entry fees & sections:
-${entryFeeLines || "Entry fee menu will be confirmed soon."}
+${basic.city ? `Location: ${basic.city}` : ""}
 
-Highlights & logistics:
-${highlightLines || "Additional logistics will be announced closer to the event."}
+${(config as any).hotelInfo ?? ""}
 
-Key contacts:
-${contactLines || "Staff contact information will be announced."}
+${(basic.startDate && basic.endDate) ? `Dates: ${basic.startDate} - ${basic.endDate}` : ""}
 
-Close with a friendly call-to-action for players or parents.`;
+${entryFeeLines ? `Sections:
+${entryFeeLines}` : ""}
+
+${details.timeControl ? `Time control: ${details.timeControl}` : ""}
+
+${(config as any).scheduleInfo ?? ""}
+
+${(config as any).specialEntries ? `Special Entries:
+${(config as any).specialEntries}` : ""}
+
+${(config as any).entryFeesInfo ? `Entry Fees:
+${(config as any).entryFeesInfo}` : ""}
+
+${(config as any).notes ? `Notes:
+${(config as any).notes}` : ""}
+
+${(config as any).roundByes ? `Round Byes
+${(config as any).roundByes}` : ""}
+
+${(config as any).membershipInfo ? `${(config as any).membershipInfo}` : ""}
+
+${(config as any).blitzInfo ? `${(config as any).blitzInfo}` : ""}
+
+${(config as any).registrationInfo ? `Details and Registration:
+${(config as any).registrationInfo}` : ""}
+
+${contactLines ? `Contact:
+${contactLines}` : ""}
+
+${basic.city ? `Address:
+${basic.city}` : ""}
+
+${fide?.prizeFund ? `Prize Fund: ${fide.prizeFund}` : ""}
+${(config as any)?.fideRated ? `FIDE Rated: Yes` : ""}
+${(config as any)?.handicapAccessible ? `Handicap Accessible: Yes` : ""}
+${(config as any)?.residencyRestriction ? `Residency Restriction: Yes` : ""}
+${(config as any)?.onlineEvent ? `Online Event: Yes` : ""}
+${(config as any).organizerInfo ? `Organizer Overview
+${(config as any).organizerInfo}` : ""}
+`;
 
     try {
       let lastError: { status: number; payload: any; rawBody: string; model: string } | null = null;
@@ -997,6 +1032,7 @@ Close with a friendly call-to-action for players or parents.`;
         const url = new URL(
           `https://generativelanguage.googleapis.com/v1beta/${candidate}:generateContent`,
         );
+        console.log(`Calling Gemini API: ${url.toString()}`);
         url.searchParams.set("key", apiKey);
 
         const response = await fetch(url.toString(), {

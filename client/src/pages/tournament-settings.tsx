@@ -24,9 +24,10 @@ import {
   RegistersSettingsCard,
   UscfReportSection,
 } from "@/components/tournament-settings/sections";
+import { GeneralSettingsCard } from "@/components/tournament-settings/GeneralSettingsCard";
 import { Loader2 } from "lucide-react";
 
-type SettingsSection = "basic" | "details" | "schedule" | "payments" | "prizes" | "player-signup" | "rate-tournament";
+type SettingsSection = "basic" | "details" | "schedule" | "payments" | "prizes" | "player-signup" | "rate-tournament" | "general";
 
 interface TournamentSettingsPageProps {
   tournamentId: number;
@@ -79,8 +80,10 @@ export default function TournamentSettingsPage({ tournamentId, section }: Tourna
   const [config, setConfig] = useState<TournamentConfig | null>(null);
   const [baseline, setBaseline] = useState<TournamentConfig | null>(null);
   const [isDirty, setIsDirty] = useState(false);
+  const [chessResultsEnabled, setChessResultsEnabled] = useState(false);
 
   const allowedSections = [
+    "general",
     "basic",
     "details",
     "schedule",
@@ -88,7 +91,6 @@ export default function TournamentSettingsPage({ tournamentId, section }: Tourna
     "prizes",
     "player-signup",
     "rate-tournament",
-    "registers",
     "fide",
     "uscf",
     "chess-results",
@@ -107,6 +109,7 @@ export default function TournamentSettingsPage({ tournamentId, section }: Tourna
     const cloned = cloneConfig(parsed);
     setConfig(cloned);
     setBaseline(cloneConfig(parsed));
+    setChessResultsEnabled(!!tournament.chessResultsUrl);
     setIsDirty(false);
   }, [tournament]);
 
@@ -118,6 +121,22 @@ export default function TournamentSettingsPage({ tournamentId, section }: Tourna
 
   const markDirty = () => {
     setIsDirty(true);
+  };
+
+  const updateGeneral = (update: Partial<TournamentConfig['general']>) => {
+    if (!config) return;
+    setConfig((prev) => {
+      if (!prev) return prev;
+      const next = {
+        ...prev,
+        general: {
+          ...prev.general,
+          ...update,
+        },
+      };
+      return next;
+    });
+    markDirty();
   };
 
   const updateRegisters = (update: Partial<RegistersConfig>) => {
@@ -396,9 +415,23 @@ export default function TournamentSettingsPage({ tournamentId, section }: Tourna
         <Separator />
 
         <div className="space-y-6 pb-12">
-          {currentSection === "registers" && (
+          {currentSection === "general" && (
             <div className="space-y-6">
-              <RegistersSettingsCard value={config.registers} onChange={updateRegisters} />
+              <GeneralSettingsCard value={config.general} onChange={updateGeneral} />
+            </div>
+          )}
+
+          {currentSection === "rate-tournament" && (
+            <div className="space-y-6">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Rate Tournament</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <Button>USCF Report</Button>
+                  <Button>FIDE Report</Button>
+                </CardContent>
+              </Card>
             </div>
           )}
 
@@ -418,16 +451,25 @@ export default function TournamentSettingsPage({ tournamentId, section }: Tourna
           )}
 
           {currentSection === "chess-results" && (
-            <ChessResultsSettingsCard
-              value={config.chessResults}
-              onChange={updateChessResults}
-              onTest={() => testMutation.mutate()}
-              onSync={() => syncMutation.mutate()}
-              testing={testMutation.isPending}
-              syncing={syncMutation.isPending}
-              disabled={config.chessResults.syncMode === "disabled"}
-              onDownload={handleDownloadChessResults}
-            />
+            <>
+              <ChessResultsSettingsCard
+                value={config.chessResults}
+                onChange={updateChessResults}
+                onTest={() => testMutation.mutate()}
+                onSync={() => syncMutation.mutate()}
+                testing={testMutation.isPending}
+                syncing={syncMutation.isPending}
+                disabled={config.chessResults.syncMode === "disabled"}
+                onDownload={handleDownloadChessResults}
+                enabled={chessResultsEnabled}
+                onEnabledChange={setChessResultsEnabled}
+              />
+              {chessResultsEnabled && (
+                <Button onClick={() => setLocation("/tournaments/" + tournamentId + "/settings/chess-results-connection")}>
+                  Connect to Chess-Results
+                </Button>
+              )}
+            </>
           )}
         </div>
       </div>
