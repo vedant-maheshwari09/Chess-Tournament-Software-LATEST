@@ -226,14 +226,29 @@ export function updateChessResultsScheduler(storage: IStorage, tournamentId: num
 }
 
 export async function initializeChessResultsSchedulers(storage: IStorage) {
-  const tournaments = await storage.getAllTournaments();
-  for (const tournament of tournaments) {
-    if (!tournament.roundTimings) continue;
-    try {
-      const parsed = parseTournamentConfig(tournament);
-      updateChessResultsScheduler(storage, tournament.id, parsed);
-    } catch (error) {
-      console.error(`Failed to initialize Chess-Results schedule for tournament ${tournament.id}`, error);
+  try {
+    const tournaments = await storage.getAllTournaments();
+    for (const tournament of tournaments) {
+      if (!tournament.roundTimings) continue;
+      try {
+        const parsed = parseTournamentConfig(tournament);
+        updateChessResultsScheduler(storage, tournament.id, parsed);
+      } catch (error) {
+        console.error(`Failed to initialize Chess-Results schedule for tournament ${tournament.id}`, error);
+      }
+    }
+  } catch (error) {
+    // Database might not be available or configured yet - this is non-fatal
+    // The schedulers will be initialized when tournaments are accessed
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    if (errorMessage.includes('fetch failed') || 
+        errorMessage.includes('Failed to list from') ||
+        errorMessage.includes('connection') ||
+        errorMessage.includes('ECONNREFUSED')) {
+      console.warn('Database connection not available - Chess-Results schedulers will initialize when database is ready');
+    } else {
+      // Re-throw unexpected errors
+      throw error;
     }
   }
 }

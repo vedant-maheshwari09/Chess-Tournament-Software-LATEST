@@ -54,6 +54,13 @@ export const getQueryFn: <T>(options: {
       credentials: "include",
     });
 
+    // Handle 503 (Service Unavailable) - database connection issues
+    if (res.status === 503) {
+      // Return a special value that indicates database unavailable
+      // This prevents the query from retrying
+      throw new Error("DATABASE_UNAVAILABLE");
+    }
+
     if (unauthorizedBehavior === "returnNull" && res.status === 401) {
       return null;
     }

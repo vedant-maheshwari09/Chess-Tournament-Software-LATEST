@@ -379,6 +379,118 @@ const playerRegistrationSchema = z.object({
 });
 
 export async function registerRoutes(app: Express): Promise<Server> {
+  // Database connection test endpoint (for debugging)
+  app.get("/api/health/db", async (req, res) => {
+    try {
+      // Check if environment variables are set
+      const supabaseUrl = process.env.SUPABASE_URL;
+      const hasServiceKey = !!(
+        process.env.SUPABASE_SERVICE_ROLE_KEY ||
+        process.env.SUPABASE_SERVICE_ROLE ||
+        process.env.SUPABASE_KEY
+      );
+      const hasAnonKey = !!process.env.SUPABASE_ANON_KEY;
+      
+      const envStatus = {
+        hasSupabaseUrl: !!supabaseUrl,
+        hasServiceKey: hasServiceKey,
+        hasAnonKey: hasAnonKey,
+        usingAnonKey: !hasServiceKey && hasAnonKey,
+        supabaseUrlPreview: supabaseUrl ? `${supabaseUrl.substring(0, 30)}...` : 'not set',
+      };
+      
+      if (!supabaseUrl) {
+        return res.status(503).json({
+          status: "misconfigured",
+          message: "SUPABASE_URL is not set",
+          env: envStatus,
+          instructions: "Please set SUPABASE_URL in your .env file",
+          timestamp: new Date().toISOString()
+        });
+      }
+
+      if (!hasServiceKey && !hasAnonKey) {
+        return res.status(503).json({
+          status: "misconfigured",
+          message: "Supabase key is not set",
+          env: envStatus,
+          instructions: "Please set SUPABASE_SERVICE_ROLE_KEY (recommended) or SUPABASE_ANON_KEY in your .env file. Note: SERVICE_ROLE_KEY is required for server-side operations.",
+          timestamp: new Date().toISOString()
+        });
+      }
+
+      if (hasAnonKey && !hasServiceKey) {
+        // Warn but try to connect anyway
+        console.warn("⚠️  Using SUPABASE_ANON_KEY instead of SUPABASE_SERVICE_ROLE_KEY. This may cause permission errors for server-side operations.");
+      }
+      
+      // Try a simple query to test the connection
+      const testUser = await storage.getUserByUsername("__test_connection__");
+      // If we get here, the connection works (even if user doesn't exist)
+      res.json({ 
+        status: "connected", 
+        message: "Database connection is working",
+        env: envStatus,
+        warning: hasAnonKey && !hasServiceKey ? "Using ANON_KEY - may have limited permissions" : undefined,
+        timestamp: new Date().toISOString()
+      });
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorObj = error as any;
+      
+      // Extract more detailed error information
+      const originalError = errorObj?.originalError || errorObj;
+      const errorCode = originalError?.code || errorObj?.code;
+      const errorDetails = originalError?.details || errorObj?.details;
+      const errorHint = originalError?.hint || errorObj?.hint;
+      
+      // Check if it's the Supabase client initialization error
+      if (errorMessage.includes("Supabase environment variables are not set")) {
+        return res.status(503).json({
+          status: "misconfigured",
+          message: "Supabase environment variables are not set",
+          error: errorMessage,
+          instructions: "Please set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in your .env file",
+          timestamp: new Date().toISOString()
+        });
+      }
+
+      // Check for common connection errors
+      const isNetworkError = errorMessage.toLowerCase().includes('fetch failed') || 
+                            errorMessage.toLowerCase().includes('econnrefused') ||
+                            errorMessage.toLowerCase().includes('enotfound') ||
+                            errorCode === 'ECONNREFUSED' ||
+                            errorCode === 'ENOTFOUND';
+      
+      const isAuthError = errorMessage.toLowerCase().includes('jwt') ||
+                         errorMessage.toLowerCase().includes('invalid api key') ||
+                         errorCode === 'PGRST301' ||
+                         errorCode === '42501';
+      
+      let diagnosticMessage = "Database connection failed";
+      let instructions = "Please check your Supabase credentials and ensure the project is active.";
+      
+      if (isNetworkError) {
+        diagnosticMessage = "Cannot reach Supabase servers";
+        instructions = "Check your internet connection and ensure your Supabase project is not paused. If it was paused, wait a few minutes after reactivating it.";
+      } else if (isAuthError) {
+        diagnosticMessage = "Supabase authentication failed";
+        instructions = "Your API key may be invalid or expired. Please check SUPABASE_SERVICE_ROLE_KEY in your .env file. Note: You need SERVICE_ROLE_KEY, not ANON_KEY for server-side operations.";
+      }
+      
+      res.status(503).json({ 
+        status: "disconnected", 
+        message: diagnosticMessage,
+        error: errorMessage,
+        code: errorCode,
+        details: errorDetails,
+        hint: errorHint,
+        instructions: instructions,
+        timestamp: new Date().toISOString()
+      });
+    }
+  });
+
   // Authentication routes
   app.post("/api/auth/register", async (req, res) => {
     try {
@@ -455,16 +567,75 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.json({ available: false, message: "Username must be at least 3 characters" });
       }
       
-      const existingUser = await storage.getUserByUsername(username);
-      
-      if (existingUser) {
-        res.json({ available: false, message: "Username is already taken" });
-      } else {
-        res.json({ available: true, message: "Username is available" });
+      try {
+        const existingUser = await storage.getUserByUsername(username);
+        
+        if (existingUser) {
+          res.json({ available: false, message: "Username is already taken" });
+        } else {
+          res.json({ available: true, message: "Username is available" });
+        }
+      } catch (dbError) {
+        // Check if this is a database connection error
+        const errorMessage = dbError instanceof Error ? dbError.message : String(dbError);
+        const errorString = errorMessage.toLowerCase();
+        const errorObj = dbError as any;
+        
+        // Check error code and details for connection issues
+        const errorCode = errorObj?.code || errorObj?.originalError?.code || '';
+        const errorDetails = errorObj?.details || errorObj?.originalError?.details || '';
+        
+        // More specific connection error detection
+        const isConnectionError = 
+          errorString.includes('fetch failed') || 
+          errorString.includes('failed to fetch from') ||
+          errorString.includes('econnrefused') ||
+          errorString.includes('enotfound') ||
+          errorString.includes('timeout') ||
+          errorString.includes('network') ||
+          errorString.includes('dns') ||
+          errorCode === 'ECONNREFUSED' ||
+          errorCode === 'ENOTFOUND' ||
+          errorCode === 'ETIMEDOUT' ||
+          (errorString.includes('connection') && (
+            errorString.includes('refused') ||
+            errorString.includes('failed') ||
+            errorString.includes('unavailable')
+          )) ||
+          // Supabase-specific connection errors
+          errorString.includes('jwt') && errorString.includes('expired') ||
+          errorString.includes('invalid api key') ||
+          errorString.includes('service_role key');
+        
+        if (isConnectionError) {
+          // Log for debugging with full error details
+          console.warn('Database connection error during username check:', {
+            message: errorMessage,
+            code: errorCode,
+            details: errorDetails,
+            fullError: dbError
+          });
+          // Database is unavailable - return 503 with helpful message
+          return res.status(503).json({ 
+            available: null, 
+            message: "Database service unavailable. Please try again later.",
+            code: "DATABASE_UNAVAILABLE"
+          });
+        }
+        
+        // Log other errors for debugging
+        console.error('Username check database error (non-connection):', {
+          message: errorMessage,
+          code: errorCode,
+          details: errorDetails,
+          fullError: dbError
+        });
+        // Re-throw other database errors (like constraint violations, etc.)
+        throw dbError;
       }
     } catch (error) {
       console.error('Username check error:', error);
-      res.json({ available: false, message: "Error checking username" });
+      res.status(500).json({ available: false, message: "Error checking username. Please try again." });
     }
   });
 
@@ -479,16 +650,75 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.json({ available: false, message: "Please enter a valid email address" });
       }
       
-      const existingUser = await storage.getUserByEmail(email);
-      
-      if (existingUser) {
-        res.json({ available: false, message: "Email is already registered" });
-      } else {
-        res.json({ available: true, message: "Email is available" });
+      try {
+        const existingUser = await storage.getUserByEmail(email);
+        
+        if (existingUser) {
+          res.json({ available: false, message: "Email is already registered" });
+        } else {
+          res.json({ available: true, message: "Email is available" });
+        }
+      } catch (dbError) {
+        // Check if this is a database connection error
+        const errorMessage = dbError instanceof Error ? dbError.message : String(dbError);
+        const errorString = errorMessage.toLowerCase();
+        const errorObj = dbError as any;
+        
+        // Check error code and details for connection issues
+        const errorCode = errorObj?.code || errorObj?.originalError?.code || '';
+        const errorDetails = errorObj?.details || errorObj?.originalError?.details || '';
+        
+        // More specific connection error detection
+        const isConnectionError = 
+          errorString.includes('fetch failed') || 
+          errorString.includes('failed to fetch from') ||
+          errorString.includes('econnrefused') ||
+          errorString.includes('enotfound') ||
+          errorString.includes('timeout') ||
+          errorString.includes('network') ||
+          errorString.includes('dns') ||
+          errorCode === 'ECONNREFUSED' ||
+          errorCode === 'ENOTFOUND' ||
+          errorCode === 'ETIMEDOUT' ||
+          (errorString.includes('connection') && (
+            errorString.includes('refused') ||
+            errorString.includes('failed') ||
+            errorString.includes('unavailable')
+          )) ||
+          // Supabase-specific connection errors
+          errorString.includes('jwt') && errorString.includes('expired') ||
+          errorString.includes('invalid api key') ||
+          errorString.includes('service_role key');
+        
+        if (isConnectionError) {
+          // Log for debugging with full error details
+          console.warn('Database connection error during email check:', {
+            message: errorMessage,
+            code: errorCode,
+            details: errorDetails,
+            fullError: dbError
+          });
+          // Database is unavailable - return 503 with helpful message
+          return res.status(503).json({ 
+            available: null, 
+            message: "Database service unavailable. Please try again later.",
+            code: "DATABASE_UNAVAILABLE"
+          });
+        }
+        
+        // Log other errors for debugging
+        console.error('Email check database error (non-connection):', {
+          message: errorMessage,
+          code: errorCode,
+          details: errorDetails,
+          fullError: dbError
+        });
+        // Re-throw other database errors (like constraint violations, etc.)
+        throw dbError;
       }
     } catch (error) {
       console.error('Email check error:', error);
-      res.json({ available: false, message: "Error checking email" });
+      res.status(500).json({ available: false, message: "Error checking email. Please try again." });
     }
   });
 

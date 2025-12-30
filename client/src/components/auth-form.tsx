@@ -80,18 +80,34 @@ export default function AuthForm() {
     setUsernameCheck({ checking: true, available: null, message: 'Checking availability...' });
 
     try {
-      const data = await apiRequest(`/api/auth/check-username/${encodeURIComponent(username)}`);
+      const res = await fetch(`/api/auth/check-username/${encodeURIComponent(username)}`);
       
+      if (res.status === 503) {
+        // Database unavailable - show helpful message but don't block registration
+        setUsernameCheck({
+          checking: false,
+          available: null, // null means we can't determine, but don't block
+          message: 'Unable to verify availability right now. You can still register.'
+        });
+        return;
+      }
+      
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}`);
+      }
+      
+      const data = await res.json();
       setUsernameCheck({
         checking: false,
         available: data.available,
         message: data.message
       });
     } catch (error) {
+      // Only show error if it's not a 503 (which we handle above)
       setUsernameCheck({
         checking: false,
-        available: false,
-        message: 'Error checking username'
+        available: null, // Don't block on network errors
+        message: 'Unable to check username availability. You can still try to register.'
       });
     }
   }, []);
@@ -107,18 +123,34 @@ export default function AuthForm() {
     setEmailCheck({ checking: true, available: null, message: 'Checking availability...' });
 
     try {
-      const data = await apiRequest(`/api/auth/check-email/${encodeURIComponent(email)}`);
+      const res = await fetch(`/api/auth/check-email/${encodeURIComponent(email)}`);
       
+      if (res.status === 503) {
+        // Database unavailable - show helpful message but don't block registration
+        setEmailCheck({
+          checking: false,
+          available: null, // null means we can't determine, but don't block
+          message: 'Unable to verify availability right now. You can still register.'
+        });
+        return;
+      }
+      
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}`);
+      }
+      
+      const data = await res.json();
       setEmailCheck({
         checking: false,
         available: data.available,
         message: data.message
       });
     } catch (error) {
+      // Only show error if it's not a 503 (which we handle above)
       setEmailCheck({
         checking: false,
-        available: false,
-        message: 'Error checking email'
+        available: null, // Don't block on network errors
+        message: 'Unable to check email availability. You can still try to register.'
       });
     }
   }, []);

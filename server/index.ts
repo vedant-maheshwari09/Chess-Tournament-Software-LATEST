@@ -8,14 +8,32 @@ const __dirname = path.dirname(__filename);
 
 const envLoaded = loadEnv();
 if (envLoaded.error) {
-  console.warn("Failed to load .env from process cwd", envLoaded.error);
+  console.warn("⚠️  Failed to load .env from process cwd", envLoaded.error);
+} else {
+  console.log("✅ Loaded .env file from:", process.cwd());
+}
+
+// Check for Supabase variables early
+const hasSupabaseUrl = !!process.env.SUPABASE_URL;
+const hasSupabaseKey = !!(process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE || process.env.SUPABASE_KEY);
+if (!hasSupabaseUrl || !hasSupabaseKey) {
+  console.warn("⚠️  Supabase environment variables not found. Database features will not work.");
+  console.warn("💡 Please create a .env file with SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY");
 }
 
 if (!process.env.GEMINI_API_KEY) {
   const fallbackPath = path.resolve(__dirname, "..", ".env");
   const fallbackLoad = loadEnv({ path: fallbackPath, override: false });
   if (fallbackLoad.error) {
-    console.warn(`Attempted fallback .env load at ${fallbackPath} but failed`, fallbackLoad.error);
+    console.warn(`⚠️  Attempted fallback .env load at ${fallbackPath} but failed`, fallbackLoad.error);
+  } else if (fallbackLoad.parsed) {
+    console.log("✅ Loaded .env file from fallback path:", fallbackPath);
+    // Re-check Supabase after fallback load
+    const hasSupabaseUrlAfter = !!process.env.SUPABASE_URL;
+    const hasSupabaseKeyAfter = !!(process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE || process.env.SUPABASE_KEY);
+    if (hasSupabaseUrlAfter && hasSupabaseKeyAfter) {
+      console.log("✅ Supabase environment variables found after fallback load");
+    }
   }
 }
 import { registerRoutes } from "./routes";

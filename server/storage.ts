@@ -91,7 +91,15 @@ async function insertOne<T>(table: string, values: AnyRecord): Promise<T> {
     .single();
 
   if (error) {
-    throw new Error(`Failed to insert into ${table}: ${error.message}`);
+    // Preserve the original error for better debugging
+    const errorObj = error as any;
+    const errorMessage = errorObj.message || String(error);
+    const enhancedError = new Error(`Failed to insert into ${table}: ${errorMessage}`);
+    (enhancedError as any).originalError = errorObj;
+    (enhancedError as any).code = errorObj.code;
+    (enhancedError as any).details = errorObj.details;
+    (enhancedError as any).hint = errorObj.hint;
+    throw enhancedError;
   }
 
   return toCamelCase<T>(data);
@@ -111,7 +119,15 @@ async function updateOne<T>(
   const { data, error } = await builder.select().maybeSingle();
 
   if (error) {
-    throw new Error(`Failed to update ${table}: ${error.message}`);
+    // Preserve the original error for better debugging
+    const errorObj = error as any;
+    const errorMessage = errorObj.message || String(error);
+    const enhancedError = new Error(`Failed to update ${table}: ${errorMessage}`);
+    (enhancedError as any).originalError = errorObj;
+    (enhancedError as any).code = errorObj.code;
+    (enhancedError as any).details = errorObj.details;
+    (enhancedError as any).hint = errorObj.hint;
+    throw enhancedError;
   }
 
   return data ? toCamelCase<T>(data) : undefined;
@@ -127,7 +143,16 @@ async function fetchOne<T>(table: string, filters: Record<string, unknown>): Pro
   const { data, error } = await builder.maybeSingle();
 
   if (error) {
-    throw new Error(`Failed to fetch from ${table}: ${error.message}`);
+    // Preserve the original error for better debugging
+    const errorObj = error as any;
+    const errorMessage = errorObj.message || String(error);
+    const enhancedError = new Error(`Failed to fetch from ${table}: ${errorMessage}`);
+    // Attach original error details for connection detection
+    (enhancedError as any).originalError = errorObj;
+    (enhancedError as any).code = errorObj.code;
+    (enhancedError as any).details = errorObj.details;
+    (enhancedError as any).hint = errorObj.hint;
+    throw enhancedError;
   }
 
   return data ? toCamelCase<T>(data) : undefined;
@@ -153,7 +178,15 @@ async function fetchMany<T>(
   const { data, error } = await builder;
 
   if (error) {
-    throw new Error(`Failed to list from ${table}: ${error.message}`);
+    // Preserve the original error for better debugging
+    const errorObj = error as any;
+    const errorMessage = errorObj.message || String(error);
+    const enhancedError = new Error(`Failed to list from ${table}: ${errorMessage}`);
+    (enhancedError as any).originalError = errorObj;
+    (enhancedError as any).code = errorObj.code;
+    (enhancedError as any).details = errorObj.details;
+    (enhancedError as any).hint = errorObj.hint;
+    throw enhancedError;
   }
 
   return toCamelCase<T[]>(data ?? []);
@@ -169,7 +202,15 @@ async function deleteMany(table: string, filters: Record<string, unknown>): Prom
   const { data, error } = await builder;
 
   if (error) {
-    throw new Error(`Failed to delete from ${table}: ${error.message}`);
+    // Preserve the original error for better debugging
+    const errorObj = error as any;
+    const errorMessage = errorObj.message || String(error);
+    const enhancedError = new Error(`Failed to delete from ${table}: ${errorMessage}`);
+    (enhancedError as any).originalError = errorObj;
+    (enhancedError as any).code = errorObj.code;
+    (enhancedError as any).details = errorObj.details;
+    (enhancedError as any).hint = errorObj.hint;
+    throw enhancedError;
   }
 
   return data?.length ?? 0;

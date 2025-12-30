@@ -15,6 +15,22 @@ export function useAuth() {
     queryKey: ["/api/auth/me"],
     retry: false,
     enabled: !!localStorage.getItem("auth_token"),
+    // Don't treat 503 (database unavailable) as an error
+    retryOnMount: false,
+    refetchOnMount: false,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+    gcTime: 0, // Don't cache the result to prevent stale data
+    staleTime: Infinity, // Once we get a result, don't refetch
+    // If we get a database unavailable error, disable the query
+    throwOnError: false,
+    onError: (err) => {
+      // If database is unavailable, clear the token to stop retries
+      if (err instanceof Error && err.message === "DATABASE_UNAVAILABLE") {
+        localStorage.removeItem("auth_token");
+        queryClient.setQueryData(["/api/auth/me"], null);
+      }
+    },
   });
 
   // Login mutation
