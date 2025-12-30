@@ -28,6 +28,19 @@ import {
   type ResendVerificationData
 } from "@shared/schema";
 
+import { z } from "zod";
+import { useLocation } from "wouter";
+
+// Extended schema for client-side validation only
+const clientResetPasswordSchema = resetPasswordSchema.extend({
+  confirmPassword: z.string().min(6),
+}).refine((data) => data.newPassword === data.confirmPassword, {
+  message: "Passwords do not match",
+  path: ["confirmPassword"],
+});
+
+type ClientResetPasswordData = z.infer<typeof clientResetPasswordSchema>;
+
 type AuthMode = 'login' | 'register' | 'forgot-password' | 'forgot-username' | 'reset-password' | 'verify-email';
 
 export default function AuthForm() {
@@ -37,6 +50,8 @@ export default function AuthForm() {
   const [showLoginPassword, setShowLoginPassword] = useState(false);
   const [showRegisterPassword, setShowRegisterPassword] = useState(false);
   const [showResetPassword, setShowResetPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [, setLocation] = useLocation();
   
   // Real-time validation states
   const [usernameCheck, setUsernameCheck] = useState<{
@@ -190,9 +205,9 @@ export default function AuthForm() {
     defaultValues: { email: "" },
   });
 
-  const resetPasswordForm = useForm<ResetPasswordData>({
-    resolver: zodResolver(resetPasswordSchema),
-    defaultValues: { email: "", code: "", newPassword: "" },
+  const resetPasswordForm = useForm<ClientResetPasswordData>({
+    resolver: zodResolver(clientResetPasswordSchema),
+    defaultValues: { email: "", code: "", newPassword: "", confirmPassword: "" },
   });
 
   const verifyEmailForm = useForm<VerifyEmailData>({
@@ -255,10 +270,12 @@ export default function AuthForm() {
   });
 
   const resetPasswordMutation = useMutation({
-    mutationFn: async (data: ResetPasswordData) => {
+    mutationFn: async (data: ClientResetPasswordData) => {
+      // Remove confirmPassword before sending to API
+      const { confirmPassword, ...apiData } = data;
       return apiRequest("/api/auth/reset-password", {
         method: "POST",
-        body: JSON.stringify(data),
+        body: JSON.stringify(apiData),
       });
     },
     onSuccess: () => {
@@ -329,13 +346,21 @@ export default function AuthForm() {
     onSuccess: (data) => {
       if (data.token) {
         localStorage.setItem("auth_token", data.token);
+        // Force a query invalidation to ensure user data is fetched immediately
+        // The useAuth hook will then update the user state and cause a re-render
+        // triggering the redirect in App.tsx
+        login(data as any).then(() => {
+          setLocation("/dashboard");
+        });
+      } else {
+        // Fallback if no token (shouldn't happen with updated API)
+        setAuthMode('login');
+        verifyEmailForm.reset();
       }
       toast({ 
         title: "Email verified!", 
         description: "Your email has been verified successfully." 
       });
-      setAuthMode('login');
-      verifyEmailForm.reset();
     },
     onError: (error) => {
       toast({
@@ -627,7 +652,7 @@ export default function AuthForm() {
 
       case 'forgot-password':
         return (
-          <Form {...forgotPasswordForm}>
+          <Form {...forgotPasswordForm} key="forgot-password">
             <form onSubmit={forgotPasswordForm.handleSubmit((data) => forgotPasswordMutation.mutate(data))} className="space-y-4">
               <FormField
                 control={forgotPasswordForm.control}
@@ -651,7 +676,7 @@ export default function AuthForm() {
 
       case 'forgot-username':
         return (
-          <Form {...forgotUsernameForm}>
+          <Form {...forgotUsernameForm} key="forgot-username">
             <form onSubmit={forgotUsernameForm.handleSubmit((data) => forgotUsernameMutation.mutate(data))} className="space-y-4">
               <FormField
                 control={forgotUsernameForm.control}
@@ -724,6 +749,38 @@ export default function AuthForm() {
                           onClick={() => setShowResetPassword(!showResetPassword)}
                         >
                           {showResetPassword ? (
+                            <EyeOff className="h-4 w-4" />
+                          ) : (
+                            <Eye className="h-4 w-4" />
+                          )}
+                        </Button>
+                      </div>
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={resetPasswordForm.control}
+                name="confirmPassword"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Confirm Password</FormLabel>
+                    <FormControl>
+                      <div className="relative">
+                        <Input 
+                          type={showConfirmPassword ? "text" : "password"} 
+                          placeholder="Confirm new password" 
+                          {...field} 
+                        />
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
+                          onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                        >
+                          {showConfirmPassword ? (
                             <EyeOff className="h-4 w-4" />
                           ) : (
                             <Eye className="h-4 w-4" />
