@@ -1003,13 +1003,13 @@ export default function AddPlayerPage({ tournamentId, playerId }: AddPlayerPageP
                         <div className="md:col-span-4">
                           <Label className="text-sm font-semibold text-slate-700">Section</Label>
                           <Select
-                            value={formState.sectionId || ""}
+                            value={formState.sectionId || "default"}
                             onValueChange={(value) => {
                               setFormState((prev) => {
                                 const nextSection = sections.find((section) => section.id === value);
                                 return {
                                   ...prev,
-                                  sectionId: value,
+                                  sectionId: value === "default" ? "" : value,
                                   sectionName: nextSection?.name ?? prev.sectionName,
                                 };
                               });
@@ -1021,7 +1021,7 @@ export default function AddPlayerPage({ tournamentId, playerId }: AddPlayerPageP
                             </SelectTrigger>
                             <SelectContent>
                               {sections.length === 0 ? (
-                                <SelectItem value="" disabled>
+                                <SelectItem value="default" disabled>
                                   Sections not configured
                                 </SelectItem>
                               ) : (

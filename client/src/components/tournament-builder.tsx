@@ -171,6 +171,54 @@ function cloneConfig(config: TournamentConfig): TournamentConfig {
 }
 
 
+const templateLabelToRound = (label: string): number | null => {
+  const match = label.match(/^Round\s+(\d+)/i);
+  if (!match) return null;
+  const value = parseInt(match[1] ?? "", 10);
+  return Number.isFinite(value) ? value : null;
+};
+
+// Exported for BasicInformationFields to use
+export const ensureRoundSchedule = (schedule: ScheduleEvent[], rounds: number): ScheduleEvent[] => {
+  const roundEvents: ScheduleEvent[] = [];
+  const nonRoundEvents: ScheduleEvent[] = [];
+  const seenRounds = new Set<number>();
+
+  schedule.forEach((event) => {
+    if (event.round && event.round >= 1 && event.round <= rounds) {
+      if (!seenRounds.has(event.round)) {
+        seenRounds.add(event.round);
+        roundEvents.push({
+          ...event,
+          label: event.label || `Round ${event.round}`,
+          round: event.round,
+        });
+      }
+    } else if (event.round && event.round > rounds) {
+      // Intentionally drop rounds that exceed the current round count.
+      // This prevents "ghost" rounds (e.g. Round 7-9 when only 6 are selected)
+      // from showing up as unlinked events.
+    } else {
+      nonRoundEvents.push(event);
+    }
+  });
+
+  for (let round = 1; round <= rounds; round++) {
+    if (!seenRounds.has(round)) {
+      roundEvents.push({
+        id: `${Date.now()}-${round}-${Math.random()}`,
+        date: null,
+        time: null,
+        label: SCHEDULE_EVENT_OPTIONS[round - 1] ?? `Round ${round}`,
+        round,
+      });
+    }
+  }
+
+  roundEvents.sort((a, b) => (a.round ?? 0) - (b.round ?? 0));
+  return [...roundEvents, ...nonRoundEvents];
+};
+
 interface BasicInformationFieldsProps {
   config: TournamentConfig;
   onConfigChange: (config: TournamentConfig) => void;
@@ -191,7 +239,9 @@ function BasicInformationFields({ config, onConfigChange, variant = "full" }: Ba
     });
   };
   const handleCityStateChange = (raw: string) => {
-    updateBasic({ state: normalizeCityState(raw) });
+    // Allows letters, numbers, spaces, commas, hyphens, and periods
+    const sanitized = raw.replace(/[^0-9a-zA-Z\s.,-]+/g, "");
+    updateBasic({ state: sanitized });
   };
 
   const openMaps = (provider: "google" | "apple") => {
@@ -202,6 +252,24 @@ function BasicInformationFields({ config, onConfigChange, variant = "full" }: Ba
         ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}` 
         : `https://maps.apple.com/?q=${encodeURIComponent(query)}`;
     window.open(url, "_blank");
+  };
+
+  const updateDetails = (updates: Partial<TournamentConfig["details"]>) => {
+    onConfigChange({
+      ...config,
+      details: { ...config.details, ...updates },
+    });
+  };
+
+  const handleRoundsChange = (val: number) => {
+    const nextRounds = Number.isFinite(val) && val > 0 ? val : 1;
+    // When rounds change in basic info, immediately sync the schedule
+    // This ensures that the schedule tab is pre-populated with the correct number of rows
+    onConfigChange({
+      ...config,
+      details: { ...config.details, rounds: nextRounds },
+      schedule: ensureRoundSchedule(config.schedule, nextRounds),
+    });
   };
 
   if (variant === "minimal") {
@@ -217,7 +285,17 @@ function BasicInformationFields({ config, onConfigChange, variant = "full" }: Ba
           />
         </div>
 
-        <div className="grid gap-4 md:grid-cols-3">
+        <div className="grid gap-4 md:grid-cols-2">
+          <div className="space-y-2">
+            <Label htmlFor="basic-rounds">Rounds</Label>
+            <Input
+              id="basic-rounds"
+              type="number"
+              min={1}
+              value={config.details.rounds}
+              onChange={(event) => handleRoundsChange(parseInt(event.target.value, 10))}
+            />
+          </div>
           <div className="space-y-2">
             <Label htmlFor="basic-city-state">City &amp; State (2-letter)</Label>
             <Input
@@ -228,6 +306,9 @@ function BasicInformationFields({ config, onConfigChange, variant = "full" }: Ba
             />
             <p className="text-xs text-muted-foreground">Example: San Diego, CA</p>
           </div>
+        </div>
+
+        <div className="grid gap-4 md:grid-cols-2">
           <div className="space-y-2">
             <Label htmlFor="basic-start-date">Start Date</Label>
             <Input
@@ -316,34 +397,53 @@ function BasicInformationFields({ config, onConfigChange, variant = "full" }: Ba
           </div>
         </div>
         <div className="space-y-2">
-          <Label htmlFor="basic-city-state">City &amp; State (2-letter)</Label>
+          <Label htmlFor="basic-city-state">City &amp; State</Label>
           <Input
             id="basic-city-state"
             value={config.basic.state}
             onChange={(event) => handleCityStateChange(event.target.value)}
             placeholder="e.g., San Diego, CA"
           />
-          <p className="text-xs text-muted-foreground">Use a two-letter state code.</p>
+          <p className="text-xs text-muted-foreground">Example: San Diego, CA</p>
         </div>
       </div>
 
-      <div className="space-y-2">
-        <Label>Federation</Label>
-        <Select
-          value={config.basic.federation}
-          onValueChange={(value) => updateBasic({ federation: value })}
-        >
-          <SelectTrigger>
-            <SelectValue placeholder="Select federation" />
-          </SelectTrigger>
-          <SelectContent>
-            {FEDERATION_OPTIONS.map((option) => (
-              <SelectItem key={option.code} value={option.code}>
-                {option.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+      <div className="grid gap-4 md:grid-cols-2">
+        <div className="space-y-2">
+          <Label>Federation</Label>
+          <Select
+            value={config.basic.federation}
+            onValueChange={(value) => updateBasic({ federation: value })}
+          >
+            <SelectTrigger>
+              <SelectValue placeholder="Select federation" />
+            </SelectTrigger>
+            <SelectContent>
+              {FEDERATION_OPTIONS.map((option) => (
+                <SelectItem key={option.code} value={option.code}>
+                  {option.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="basic-rounds">Rounds</Label>
+          <Input
+            id="basic-rounds"
+            type="number"
+            min={1}
+            value={config.details.rounds}
+            onChange={(event) => {
+              const val = parseInt(event.target.value, 10);
+              const nextRounds = Number.isFinite(val) && val > 0 ? val : 1;
+              onConfigChange({
+                ...config,
+                details: { ...config.details, rounds: nextRounds },
+              });
+            }}
+          />
+        </div>
       </div>
 
       <div className="grid gap-4 md:grid-cols-2">
@@ -1520,6 +1620,10 @@ function StepTwo({ format, mode, config, onConfigChange, onBack: _onBack, onCanc
 
   const handleRoundsChange = (value: number) => {
     const nextRounds = Math.max(1, value);
+    // When the user explicitly changes the rounds count here,
+    // we should update the config details AND update the schedule
+    // to match the new count. This ensures that the generated schedule
+    // respects the configured number of rounds.
     onConfigChange({
       ...config,
       details: { ...config.details, rounds: nextRounds },
