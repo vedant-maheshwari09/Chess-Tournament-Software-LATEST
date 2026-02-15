@@ -1790,37 +1790,7 @@ function StepTwo({ format, mode, config, onConfigChange, onBack: _onBack, onCanc
                     </SelectContent>
                   </Select>
                 </div>
-                <div className="space-y-4 rounded-lg border border-slate-200 bg-slate-50/70 p-4">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div>
-                      <h3 className="text-sm font-semibold text-slate-900">Scoring rules</h3>
-                      <p className="text-xs text-slate-600">Customize how many points players earn for each result.</p>
-                    </div>
-                    <Button type="button" variant="ghost" size="sm" onClick={resetScoring}>
-                      Reset to defaults
-                    </Button>
-                  </div>
-                  <div className="grid gap-4 md:grid-cols-3">
-                    <ScoreInput
-                      id="score-win"
-                      label="Win"
-                      value={scoring.win}
-                      onChange={(value) => handleScoreChange("win", value)}
-                    />
-                    <ScoreInput
-                      id="score-draw"
-                      label="Draw"
-                      value={scoring.draw}
-                      onChange={(value) => handleScoreChange("draw", value)}
-                    />
-                    <ScoreInput
-                      id="score-loss"
-                      label="Loss"
-                      value={scoring.loss}
-                      onChange={(value) => handleScoreChange("loss", value)}
-                    />
-                  </div>
-                </div>
+
 
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
@@ -1928,71 +1898,7 @@ function StepTwo({ format, mode, config, onConfigChange, onBack: _onBack, onCanc
                   </div>
                 </div>
 
-                <div className="space-y-2">
-                  <Label>Tiebreak System</Label>
-                  <Select
-                    value={config.details.tiebreakSystem}
-                    onValueChange={(value) => updateDetails({ tiebreakSystem: value })}
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {TIEBREAK_OPTIONS.map((option) => (
-                        <SelectItem key={option.value} value={option.value}>
-                          {option.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-4 rounded-lg border border-slate-200 bg-slate-50/70 p-4">
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div>
-                      <h3 className="text-sm font-semibold text-slate-900">Tiebreak ordering</h3>
-                      <p className="text-xs text-slate-600">Enable and arrange the rules used to break tied scores.</p>
-                    </div>
-                    <div className="flex items-center gap-2 text-xs text-slate-600">
-                      <span>{config.details.tiebreaksEnabled ? "Enabled" : "Disabled"}</span>
-                      <Switch checked={config.details.tiebreaksEnabled} onCheckedChange={toggleTiebreaks} />
-                    </div>
-                  </div>
-                  {config.details.tiebreaksEnabled ? (
-                    <>
-                      <datalist id="tiebreak-option-list">
-                        {TIEBREAK_OPTIONS.map((option) => (
-                          <option key={option.value} value={option.label} />
-                        ))}
-                      </datalist>
-                      {tiebreaks.length === 0 ? (
-                        <div className="rounded-lg border border-dashed border-slate-300 bg-white p-4 text-xs text-slate-500">
-                          No tiebreak rules yet. Add one to start ordering tied results.
-                        </div>
-                      ) : (
-                        <div className="space-y-2">
-                          {tiebreaks.map((method, index) => (
-                            <TiebreakRow
-                              key={`${method}-${index}`}
-                              index={index}
-                              total={tiebreaks.length}
-                              value={method}
-                              onChange={(value) => updateTiebreakRule(index, value)}
-                              onRemove={() => removeTiebreakRule(index)}
-                              onMoveUp={() => moveTiebreakRule(index, -1)}
-                              onMoveDown={() => moveTiebreakRule(index, 1)}
-                            />
-                          ))}
-                        </div>
-                      )}
-                      <Button type="button" variant="outline" size="sm" onClick={addTiebreakRule}>
-                        <Plus className="mr-2 h-4 w-4" />
-                        Add tiebreak rule
-                      </Button>
-                    </>
-                  ) : (
-                    <p className="text-xs text-slate-500">Enable tiebreaks to configure their order.</p>
-                  )}
-                </div>
+
 
                 <div className="space-y-3 rounded-lg border border-slate-200 bg-slate-50/70 p-4">
                   <div className="flex flex-wrap items-center justify-between gap-3">
@@ -2100,7 +2006,7 @@ function StepTwo({ format, mode, config, onConfigChange, onBack: _onBack, onCanc
                   {config.schedule.map((event) => (
                     <div
                       key={event.id}
-                      className="grid gap-3 md:grid-cols-[150px,150px,200px,1fr,auto] items-center border rounded-lg p-3"
+                      className="grid gap-3 md:grid-cols-[150px,150px,1fr,auto] items-center border rounded-lg p-3"
                     >
                       <Input
                         type="date"
@@ -2113,9 +2019,8 @@ function StepTwo({ format, mode, config, onConfigChange, onBack: _onBack, onCanc
                         onChange={(e) => updateScheduleRow(event.id, { time: e.target.value || null })}
                       />
                       <Select
-                        value={scheduleTemplateOptions.includes(event.label) ? event.label : "custom"}
+                        value={event.label}
                         onValueChange={(value) => {
-                          if (value === "custom") return;
                           updateScheduleRow(event.id, { label: value });
                         }}
                       >
@@ -2123,7 +2028,6 @@ function StepTwo({ format, mode, config, onConfigChange, onBack: _onBack, onCanc
                           <SelectValue placeholder="Select template" />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="custom">Custom label</SelectItem>
                           {scheduleTemplateOptions.map((option) => (
                             <SelectItem key={option} value={option}>
                               {option}
@@ -2131,11 +2035,6 @@ function StepTwo({ format, mode, config, onConfigChange, onBack: _onBack, onCanc
                           ))}
                         </SelectContent>
                       </Select>
-                      <Input
-                        value={event.label}
-                        onChange={(e) => updateScheduleRow(event.id, { label: e.target.value })}
-                        placeholder="Event label"
-                      />
                       <Button
                         type="button"
                         variant="ghost"
@@ -2603,8 +2502,103 @@ function StepTwo({ format, mode, config, onConfigChange, onBack: _onBack, onCanc
               </TabsContent>
 
               <TabsContent value="options" className="bg-white p-6 space-y-4">
-
-                              <div className="space-y-4">
+                <div className="space-y-4 rounded-lg border border-slate-200 bg-slate-50/70 p-4">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <h3 className="text-sm font-semibold text-slate-900">Scoring rules</h3>
+                      <p className="text-xs text-slate-600">Customize how many points players earn for each result.</p>
+                    </div>
+                    <Button type="button" variant="ghost" size="sm" onClick={resetScoring}>
+                      Reset to defaults
+                    </Button>
+                  </div>
+                  <div className="grid gap-4 md:grid-cols-3">
+                    <ScoreInput
+                      id="score-win"
+                      label="Win"
+                      value={scoring.win}
+                      onChange={(value) => handleScoreChange("win", value)}
+                    />
+                    <ScoreInput
+                      id="score-draw"
+                      label="Draw"
+                      value={scoring.draw}
+                      onChange={(value) => handleScoreChange("draw", value)}
+                    />
+                    <ScoreInput
+                      id="score-loss"
+                      label="Loss"
+                      value={scoring.loss}
+                      onChange={(value) => handleScoreChange("loss", value)}
+                    />
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label>Tiebreak System</Label>
+                  <Select
+                    value={config.details.tiebreakSystem}
+                    onValueChange={(value) => updateDetails({ tiebreakSystem: value })}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {TIEBREAK_OPTIONS.map((option) => (
+                        <SelectItem key={option.value} value={option.value}>
+                          {option.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-4 rounded-lg border border-slate-200 bg-slate-50/70 p-4">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <h3 className="text-sm font-semibold text-slate-900">Tiebreak ordering</h3>
+                      <p className="text-xs text-slate-600">Enable and arrange the rules used to break tied scores.</p>
+                    </div>
+                    <div className="flex items-center gap-2 text-xs text-slate-600">
+                      <span>{config.details.tiebreaksEnabled ? "Enabled" : "Disabled"}</span>
+                      <Switch checked={config.details.tiebreaksEnabled} onCheckedChange={toggleTiebreaks} />
+                    </div>
+                  </div>
+                  {config.details.tiebreaksEnabled ? (
+                    <>
+                      <datalist id="tiebreak-option-list">
+                        {TIEBREAK_OPTIONS.map((option) => (
+                          <option key={option.value} value={option.label} />
+                        ))}
+                      </datalist>
+                      {tiebreaks.length === 0 ? (
+                        <div className="rounded-lg border border-dashed border-slate-300 bg-white p-4 text-xs text-slate-500">
+                          No tiebreak rules yet. Add one to start ordering tied results.
+                        </div>
+                      ) : (
+                        <div className="space-y-2">
+                          {tiebreaks.map((method, index) => (
+                            <TiebreakRow
+                              key={`${method}-${index}`}
+                              index={index}
+                              total={tiebreaks.length}
+                              value={method}
+                              onChange={(value) => updateTiebreakRule(index, value)}
+                              onRemove={() => removeTiebreakRule(index)}
+                              onMoveUp={() => moveTiebreakRule(index, -1)}
+                              onMoveDown={() => moveTiebreakRule(index, 1)}
+                            />
+                          ))}
+                        </div>
+                      )}
+                      <Button type="button" variant="outline" size="sm" onClick={addTiebreakRule}>
+                        <Plus className="mr-2 h-4 w-4" />
+                        Add tiebreak rule
+                      </Button>
+                    </>
+                  ) : (
+                    <p className="text-xs text-slate-500">Enable tiebreaks to configure their order.</p>
+                  )}
+                </div>
+                <div className="space-y-4">
 
                                 <div className="flex items-center justify-between rounded-lg border px-4 py-3">
 
