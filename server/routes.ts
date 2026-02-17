@@ -45,10 +45,11 @@ import {
   type AccountPaymentSettings,
 } from "@shared/tournament-config";
 import { generateFideTrf16Report } from "./lib/fideTrf";
-import { lookupFideProfiles } from "./lib/fideDirectory";
+import { lookupFideProfiles, searchFideDirectory } from "./lib/fideDirectory";
 import { getPointsForResult } from "@shared/match-results";
 
 type RatingSource = "uscf" | "fide";
+
 
 const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY ?? "";
 const STRIPE_PUBLISHABLE_KEY = process.env.STRIPE_PUBLISHABLE_KEY ?? "";
@@ -1200,6 +1201,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Rating lookup error:", error);
       res.status(500).json({ message: "Failed to retrieve rating data" });
+    }
+  });
+
+  app.get("/api/officials/search", async (req, res) => {
+    try {
+      const nameQuery = extractQueryParam(req.query.q);
+      if (!nameQuery) {
+        return res.status(400).json({ message: "Search query 'q' is required" });
+      }
+      const limit = parseLimitParam(req.query.limit, 10, 50);
+      const results = await searchFideDirectory(nameQuery, limit);
+      res.json(results);
+    } catch (error) {
+      console.error("Official search error:", error);
+      res.status(500).json({ message: "Failed to search for officials" });
     }
   });
 

@@ -3,16 +3,7 @@ import path from "node:path";
 import readline from "node:readline";
 import type { Player } from "@shared/schema";
 import { makeNameKey, normalizeWhitespace, resolveFederationCode, tokenizeName } from "./fideUtils";
-
-export interface FideDirectoryEntry {
-  fideId: string;
-  name: string;
-  federation: string;
-  sex?: string;
-  title?: string;
-  rating?: number | null;
-  birthDate?: string;
-}
+import type { FideDirectoryEntry } from "@shared/fide-types";
 
 const FIDE_DIRECTORY_PATH = path.resolve(process.cwd(), "players_list-fide-oct-2025.txt");
 
@@ -157,6 +148,41 @@ export async function lookupFideProfiles(players: Player[]): Promise<Map<number,
 
     if (index.targets.size === 0) {
       break;
+    }
+  }
+
+  rl.close();
+  stream.close();
+
+  return results;
+}
+
+export async function searchFideDirectory(
+  nameQuery: string,
+  limit = 10,
+): Promise<FideDirectoryEntry[]> {
+  const results: FideDirectoryEntry[] = [];
+  if (!nameQuery || nameQuery.length < 2) return results;
+  if (!fs.existsSync(FIDE_DIRECTORY_PATH)) {
+    return results;
+  }
+
+  const query = nameQuery.toLowerCase();
+  const stream = fs.createReadStream(FIDE_DIRECTORY_PATH, { encoding: "utf8" });
+  const rl = readline.createInterface({ input: stream, crlfDelay: Infinity });
+
+  for await (const line of rl) {
+    if (results.length >= limit) {
+      break;
+    }
+    if (!line || line.startsWith("ID Number")) {
+      continue;
+    }
+    const entry = parseFideLine(line);
+    if (!entry) continue;
+
+    if (entry.name.toLowerCase().includes(query)) {
+      results.push(entry);
     }
   }
 

@@ -9,7 +9,12 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { OfficialSearchInput } from "@/components/ui/official-search-input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
@@ -980,16 +985,8 @@ function StepTwo({ format, mode, config, onConfigChange, onBack: _onBack, onCanc
   };
 
   const addPrize = () => {
-    if (sections.length === 0) {
-      toast({
-        title: "Add a section first",
-        description: "Create sections under Details before configuring prizes.",
-        variant: "destructive",
-      });
-      return;
-    }
     const defaultCurrency = config.payments.defaultCurrency ?? "USD";
-    const targetSection = sections[0];
+    const targetSection = sections.length > 0 ? sections[0] : undefined;
     onConfigChange({
       ...config,
       prizes: [...prizes, createPrizeRow(targetSection, defaultCurrency)],
@@ -1087,29 +1084,112 @@ function StepTwo({ format, mode, config, onConfigChange, onBack: _onBack, onCanc
       .replace(/"/g, "&quot;")
       .replace(/'/g, "&#39;");
 
+  const formatDate = (dateString: string | null): string | null => {
+    if (!dateString) return null;
+    const [year, month, day] = dateString.split('-').map(Number);
+    if (!year || !month || !day) return null;
+    const date = new Date(year, month - 1, day);
+    return date.toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+      timeZone: 'UTC',
+    });
+  };
+
   const handlePrizePrint = () => {
     if (typeof window === "undefined") return;
 
-    const rowsHtml = prizes
-      .map((prize) => {
-        const sectionLabel = escapeHtml(prize.section || "");
-        const ratingLabel = escapeHtml(formatPrizeRating(prize.ratingCap));
-        const placeLabel = escapeHtml(prize.place ?? "");
-        const amountLabel = escapeHtml(`${prize.currency ?? "USD"} ${Number(prize.amount || 0).toFixed(2)}`);
-        return `<tr><td>${sectionLabel}</td><td>${ratingLabel}</td><td>${placeLabel}</td><td>${amountLabel}</td></tr>`;
+    const groupedBySection: Record<string, PrizeRule[]> = prizes.reduce(
+      (acc, prize) => {
+        const sectionKey = prize.section || "Uncategorized";
+        if (!acc[sectionKey]) {
+          acc[sectionKey] = [];
+        }
+        acc[sectionKey].push(prize);
+        return acc;
+      },
+      {} as Record<string, PrizeRule[]>,
+    );
+
+    const sectionsHtml = Object.entries(groupedBySection)
+      .map(([sectionName, prizesInSection]) => {
+        const sectionDef = sections.find(s => s.name === sectionName);
+        const sectionRatingMax = sectionDef?.ratingMax ?? null;
+
+        const groupedByRatingCap: Record<string, PrizeRule[]> = prizesInSection.reduce(
+          (acc, prize) => {
+            const ratingCapKey =
+              prize.ratingCap === sectionRatingMax || prize.ratingCap === null
+                ? "main"
+                : `U${prize.ratingCap}`;
+            if (!acc[ratingCapKey]) {
+              acc[ratingCapKey] = [];
+            }
+            acc[ratingCapKey].push(prize);
+            return acc;
+          },
+          {} as Record<string, PrizeRule[]>,
+        );
+
+        const ratingCapsHtml = Object.entries(groupedByRatingCap)
+          .map(([ratingCapName, prizesInCap]) => {
+            const prizesHtml = prizesInCap
+              .map((prize) => {
+                const placeLabel = escapeHtml(prize.place ?? "");
+                const amountLabel = escapeHtml(
+                  `${prize.currency ?? "USD"} ${Number(prize.amount || 0).toFixed(2)}`,
+                );
+                return `<div class="prize-item">${placeLabel} - ${amountLabel}</div>`;
+              })
+              .join("");
+
+            const capTitle =
+              ratingCapName !== "main" ? `<h3 class="rating-cap-title">${escapeHtml(ratingCapName)}</h3>` : "";
+
+            return `<div class="rating-group">
+                      ${capTitle}
+                      ${prizesHtml}
+                    </div>`;
+          })
+          .join("");
+
+        return `<div class="section">
+                  <h2 class="section-title">${escapeHtml(sectionName)}</h2>
+                  ${ratingCapsHtml}
+                </div>`;
       })
       .join("");
-    const tableHtml = prizes.length
-      ? `<table><thead><tr><th>Section</th><th>Rating</th><th>Place</th><th>Prize</th></tr></thead><tbody>${rowsHtml}</tbody></table>`
-      : `<p>No prizes configured.</p>`;
 
-    const content = `<!doctype html><html><head><title>Prize payouts</title><style>
-      body { font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; padding: 24px; }
-      h1 { font-size: 20px; margin-bottom: 16px; }
-      table { width: 100%; border-collapse: collapse; }
-      th, td { border: 1px solid #cbd5f5; padding: 8px 12px; text-align: left; }
-      th { background-color: #eef2ff; }
-    </style></head><body><h1>Prize payouts</h1>${tableHtml}</body></html>`;
+    const tableHtml = prizes.length ? sectionsHtml : `<p>No prizes configured.</p>`;
+    const tournamentName = escapeHtml(config.basic.name || "Tournament");
+    
+    const formattedStartDate = formatDate(config.basic.startDate);
+    const formattedEndDate = formatDate(config.basic.endDate);
+    const tournamentDate = escapeHtml(
+      formattedStartDate
+        ? `${formattedStartDate}${formattedEndDate && formattedEndDate !== formattedStartDate ? ` - ${formattedEndDate}` : ""}`
+        : "N/A",
+    );
+
+    const content = `<!doctype html><html><head><title>Prize Payouts</title><style>
+      body { font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; padding: 24px; color: #1e293b; }
+      .header { text-align: center; margin-bottom: 2rem; }
+      h1 { font-size: 1.875rem; line-height: 2.25rem; margin: 0; }
+      .date { font-size: 1.125rem; line-height: 1.75rem; color: #475569; }
+      .section { margin-bottom: 2.5rem; page-break-inside: avoid; }
+      .section-title { text-align: center; font-size: 1.5rem; line-height: 2rem; margin-bottom: 1.5rem; color: #334155; }
+      .rating-group { margin-top: 1.5rem; }
+      .rating-cap-title { text-align: center; font-size: 1.125rem; font-weight: 600; color: #4f46e5; margin-bottom: 1rem; }
+      .prize-item { text-align: center; font-size: 1rem; line-height: 1.5rem; margin-bottom: 0.5rem; }
+      p { text-align: center; color: #64748b; }
+    </style></head><body>
+      <div class="header">
+        <h1>${tournamentName}</h1>
+        <p class="date">${tournamentDate}</p>
+      </div>
+      ${tableHtml}
+    </body></html>`;
 
     const iframe = document.createElement("iframe");
     iframe.style.position = "absolute";
@@ -1454,7 +1534,7 @@ function StepTwo({ format, mode, config, onConfigChange, onBack: _onBack, onCanc
 
     const scheduleHtml = config.schedule
       .map((event) => {
-        const date = event.date ? new Date(event.date).toLocaleDateString() : "";
+        const date = formatDate(event.date) ?? "";
         const time = event.time || "";
         const label = escapeHtml(event.label || "");
         return `<tr><td>${date}</td><td>${time}</td><td>${label}</td></tr>`;
@@ -1753,9 +1833,9 @@ function StepTwo({ format, mode, config, onConfigChange, onBack: _onBack, onCanc
                 <div className="grid gap-4 md:grid-cols-3">
                   <div className="space-y-2">
                     <Label>Chief Arbiter</Label>
-                    <Input
+                    <OfficialSearchInput
                       value={config.details.chiefArbiter}
-                      onChange={(event) => updateDetails({ chiefArbiter: event.target.value })}
+                      onChange={(value) => updateDetails({ chiefArbiter: value })}
                     />
                   </div>
                   <div className="space-y-2">
@@ -1765,6 +1845,39 @@ function StepTwo({ format, mode, config, onConfigChange, onBack: _onBack, onCanc
                       onChange={(event) => updateDetails({ organizer: event.target.value })}
                     />
                   </div>
+                  <div className="space-y-2">
+                    <Label>Affiliate</Label>
+                    <Input
+                      value={config.details.affiliate}
+                      onChange={(event) => updateDetails({ affiliate: event.target.value })}
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <Label>Assistant TDs</Label>
+                    <Button variant="outline" size="sm" onClick={handleAddAssistantTD}>
+                      <Plus className="h-4 w-4 mr-2" />
+                      Add
+                    </Button>
+                  </div>
+                  <div className="space-y-2">
+                    {(config.details.assistantTDs ?? []).map((td, index) => (
+                      <div key={index} className="flex items-center gap-2">
+                        <OfficialSearchInput
+                          value={td}
+                          onChange={(value) => handleUpdateAssistantTD(index, value)}
+                        />
+                        <Button variant="ghost" size="icon" onClick={() => handleRemoveAssistantTD(index)}>
+                          <X className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="grid gap-4 md:grid-cols-2">
                   <div className="space-y-2">
                     <Label>Time Control</Label>
                     <Select
@@ -1792,29 +1905,6 @@ function StepTwo({ format, mode, config, onConfigChange, onBack: _onBack, onCanc
                         ))}
                       </SelectContent>
                     </Select>
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <Label>Assistant TDs</Label>
-                    <Button variant="outline" size="sm" onClick={handleAddAssistantTD}>
-                      <Plus className="h-4 w-4 mr-2" />
-                      Add
-                    </Button>
-                  </div>
-                  <div className="space-y-2">
-                    {(config.details.assistantTDs ?? []).map((td, index) => (
-                      <div key={index} className="flex items-center gap-2">
-                        <Input
-                          value={td}
-                          onChange={(e) => handleUpdateAssistantTD(index, e.target.value)}
-                        />
-                        <Button variant="ghost" size="icon" onClick={() => handleRemoveAssistantTD(index)}>
-                          <X className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    ))}
                   </div>
                 </div>
 
@@ -2277,153 +2367,165 @@ function StepTwo({ format, mode, config, onConfigChange, onBack: _onBack, onCanc
               </TabsContent>
 
               <TabsContent value="prizes" className="bg-white p-6 space-y-5">
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div>
-                    <h3 className="text-base font-semibold text-slate-900">Prize payouts</h3>
-                    <p className="text-xs text-slate-600">
-                      Define prize amounts by section and U-rating cutoff (e.g., U1600).
-                    </p>
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div className="flex items-center gap-4">
+                      <div>
+                        <h3 className="text-base font-semibold text-slate-900">Prize payouts</h3>
+                        <p className="text-xs text-slate-600">
+                          Define prize amounts by section and U-rating cutoff (e.g., U1600).
+                        </p>
+                      </div>
+                      <Switch
+                        checked={config.prizesEnabled}
+                        onCheckedChange={(checked) => onConfigChange({ ...config, prizesEnabled: checked })}
+                      />
+                    </div>
+                    {config.prizesEnabled && (
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Button variant="outline" onClick={handlePrizePrint} disabled={prizes.length === 0}>
+                          Print
+                        </Button>
+                        <Button variant="outline" onClick={handlePrizeDownload} disabled={prizes.length === 0}>
+                          Download
+                        </Button>
+                        <Button variant="outline" onClick={() => prizeImportInputRef.current?.click()}>
+                          Import Google Sheet
+                        </Button>
+                        <input
+                          ref={prizeImportInputRef}
+                          type="file"
+                          accept=".csv,text/csv"
+                          className="hidden"
+                          onChange={handlePrizeImport}
+                        />
+                        <Button onClick={addPrize}>
+                          Add prize
+                        </Button>
+                      </div>
+                    )}
                   </div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Button variant="outline" onClick={handlePrizePrint} disabled={prizes.length === 0}>
-                      Print
-                    </Button>
-                    <Button variant="outline" onClick={handlePrizeDownload} disabled={prizes.length === 0}>
-                      Download
-                    </Button>
-                    <Button variant="outline" onClick={() => prizeImportInputRef.current?.click()}>
-                      Import Google Sheet
-                    </Button>
-                    <input
-                      ref={prizeImportInputRef}
-                      type="file"
-                      accept=".csv,text/csv"
-                      className="hidden"
-                      onChange={handlePrizeImport}
-                    />
-                    <Button onClick={addPrize} disabled={sections.length === 0}>
-                      Add prize
-                    </Button>
-                  </div>
-                </div>
 
-                <div className="overflow-hidden rounded-lg border border-slate-200">
-                  <table className="min-w-full divide-y divide-slate-200 bg-white">
-                    <thead className="bg-slate-50">
-                      <tr className="text-left text-xs font-semibold uppercase tracking-wide text-slate-600">
-                        <th className="px-4 py-3">Section</th>
-                        <th className="px-4 py-3">Rating cap (U)</th>
-                        <th className="px-4 py-3">Place</th>
-                        <th className="px-4 py-3">Prize amount</th>
-                        <th className="px-4 py-3">Currency</th>
-                        <th className="px-4 py-3 text-right">Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-200 text-sm text-slate-700">
-                      {prizes.length === 0 ? (
-                        <tr>
-                          <td colSpan={6} className="px-4 py-6 text-center text-sm text-slate-500">
-                            {sections.length === 0
-                              ? "Create sections before defining prizes."
-                              : "No prizes added yet. Select Add prize to create your first payout."}
-                          </td>
-                        </tr>
-                      ) : (
-                        prizes.map((prize) => {
-                          const activeSection =
-                            sections.find((section) => section.id === prize.sectionId) ??
-                            sections.find(
-                              (section) =>
-                                section.name.trim().toLowerCase() === (prize.section ?? "").trim().toLowerCase(),
-                            );
-                          return (
-                            <tr key={prize.id} className="align-top">
-                              <td className="px-4 py-3">
-                                <Select
-                                  value={activeSection?.id ?? prize.sectionId ?? ""}
-                                  onValueChange={(value) => updatePrize(prize.id, { sectionId: value })}
-                                >
-                                  <SelectTrigger>
-                                    <SelectValue placeholder="Select section" />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    {sections.map((section) => (
-                                      <SelectItem key={section.id} value={section.id}>
-                                        {section.name || "Unnamed section"}
-                                      </SelectItem>
-                                    ))}
-                                  </SelectContent>
-                                </Select>
-                                <p className="mt-1 text-[11px] text-slate-500">
-                                  {prize.section || "Choose a section"}
-                                </p>
-                              </td>
-                              <td className="px-4 py-3">
-                                <div className="flex items-center gap-2">
-                                  <span className="text-sm text-slate-500">U</span>
-                                  <Input
-                                    type="number"
-                                    value={prize.ratingCap ?? ""}
-                                    onChange={(event) => handlePrizeRatingCapChange(prize.id, event.target.value)}
-                                    placeholder="e.g., 1600"
-                                  />
-                                </div>
-                                <p className="mt-1 text-[11px] text-slate-500">
-                                  {prize.ratingCap === null
-                                    ? "Open to all ratings"
-                                    : `Players rated under ${prize.ratingCap}`}
-                                </p>
-                              </td>
-                              <td className="px-4 py-3">
-                                <Input
-                                  value={prize.place ?? ""}
-                                  onChange={(event) => handlePrizePlaceChange(prize.id, event.target.value)}
-                                  placeholder="e.g., 1st"
-                                />
-                                <p className="mt-1 text-[11px] text-slate-500">Label how this prize is awarded.</p>
-                              </td>
-                              <td className="px-4 py-3">
-                                <Input
-                                  type="number"
-                                  step="0.01"
-                                  value={typeof prize.amount === "number" ? String(prize.amount) : ""}
-                                  onChange={(event) => handlePrizeAmountChange(prize.id, event.target.value)}
-                                  placeholder="Amount"
-                                />
-                              </td>
-                              <td className="px-4 py-3">
-                                <Select
-                                  value={prize.currency || config.payments.defaultCurrency || "USD"}
-                                  onValueChange={(value) => handlePrizeCurrencyChange(prize.id, value)}
-                                >
-                                  <SelectTrigger>
-                                    <SelectValue />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    {ENTRY_FEE_CURRENCY_OPTIONS.map((option) => (
-                                      <SelectItem key={option} value={option}>
-                                        {option}
-                                      </SelectItem>
-                                    ))}
-                                  </SelectContent>
-                                </Select>
-                              </td>
-                              <td className="px-4 py-3 text-right">
-                                <Button variant="ghost" className="text-red-600" onClick={() => removePrize(prize.id)}>
-                                  Remove
-                                </Button>
+                  {config.prizesEnabled && (
+                    <div className="overflow-hidden rounded-lg border border-slate-200">
+                      <table className="min-w-full divide-y divide-slate-200 bg-white">
+                        <thead className="bg-slate-50">
+                          <tr className="text-left text-xs font-semibold uppercase tracking-wide text-slate-600">
+                            <th className="px-4 py-3">Section</th>
+                            <th className="px-4 py-3">Rating cap (U)</th>
+                            <th className="px-4 py-3">Place</th>
+                            <th className="px-4 py-3">Prize amount</th>
+                            <th className="px-4 py-3">Currency</th>
+                            <th className="px-4 py-3 text-right">Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-200 text-sm text-slate-700">
+                          {prizes.length === 0 ? (
+                            <tr>
+                              <td colSpan={6} className="px-4 py-6 text-center text-sm text-slate-500">
+                                {sections.length === 0
+                                  ? "Create sections before defining prizes."
+                                  : "No prizes added yet. Select Add prize to create your first payout."}
                               </td>
                             </tr>
-                          );
-                        })
-                      )}
-                    </tbody>
-                  </table>
-                </div>
+                          ) : (
+                            prizes.map((prize) => {
+                              const activeSection =
+                                sections.find((section) => section.id === prize.sectionId) ??
+                                sections.find(
+                                  (section) =>
+                                    section.name.trim().toLowerCase() === (prize.section ?? "").trim().toLowerCase(),
+                                );
+                              return (
+                                <tr key={prize.id} className="align-top">
+                                  <td className="px-4 py-3">
+                                    <Select
+                                      value={activeSection?.id ?? prize.sectionId ?? ""}
+                                      onValueChange={(value) => updatePrize(prize.id, { sectionId: value })}
+                                    >
+                                      <SelectTrigger>
+                                        <SelectValue placeholder="Select section" />
+                                      </SelectTrigger>
+                                      <SelectContent>
+                                        {sections.map((section) => (
+                                          <SelectItem key={section.id} value={section.id}>
+                                            {section.name || "Unnamed section"}
+                                          </SelectItem>
+                                        ))}
+                                      </SelectContent>
+                                    </Select>
+                                    <p className="mt-1 text-[11px] text-slate-500">
+                                      {prize.section || "Choose a section"}
+                                    </p>
+                                  </td>
+                                  <td className="px-4 py-3">
+                                    <div className="flex items-center gap-2">
+                                      <span className="text-sm text-slate-500">U</span>
+                                      <Input
+                                        type="number"
+                                        value={prize.ratingCap ?? ""}
+                                        onChange={(event) => handlePrizeRatingCapChange(prize.id, event.target.value)}
+                                        placeholder="e.g., 1600"
+                                      />
+                                    </div>
+                                    <p className="mt-1 text-[11px] text-slate-500">
+                                      {prize.ratingCap === null
+                                        ? "Open to all ratings"
+                                        : `Players rated under ${prize.ratingCap}`}
+                                    </p>
+                                  </td>
+                                  <td className="px-4 py-3">
+                                    <Input
+                                      value={prize.place ?? ""}
+                                      onChange={(event) => handlePrizePlaceChange(prize.id, event.target.value)}
+                                      placeholder="e.g., 1st"
+                                    />
+                                    <p className="mt-1 text-[11px] text-slate-500">Label how this prize is awarded.</p>
+                                  </td>
+                                  <td className="px-4 py-3">
+                                    <Input
+                                      type="number"
+                                      step="0.01"
+                                      value={typeof prize.amount === "number" ? String(prize.amount) : ""}
+                                      onChange={(event) => handlePrizeAmountChange(prize.id, event.target.value)}
+                                      placeholder="Amount"
+                                    />
+                                  </td>
+                                  <td className="px-4 py-3">
+                                    <Select
+                                      value={prize.currency || config.payments.defaultCurrency || "USD"}
+                                      onValueChange={(value) => handlePrizeCurrencyChange(prize.id, value)}
+                                    >
+                                      <SelectTrigger>
+                                        <SelectValue />
+                                      </SelectTrigger>
+                                      <SelectContent>
+                                        {ENTRY_FEE_CURRENCY_OPTIONS.map((option) => (
+                                          <SelectItem key={option} value={option}>
+                                            {option}
+                                          </SelectItem>
+                                        ))}
+                                      </SelectContent>
+                                    </Select>
+                                  </td>
+                                  <td className="px-4 py-3 text-right">
+                                    <Button variant="ghost" className="text-red-600" onClick={() => removePrize(prize.id)}>
+                                      Remove
+                                    </Button>
+                                  </td>
+                                </tr>
+                              );
+                            })
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
 
-                <p className="text-xs text-slate-500">
-                  Export your Google Sheet as CSV with columns: Section, Rating, Place, Amount, Currency.
-                </p>
+                  {config.prizesEnabled && (
+                    <p className="text-xs text-slate-500">
+                      Export your Google Sheet as CSV with columns: Section, Rating, Place, Amount, Currency.
+                    </p>
+                  )}
 
                 {renderTabSaveButton()}
               </TabsContent>

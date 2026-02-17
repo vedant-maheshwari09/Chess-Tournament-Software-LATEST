@@ -107,6 +107,7 @@ export const players = pgTable("players", {
   isActiveTd: boolean("is_active_td").default(false), // Only one player per tournament can be active TD
   sectionId: text("section_id"),
   sectionName: text("section_name"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 });
 
 export const matches = pgTable("matches", {

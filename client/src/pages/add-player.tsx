@@ -342,7 +342,7 @@ export default function AddPlayerPage({ tournamentId, playerId }: AddPlayerPageP
       const payload = {
         firstName: formState.firstName.trim() || "Player",
         lastName: formState.lastName.trim() || `#${players.length + 1}`,
-        rating: Number(formState.rating) || 0,
+        rating: parseInt(formState.rating, 10) || 0,
         federation: formState.federation || "United States",
         sectionId: formState.sectionId || selectedSectionDetails?.id || null,
         sectionName: (selectedSectionDetails?.name ?? formState.sectionName)?.trim() || null,

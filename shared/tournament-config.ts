@@ -180,6 +180,7 @@ export interface TournamentConfig {
   version: "v2";
   mode: TournamentMode;
   format: Tournament["format"];
+  prizesEnabled: boolean;
   basic: {
     name: string;
     city: string;
@@ -193,6 +194,7 @@ export interface TournamentConfig {
     chiefArbiter: string;
     organizer: string;
     assistantTDs: string[];
+    affiliate: string;
     timeControl: TimeControlType;
     timeControls: TimeControlDefinition[];
     pairingSystem: string;
@@ -275,6 +277,7 @@ export function createDefaultConfig(format: Tournament["format"], mode: Tourname
     version: "v2",
     mode,
     format,
+    prizesEnabled: true,
     basic: {
       name: "",
       city: "",
@@ -288,6 +291,7 @@ export function createDefaultConfig(format: Tournament["format"], mode: Tourname
       chiefArbiter: "",
       organizer: "",
       assistantTDs: [],
+      affiliate: "",
       timeControl: "standard",
       timeControls: [defaultTimeControl],
       pairingSystem: format === "roundrobin" ? "Round Robin" : "Swiss System",
@@ -466,10 +470,14 @@ export function parseTournamentConfig(tournament: Tournament): TournamentConfig 
       typeof (parsed as any)?.details?.tiebreaksEnabled === "boolean"
         ? Boolean((parsed as any).details.tiebreaksEnabled)
         : tiebreaks.length > 0 || defaults.details.tiebreaksEnabled;
+    const prizesEnabled = typeof (parsed as any)?.prizesEnabled === "boolean"
+      ? (parsed as any).prizesEnabled
+      : true;
 
     return {
       ...defaults,
       ...parsed,
+      prizesEnabled,
       basic: {
         ...defaults.basic,
         ...parsed.basic,
@@ -478,6 +486,7 @@ export function parseTournamentConfig(tournament: Tournament): TournamentConfig 
       details: {
         ...defaults.details,
         ...parsed.details,
+        affiliate: parsed.details?.affiliate ?? "",
         timeControls: normalizedTimeControls,
         scoring,
         tiebreaksEnabled,
