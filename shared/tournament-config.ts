@@ -216,6 +216,14 @@ export interface TournamentConfig {
   chessResults: ChessResultsConfig;
   contacts: ContactEntry[];
   tournamentPageContent: string;
+  boardNumbering: BoardNumberingSettings;
+}
+
+export interface BoardNumberingSettings {
+  start?: number;
+  increment?: number;
+  gaps?: string;
+  customSequence?: string;
 }
 
 export function normalizeCityState(value: string): string {
@@ -396,6 +404,12 @@ export function createDefaultConfig(format: Tournament["format"], mode: Tourname
     },
     contacts: [],
     tournamentPageContent: "",
+    boardNumbering: {
+      start: 1,
+      increment: 1,
+      gaps: '',
+      customSequence: '',
+    },
   };
 }
 
@@ -491,6 +505,10 @@ export function parseTournamentConfig(tournament: Tournament): TournamentConfig 
         scoring,
         tiebreaksEnabled,
         tiebreaks,
+      },
+      boardNumbering: {
+        ...defaults.boardNumbering,
+        ...parsed.boardNumbering,
       },
       registers: {
         ...defaults.registers,
@@ -949,6 +967,29 @@ function sanitizeTiebreaks(raw: any): string[] {
   return result;
 }
 
+function parseGaps(gapsStr: string | undefined): { afterBoard: number; skip: number }[] | undefined {
+  if (!gapsStr) return undefined;
+  const gaps = [];
+  const entries = gapsStr.split(',').map(e => e.trim()).filter(e => e);
+  for (const entry of entries) {
+    const parts = entry.split(':').map(p => p.trim());
+    if (parts.length === 2) {
+      const afterBoard = parseInt(parts[0], 10);
+      const skip = parseInt(parts[1], 10);
+      if (!isNaN(afterBoard) && !isNaN(skip)) {
+        gaps.push({ afterBoard, skip });
+      }
+    }
+  }
+  return gaps.length > 0 ? gaps : undefined;
+}
+
+function parseCustomSequence(seqStr: string | undefined): number[] | undefined {
+  if (!seqStr) return undefined;
+  const sequence = seqStr.split(',').map(e => parseInt(e.trim(), 10)).filter(n => !isNaN(n));
+  return sequence.length > 0 ? sequence : undefined;
+}
+
 export function buildTournamentPayload(
   config: TournamentConfig,
   opts: { format: Tournament["format"] }
@@ -961,6 +1002,12 @@ export function buildTournamentPayload(
     timeControl: serialized.details.timeControl,
     tiebreakOrder: serialized.details.tiebreakSystem,
     roundTimings: serialized,
+    boardNumberingSettings: {
+      start: serialized.boardNumbering.start,
+      increment: serialized.boardNumbering.increment,
+      gaps: parseGaps(serialized.boardNumbering.gaps),
+      customSequence: parseCustomSequence(serialized.boardNumbering.customSequence),
+    },
     location: serialized.basic.city,
     useQuickSetup: false,
   };

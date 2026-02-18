@@ -17,6 +17,8 @@ import {
   verifyEmailSchema,
   resendVerificationSchema,
   type Player,
+  type Pairing,
+  type Match,
 } from "@shared/schema";
 import { 
   hashPassword, 
@@ -1809,7 +1811,7 @@ ${(config as any).organizerInfo}` : ""}
         }
       }
 
-      const allBoardNumbers = generateBoardNumberSequence(tournament.boardNumberingSettings, totalMatches);
+      const allBoardNumbers = generateBoardNumberSequence(tournament.boardNumberingSettings as BoardNumberingSettings, totalMatches);
       let boardNumberOffset = 0;
 
       // Generate pairings for each section
@@ -2033,7 +2035,7 @@ ${(config as any).organizerInfo}` : ""}
           }
         }
 
-        const allBoardNumbers = generateBoardNumberSequence(tournament.boardNumberingSettings, totalMatches);
+        const allBoardNumbers = generateBoardNumberSequence(tournament.boardNumberingSettings as BoardNumberingSettings, totalMatches);
         let boardNumberOffset = 0;
 
         for (const sectionKey in playersBySection) {
@@ -2076,7 +2078,8 @@ ${(config as any).organizerInfo}` : ""}
 
       res.json(tournament);
     } catch (error) {
-      res.status(500).json({ message: "Failed to update tournament" });
+          console.error("Failed to update tournament:", error);
+    res.status(500).json({ message: "Failed to update tournament" });
     }
   });
 
@@ -3289,7 +3292,7 @@ ${(config as any).organizerInfo}` : ""}
                   }
               }
 
-              const allBoardNumbers = generateBoardNumberSequence(tournament.boardNumberingSettings, totalMatches);
+              const allBoardNumbers = generateBoardNumberSequence(tournament.boardNumberingSettings as BoardNumberingSettings, totalMatches);
               let boardNumberOffset = 0;
 
               for (const sectionKey in playersBySection) {
@@ -3377,6 +3380,7 @@ ${(config as any).organizerInfo}` : ""}
       }
 
       const existingMatches = await storage.getMatchesByTournament(tournamentId);
+      const existingPairings = await storage.getPairingsByTournament(tournamentId);
       console.log(`Found ${existingMatches.length} total matches in tournament:`, existingMatches.map(m => `Round ${m.round} Match ${m.id}`));
       
       // Find all rounds to be regenerated (fromRound and higher)
@@ -3402,7 +3406,7 @@ ${(config as any).organizerInfo}` : ""}
                   console.log(`Generating Round ${fromRound}. MaxExisting: ${maxExistingRound}, Requested: ${fromRound}`);
                     
                     const baseMatches = existingMatches; // Use all existing matches for pairing
-                    const swissPairings = await generateSwissPairings(tournament, players, baseMatches, fromRound);
+                    const swissPairings = await generateSwissPairings(tournament, players, baseMatches, fromRound, existingPairings);
                     
                     let allNewPairings = [];
                     let allNewMatches = [];
@@ -3494,7 +3498,7 @@ ${(config as any).organizerInfo}` : ""}
                   
                   // Use all previous matches (base + already regenerated) for pairing calculation
                   const matchesForPairing = [...baseMatches, ...allNewMatches];
-                  const swissPairings = await generateSwissPairings(tournament, players, matchesForPairing, round);
+                  const swissPairings = await generateSwissPairings(tournament, players, matchesForPairing, round, existingPairings);
                   
                   // Save matches and pairings for this round
                   for (const pairing of swissPairings) {

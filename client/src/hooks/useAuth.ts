@@ -1,4 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useEffect } from "react";
 import { apiRequest } from "@/lib/queryClient";
 import type { User, LoginData, RegisterData } from "@shared/schema";
 
@@ -21,23 +22,23 @@ export function useAuth() {
     queryKey: ["/api/auth/me"],
     retry: false,
     enabled: !!localStorage.getItem("auth_token"),
-    // Don't treat 503 (database unavailable) as an error
-    retryOnMount: false,
     refetchOnMount: false,
     refetchOnWindowFocus: false,
     refetchOnReconnect: false,
-    gcTime: 0, // Don't cache the result to prevent stale data
-    staleTime: Infinity, // Once we get a result, don't refetch
-    // If we get a database unavailable error, disable the query
-    throwOnError: false,
-    onError: (err) => {
-      // If database is unavailable, clear the token to stop retries
-      if (err instanceof Error && err.message === "DATABASE_UNAVAILABLE") {
+  });
+
+  useEffect(() => {
+    if (error) {
+      // If database is unavailable or token is invalid, clear the token to stop retries
+      if (
+        (error as any)?.message === "DATABASE_UNAVAILABLE" || 
+        (error as any)?.response?.status === 401
+      ) {
         localStorage.removeItem("auth_token");
         queryClient.setQueryData(["/api/auth/me"], null);
       }
-    },
-  });
+    }
+  }, [error, queryClient]);
 
   // Login mutation
   const loginMutation = useMutation({

@@ -4,6 +4,7 @@ import readline from "node:readline";
 import type { Player } from "@shared/schema";
 import { makeNameKey, normalizeWhitespace, resolveFederationCode, tokenizeName } from "./fideUtils";
 import type { FideDirectoryEntry } from "@shared/fide-types";
+export type { FideDirectoryEntry };
 
 const FIDE_DIRECTORY_PATH = path.resolve(process.cwd(), "players_list-fide-oct-2025.txt");
 

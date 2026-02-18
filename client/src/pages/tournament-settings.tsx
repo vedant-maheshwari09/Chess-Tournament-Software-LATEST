@@ -8,6 +8,7 @@ import {
   type RegistersConfig,
   type TournamentConfig,
   type UscfReportData,
+  type BoardNumberingSettings,
   buildTournamentPayload,
   parseTournamentConfig,
   serializeTournamentConfig,
@@ -18,16 +19,17 @@ import { apiRequest } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   ChessResultsSettingsCard,
   FideRegistrationSection,
-  RegistersSettingsCard,
   UscfReportSection,
 } from "@/components/tournament-settings/sections";
 import { GeneralSettingsCard } from "@/components/tournament-settings/GeneralSettingsCard";
+import { BoardNumberingCard } from "@/components/tournament-settings/BoardNumberingCard";
 import { Loader2 } from "lucide-react";
 
-type SettingsSection = "basic" | "details" | "schedule" | "payments" | "prizes" | "player-signup" | "rate-tournament" | "general";
+type SettingsSection = "basic" | "details" | "schedule" | "payments" | "prizes" | "player-signup" | "rate-tournament" | "general" | "board-numbering" | "fide" | "uscf" | "chess-results";
 
 interface TournamentSettingsPageProps {
   tournamentId: number;
@@ -94,6 +96,7 @@ export default function TournamentSettingsPage({ tournamentId, section }: Tourna
     "fide",
     "uscf",
     "chess-results",
+    "board-numbering",
   ] satisfies SettingsSection[];
 
   const currentSection: SettingsSection = useMemo(() => {
@@ -123,14 +126,16 @@ export default function TournamentSettingsPage({ tournamentId, section }: Tourna
     setIsDirty(true);
   };
 
-  const updateGeneral = (update: Partial<TournamentConfig['general']>) => {
+
+
+  const updateBoardNumbering = (update: Partial<BoardNumberingSettings>) => {
     if (!config) return;
     setConfig((prev) => {
       if (!prev) return prev;
       const next = {
         ...prev,
-        general: {
-          ...prev.general,
+        boardNumbering: {
+          ...prev.boardNumbering,
           ...update,
         },
       };
@@ -417,7 +422,13 @@ export default function TournamentSettingsPage({ tournamentId, section }: Tourna
         <div className="space-y-6 pb-12">
           {currentSection === "general" && (
             <div className="space-y-6">
-              <GeneralSettingsCard value={config.general} onChange={updateGeneral} />
+              <GeneralSettingsCard value={config.registers} onChange={updateRegisters} />
+            </div>
+          )}
+
+          {currentSection === "board-numbering" && (
+            <div className="space-y-6">
+              <BoardNumberingCard value={config.boardNumbering} onChange={updateBoardNumbering} />
             </div>
           )}
 

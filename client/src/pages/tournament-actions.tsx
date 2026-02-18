@@ -15,6 +15,7 @@ import {
   parseTournamentConfig,
   buildTournamentPayload,
   serializeTournamentConfig,
+  type BoardNumberingSettings,
 } from "@/lib/tournament-config";
 import {
   TOURNAMENT_TEMPLATE_OPTIONS,
@@ -25,6 +26,7 @@ import {
   type TournamentTemplateSnapshot,
 } from "@/lib/tournament-templates";
 import type { Tournament } from "@shared/schema";
+import { BoardNumberingCard } from "@/components/tournament-settings/BoardNumberingCard";
 
 interface TournamentActionsPageProps {
   tournamentId: number;
@@ -43,6 +45,7 @@ export default function TournamentActionsPage({ tournamentId }: TournamentAction
   );
   const [templateSaving, setTemplateSaving] = useState(false);
   const templateImportInputRef = useRef<HTMLInputElement | null>(null);
+  const [boardNumbering, setBoardNumbering] = useState<BoardNumberingSettings>({});
 
   const { data: tournament, isLoading: tournamentLoading } = useQuery<Tournament>({
     queryKey: [`/api/tournaments/${tournamentId}`],
@@ -50,6 +53,16 @@ export default function TournamentActionsPage({ tournamentId }: TournamentAction
 
   const parsedConfig = useMemo(() => (tournament ? parseTournamentConfig(tournament) : null), [tournament]);
 
+  useEffect(() => {
+    if (parsedConfig) {
+      setBoardNumbering(parsedConfig.boardNumbering);
+    }
+  }, [parsedConfig]);
+
+  const updateBoardNumbering = (update: Partial<BoardNumberingSettings>) => {
+    setBoardNumbering((prev) => ({ ...prev, ...update }));
+  };
+  
   const canManageTournament = useMemo(() => {
     if (!user || !tournament) return false;
     return user.role === "tournament_director" && user.id === tournament.createdBy;
@@ -354,6 +367,23 @@ export default function TournamentActionsPage({ tournamentId }: TournamentAction
             </Button>
           </CardContent>
         </Card>
+        
+        <BoardNumberingCard value={boardNumbering} onChange={updateBoardNumbering} />
+        <Button
+          onClick={async () => {
+            if (!parsedConfig) return;
+            const newConfig = { ...parsedConfig, boardNumbering };
+            const payload = buildTournamentPayload(newConfig, { format: tournament.format });
+            await apiRequest(`/api/tournaments/${tournamentId}`, {
+              method: "PUT",
+              body: JSON.stringify(payload),
+            });
+            toast({ title: "Board numbering settings saved" });
+          }}
+        >
+          Save Board Numbering
+        </Button>
+
       </div>
     </div>
   );

@@ -727,6 +727,7 @@ interface PaymentsConfigResponse {
 function StepTwo({ format, mode, config, onConfigChange, onBack: _onBack, onCancel, onSave, saving, tournament }: StepTwoProps) {
   const scheduleTemplateOptions = SCHEDULE_EVENT_OPTIONS;
   const { toast } = useToast();
+  const queryClient = useQueryClient();
   const prizeImportInputRef = useRef<HTMLInputElement | null>(null);
   const sections = config.sections ?? [];
   const prizes = config.prizes ?? [];

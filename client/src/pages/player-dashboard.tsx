@@ -632,7 +632,7 @@ export default function PlayerDashboard() {
               </CardHeader>
               <CardContent>
                 {selectedTournament.format === "swiss" || selectedTournament.format === "roundrobin" ? (
-                  <SwissPairings tournamentId={selectedTournament.id} showExportControls={false} />
+                  <SwissPairings tournamentId={selectedTournament.id} activeSection="all" showExportControls={false} />
                 ) : (
                   <p className="text-gray-600 dark:text-gray-400">
                     Pairings view not available for {getFormatName(selectedTournament.format)} format

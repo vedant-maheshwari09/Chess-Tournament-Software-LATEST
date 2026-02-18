@@ -163,7 +163,7 @@ export default function TournamentView({ tournamentId }: TournamentViewProps) {
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <SwissPairings tournamentId={tournamentId} showExportControls={false} />
+                <SwissPairings tournamentId={tournamentId} activeSection="all" showExportControls={false} />
               </CardContent>
             </Card>
           </TabsContent>
