@@ -122,7 +122,7 @@ const formatDate = (value: string | Date | null | undefined) => {
   if (!value) return "TBD";
   const date = value instanceof Date ? value : new Date(value);
   if (Number.isNaN(date.getTime())) return "TBD";
-  return date.toLocaleDateString(undefined, {
+  return date.toLocaleDateString("en-US", {
     month: "long",
     day: "numeric",
     year: "numeric",
@@ -334,7 +334,8 @@ export default function TournamentRegistrationFormPage({ tournamentId }: Tournam
     mutationFn: async (values: RegistrationFormValues) => {
       const payload = {
         playerName: `${values.firstName} ${values.lastName}`.trim(),
-        uscfRating: values.uscfRating ? Number(values.uscfRating) : undefined,
+        uscfRating: Number.isFinite(Number(values.uscfRating)) ? Number(values.uscfRating) : undefined,
+        sectionChoice: values.sectionChoice,
         phoneNumber: values.phoneNumber,
         email: values.email,
         arrivalTime: buildArrivalNotes(values, entryFees),

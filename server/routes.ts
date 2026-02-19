@@ -1483,9 +1483,18 @@ ${(config as any).organizerInfo}` : ""}
   app.get("/api/tournaments", async (req, res) => {
     try {
       const tournaments = await storage.getAllTournaments();
-      const visibleTournaments = tournaments.filter((tournament) =>
-        ["active", "upcoming", "completed"].includes(tournament.status) && tournament.publishOnCalendar
-      );
+            const visibleTournaments = tournaments.filter((tournament) => {
+        if (!["active", "upcoming", "completed"].includes(tournament.status)) {
+          return false;
+        }
+        try {
+          const config = parseTournamentConfig(tournament);
+          return config.registers.showOnCalendar;
+        } catch (error) {
+          console.error(`Failed to parse config for tournament ${tournament.id}`, error);
+          return false;
+        }
+      });
       res.json(visibleTournaments);
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch tournaments" });

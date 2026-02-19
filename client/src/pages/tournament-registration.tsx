@@ -27,7 +27,7 @@ const formatDate = (value: string | Date | null | undefined) => {
   if (!value) return "TBD";
   const date = value instanceof Date ? value : new Date(value);
   if (Number.isNaN(date.getTime())) return "TBD";
-  return date.toLocaleDateString(undefined, { month: "long", day: "numeric", year: "numeric" });
+  return date.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
 };
 
 const formatTime = (value: string | null | undefined) => {

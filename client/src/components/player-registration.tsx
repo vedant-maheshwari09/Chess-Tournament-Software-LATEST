@@ -147,7 +147,7 @@ export default function PlayerRegistration({ tournament, existingRegistration }:
             ) : null}
 
             <div className="text-xs text-muted-foreground">
-              Registered on {existingRegistration.createdAt ? new Date(existingRegistration.createdAt).toLocaleDateString() : "Unknown"}
+              Registered on {existingRegistration.createdAt ? new Date(existingRegistration.createdAt).toLocaleDateString("en-US") : "Unknown"}
             </div>
             
             {existingRegistration.status === "pending" && (

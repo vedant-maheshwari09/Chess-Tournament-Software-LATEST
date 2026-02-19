@@ -189,7 +189,7 @@ export default function RegistrationManagement({ tournamentId }: RegistrationMan
                             </div>
                           )}
                           <div className="text-xs text-muted-foreground">
-                            Registered: {registration.createdAt ? new Date(registration.createdAt).toLocaleDateString() : 'N/A'}
+                            Registered: {registration.createdAt ? new Date(registration.createdAt).toLocaleDateString("en-US") : 'N/A'}
                           </div>
                         </div>
                       </TableCell>
@@ -312,7 +312,7 @@ export default function RegistrationManagement({ tournamentId }: RegistrationMan
                       </TableCell>
                       <TableCell>
                         <div className="text-sm text-muted-foreground">
-                          {registration.updatedAt ? new Date(registration.updatedAt).toLocaleDateString() : 'N/A'}
+                          {registration.updatedAt ? new Date(registration.updatedAt).toLocaleDateString("en-US") : 'N/A'}
                         </div>
                       </TableCell>
                     </TableRow>

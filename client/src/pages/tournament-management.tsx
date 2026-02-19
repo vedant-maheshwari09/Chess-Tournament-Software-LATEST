@@ -28,8 +28,9 @@ import SwissStandings from "@/components/swiss-standings";
 import RoundRobinCrosstable from "@/components/round-robin-crosstable";
 import KnockoutBracket from "@/components/knockout-bracket";
 import TournamentBuilder from "@/components/tournament-builder";
-import type { Tournament, Player } from "@shared/schema";
+import type { Tournament, Player, PlayerRegistration } from "@shared/schema";
 import PlayerManager from "@/components/player-manager";
+import RegistrationManagement from "@/components/registration-management";
 import TournamentPagePanel from "@/components/tournament-page-panel";
 import { parseTournamentConfig } from "@/lib/tournament-config";
 
@@ -60,6 +61,16 @@ export default function TournamentManagement({ tournamentId }: TournamentManagem
   }, [tournament, user, isOwner, tournamentId, setLocation]);
 
   // Fetch players
+  // Fetch registrations for notification bubble
+  const { data: registrations = [] } = useQuery<PlayerRegistration[]>({
+    queryKey: [`/api/tournaments/${tournamentId}/registrations`],
+    enabled: !!isOwner, // Only fetch for the owner
+  });
+
+  const pendingRegistrationCount = useMemo(() => {
+    return registrations.filter(r => r.status === 'pending').length;
+  }, [registrations]);
+
   const { data: players = [] } = useQuery<Player[]>({
     queryKey: [`/api/tournaments/${tournamentId}/players`],
   });
@@ -349,7 +360,7 @@ export default function TournamentManagement({ tournamentId }: TournamentManagem
 
       {/* Tournament Management Tabs */}
       <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full">
-        <TabsList className="grid w-full grid-cols-5 items-stretch gap-0 overflow-hidden rounded-xl border border-slate-200 bg-white p-0">
+        <TabsList className="grid w-full grid-cols-6 items-stretch gap-0 overflow-hidden rounded-xl border border-slate-200 bg-white p-0">
           <TabsTrigger
             value="dashboard"
             className="flex h-full w-full items-center justify-center gap-2 px-6 py-4 text-center text-sm font-medium text-slate-600 transition data-[state=active]:bg-indigo-50 data-[state=active]:text-indigo-900 data-[state=active]:shadow-none"
@@ -370,6 +381,16 @@ export default function TournamentManagement({ tournamentId }: TournamentManagem
           >
             <Users className="h-5 w-5 -translate-y-[4px]" />
             <span className="capitalize -translate-y-[2px]">Players</span>
+          </TabsTrigger>
+          <TabsTrigger
+            value="registrations"
+            className="flex h-full w-full items-center justify-center gap-2 px-6 py-4 text-center text-sm font-medium text-slate-600 transition data-[state=active]:bg-indigo-50 data-[state=active]:text-indigo-900 data-[state=active]:shadow-none"
+          >
+            <Users className="h-5 w-5 -translate-y-[4px]" />
+            <span className="capitalize -translate-y-[2px]">Registrations</span>
+            {pendingRegistrationCount > 0 && (
+              <Badge className="ml-2">{pendingRegistrationCount}</Badge>
+            )}
           </TabsTrigger>
           <TabsTrigger
             value="rounds"
@@ -409,6 +430,10 @@ export default function TournamentManagement({ tournamentId }: TournamentManagem
 
         <TabsContent value="players" className="mt-6">
           <PlayerManager tournament={tournament} tournamentId={tournamentId} />
+        </TabsContent>
+
+        <TabsContent value="registrations" className="mt-6">
+          <RegistrationManagement tournamentId={tournamentId} />
         </TabsContent>
 
 
