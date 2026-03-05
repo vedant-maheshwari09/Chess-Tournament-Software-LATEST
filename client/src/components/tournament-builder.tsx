@@ -2841,35 +2841,39 @@ function StepTwo({ format, mode, config, onConfigChange, onBack: _onBack, onCanc
 
                                                   </p>
 
-                                                  <div className="flex items-center space-x-2 pt-2">
+                                                  <div className="flex flex-col gap-3 pt-2">
+                                                    <div className="flex items-center space-x-2">
+                                                      <Switch
+                                                        id="allow-player-to-join"
+                                                        checked={config.registers.allowPlayerToJoin}
+                                                        onCheckedChange={(checked) =>
+                                                          updateRegisters({ allowPlayerToJoin: checked })
+                                                        }
+                                                      />
+                                                      <Label htmlFor="allow-player-to-join">
+                                                        Allow Players to Join
+                                                      </Label>
+                                                    </div>
+                                                    <p className="text-xs text-muted-foreground">
+                                                      If enabled, players can complete the registration form; otherwise, they can just spectate.
+                                                    </p>
 
-                                                    <Switch
-
-                                                      id="allow-player-to-join"
-
-                                                      checked={config.registers.allowPlayerToJoin}
-
-                                                      onCheckedChange={(checked) =>
-
-                                                        updateRegisters({ allowPlayerToJoin: checked })
-
-                                                      }
-
-                                                    />
-
-                                                                        <Label htmlFor="allow-player-to-join">
-
-                                                                          Allow Players to Join
-
-                                                                        </Label>
-
-                                                                      </div>
-
-                                                                      <p className="text-xs text-muted-foreground">
-
-                                                                        If enabled, players can complete the registration form; otherwise, they can just spectate.
-
-                                                                      </p>
+                                                    <div className="flex items-center space-x-2">
+                                                      <Switch
+                                                        id="allow-multi-player-signup"
+                                                        checked={config.registers.allowMultiPlayerSignup}
+                                                        onCheckedChange={(checked) =>
+                                                          updateRegisters({ allowMultiPlayerSignup: checked })
+                                                        }
+                                                      />
+                                                      <Label htmlFor="allow-multi-player-signup">
+                                                        Allow Multi-Player Sign Up
+                                                      </Label>
+                                                    </div>
+                                                    <p className="text-xs text-muted-foreground">
+                                                      When enabled, a single account can register multiple players for this event.
+                                                    </p>
+                                                  </div>
 
                                                 </div>
 

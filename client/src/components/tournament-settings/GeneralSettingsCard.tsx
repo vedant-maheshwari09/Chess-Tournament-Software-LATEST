@@ -6,6 +6,7 @@ interface GeneralSettingsCardProps {
   value: {
     showOnCalendar: boolean;
     allowSignup: boolean;
+    allowMultiPlayerSignup: boolean;
     enablePairingPredictor: boolean;
   };
   onChange: (update: Partial<GeneralSettingsCardProps['value']>) => void;
@@ -32,6 +33,14 @@ export function GeneralSettingsCard({ value, onChange }: GeneralSettingsCardProp
             id="allowOnlineRegistration"
             checked={value.allowSignup}
             onCheckedChange={(checked) => onChange({ allowSignup: checked })}
+          />
+        </div>
+        <div className="flex items-center justify-between">
+          <Label htmlFor="allowMultiPlayerSignup">Allow Multi-Player Sign Up</Label>
+          <Switch
+            id="allowMultiPlayerSignup"
+            checked={value.allowMultiPlayerSignup}
+            onCheckedChange={(checked) => onChange({ allowMultiPlayerSignup: checked })}
           />
         </div>
         <div className="flex items-center justify-between">

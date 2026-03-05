@@ -184,11 +184,12 @@ export default function TournamentRegistrationFormPage({ tournamentId }: Tournam
     enabled: Boolean(tournament),
   });
 
-  const existingRegistration = registrations.find((entry) => entry.tournamentId === tournamentId);
   const config = useMemo(
     () => (tournament ? parseTournamentConfig(tournament) : null),
     [tournament],
   );
+  const multiPlayerAllowed = Boolean(config?.registers?.allowMultiPlayerSignup);
+  const existingRegistration = registrations.find((entry) => entry.tournamentId === tournamentId);
 
   const entryFees = useMemo(() => config?.entryFees ?? [], [config]);
   const sections = useMemo<SectionOption[]>(() => {
@@ -279,6 +280,13 @@ export default function TournamentRegistrationFormPage({ tournamentId }: Tournam
   const [clientSecret, setClientSecret] = useState<string | null>(null);
   const [isPaymentBusy, setIsPaymentBusy] = useState(false);
   const [isPaymentElementReady, setIsPaymentElementReady] = useState(false);
+
+  type PlayerDraft = {
+    id: string;
+    values: RegistrationFormValues;
+  };
+
+  const [playerDrafts, setPlayerDrafts] = useState<PlayerDraft[]>([]);
   const stripePromise = useMemo(() => {
     if (!paymentsConfigResponse?.publishableKey) {
       return null;
@@ -542,7 +550,7 @@ export default function TournamentRegistrationFormPage({ tournamentId }: Tournam
     );
   }
 
-  if (existingRegistration) {
+  if (existingRegistration && !multiPlayerAllowed) {
     return (
       <div className="min-h-screen bg-slate-50">
         <div className="border-b bg-white">
@@ -666,6 +674,94 @@ export default function TournamentRegistrationFormPage({ tournamentId }: Tournam
   };
 
 
+  const handleAddAnotherPlayer = async () => {
+    if (!multiPlayerAllowed || requiresPayment) {
+      return;
+    }
+
+    let fields: (keyof RegistrationFormValues)[] = [];
+    // Validate key fields from steps 1 and 2 for the current player
+    fields = ["firstName", "lastName", "email", "sectionChoice"];
+
+    if (entryFees.length > 0) {
+      const selectedSection = form.getValues("sectionChoice");
+      const sectionEntryFees = filterEntryFeesBySection(entryFees, selectedSection, sections);
+      const selectedEntryFeeId = form.getValues("entryFeeId");
+
+      if (sectionEntryFees.length === 0) {
+        if (!selectedEntryFeeId) {
+          form.setValue("entryFeeId", NO_ENTRY_FEE_ID, { shouldDirty: false, shouldValidate: false });
+        }
+      } else {
+        fields = [...fields, "entryFeeId"];
+      }
+    }
+
+    let valid = true;
+    if (fields.length > 0) {
+      valid = await form.trigger(fields, { shouldFocus: true });
+    }
+
+    if (!valid) {
+      if (fields.includes("entryFeeId")) {
+        toast({
+          title: "Select an entry fee",
+          description: "Pick the entry option that matches your section before adding another player.",
+          variant: "destructive",
+        });
+      }
+      return;
+    }
+
+    const currentValues = form.getValues();
+    const draftId =
+      typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+        ? crypto.randomUUID()
+        : `player-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+    setPlayerDrafts((prev) => [...prev, { id: draftId, values: currentValues }]);
+
+    // Reset for the next player, keeping some sensible defaults like email
+    form.reset({
+      ...currentValues,
+      firstName: "",
+      lastName: "",
+      uscfId: "",
+      fideId: "",
+      uscfRating: "",
+      fideRating: "",
+      sectionChoice: "",
+      entryFeeId: "",
+      processingContribution: "0",
+      byePreference: "none",
+      byeRounds: [],
+      arrivalTime: "",
+      notes: "",
+      paymentIntentId: undefined,
+      paymentStatus: "unpaid",
+      paymentReceiptUrl: undefined,
+      paymentMethod: undefined,
+      currency: undefined,
+      amountDue: undefined,
+      amountPaid: undefined,
+    });
+    setCurrentStep(1);
+  };
+
+  const handleEditDraft = (draftId: string) => {
+    const draft = playerDrafts.find((entry) => entry.id === draftId);
+    if (!draft) return;
+    setPlayerDrafts((prev) => prev.filter((entry) => entry.id !== draftId));
+    form.reset(draft.values);
+    setCurrentStep(1);
+  };
+
+  const handleRemoveDraft = (draftId: string) => {
+    setPlayerDrafts((prev) => prev.filter((entry) => entry.id !== draftId));
+  };
+
+  const allDraftValues: RegistrationFormValues[] = playerDrafts.map((entry) => entry.values);
+
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-50 via-white to-white">
       <div className="border-b border-slate-200/60 bg-gradient-to-r from-white via-indigo-50/60 to-white">
@@ -773,6 +869,66 @@ export default function TournamentRegistrationFormPage({ tournamentId }: Tournam
       <div className="mx-auto max-w-6xl space-y-12 px-4 py-12 sm:px-6 lg:px-8">
         <FormProvider {...form}>
           <form onSubmit={(event) => event.preventDefault()} className="space-y-10">
+            {multiPlayerAllowed && !requiresPayment && allDraftValues.length > 0 && (
+              <Card className="border-0 bg-white/90 shadow-xl ring-1 ring-indigo-100/70 backdrop-blur">
+                <CardHeader className="border-b border-indigo-100/70 bg-gradient-to-r from-indigo-50/80 to-white">
+                  <CardTitle>Players in this registration</CardTitle>
+                  <CardDescription>
+                    Review players you&apos;ve added so far. You can edit or remove them before finalizing.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4 bg-white/60 p-6">
+                  <div className="space-y-3 text-sm text-slate-700">
+                    {playerDrafts.map((entry) => {
+                      const values = entry.values;
+                      const name = `${values.firstName} ${values.lastName}`.trim() || "Unnamed player";
+                      const entryFee =
+                        entryFees.find((fee) => fee.id === values.entryFeeId) ?? null;
+                      const contribution = parseContribution(values.processingContribution);
+                      const totals = computePaymentTotals(entryFee, contribution, paymentSettings);
+
+                      return (
+                        <div
+                          key={entry.id}
+                          className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white/80 px-3 py-2"
+                        >
+                          <div className="space-y-1">
+                            <p className="font-medium text-slate-900">{name}</p>
+                            <p className="text-xs text-slate-500">
+                              Section: {values.sectionChoice || "Not selected"}
+                              {entryFee && ` · ${entryFee.section}`}
+                            </p>
+                          </div>
+                          <div className="flex items-center gap-3">
+                            <span className="text-sm font-semibold text-indigo-700">
+                              {entryFee
+                                ? formatCurrency(entryFee.amount + contribution, entryFee.currency)
+                                : `Approx. ${formatCurrency(totals.total, totals.currency)}`}
+                            </span>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() => handleEditDraft(entry.id)}
+                            >
+                              Edit
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() => handleRemoveDraft(entry.id)}
+                            >
+                              Remove
+                            </Button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
             {currentStep === 1 && <StepOne players={players} sections={sections} entryFees={entryFees} />}
 
             {currentStep === 2 && (
@@ -785,8 +941,96 @@ export default function TournamentRegistrationFormPage({ tournamentId }: Tournam
             )}
 
             {currentStep === 3 && (
-              canProcessOnline && clientSecret && stripePromise ? (
-                <Elements key={clientSecret} stripe={stripePromise} options={{ clientSecret }}>
+              <>
+                {multiPlayerAllowed && !requiresPayment && allDraftValues.length > 0 && (
+                  <Card className="border-0 bg-white/90 shadow-xl ring-1 ring-indigo-100/70 backdrop-blur">
+                    <CardHeader className="border-b border-indigo-100/70 bg-gradient-to-r from-indigo-50/80 to-white">
+                      <CardTitle>Group payment summary</CardTitle>
+                      <CardDescription>
+                        Overview of all players you&apos;re registering in this session.
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-4 bg-white/60 p-6 text-sm text-slate-700">
+                      <div className="space-y-2">
+                        {allDraftValues.map((values, index) => {
+                          const name = `${values.firstName} ${values.lastName}`.trim() || `Player ${index + 1}`;
+                          const entryFee = entryFees.find((fee) => fee.id === values.entryFeeId) ?? null;
+                          const contribution = parseContribution(values.processingContribution);
+                          const totals = computePaymentTotals(entryFee, contribution, paymentSettings);
+                          return (
+                            <div
+                              key={`${name}-${index}`}
+                              className="flex items-center justify-between rounded-lg border border-slate-200 bg-white/80 px-3 py-2"
+                            >
+                              <div className="space-y-1">
+                                <p className="font-medium text-slate-900">{name}</p>
+                                <p className="text-xs text-slate-500">
+                                  Section: {values.sectionChoice || "Not selected"}
+                                </p>
+                              </div>
+                              <span className="text-sm font-semibold text-indigo-700">
+                                {formatCurrency(totals.total, totals.currency)}
+                              </span>
+                            </div>
+                          );
+                        })}
+                        {/* Include the active form player as part of the summary */}
+                        <div className="flex items-center justify-between rounded-lg border border-slate-200 bg-white/80 px-3 py-2">
+                          <div className="space-y-1">
+                            <p className="font-medium text-slate-900">
+                              {`${form.getValues("firstName") ?? ""} ${form.getValues("lastName") ?? ""}`.trim() ||
+                                "Current player"}
+                            </p>
+                            <p className="text-xs text-slate-500">
+                              Section: {form.getValues("sectionChoice") || "Not selected"}
+                            </p>
+                          </div>
+                          <span className="text-sm font-semibold text-indigo-700">
+                            {formatCurrency(paymentTotals.total, paymentTotals.currency)}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="flex items-center justify-between border-t border-slate-200 pt-3 text-sm font-semibold text-indigo-700">
+                        <span>Combined total (all players)</span>
+                        <span>
+                          {formatCurrency(
+                            allDraftValues.reduce((sum, values) => {
+                              const entryFee =
+                                entryFees.find((fee) => fee.id === values.entryFeeId) ?? null;
+                              const contribution = parseContribution(values.processingContribution);
+                              const totals = computePaymentTotals(entryFee, contribution, paymentSettings);
+                              return sum + totals.total;
+                            }, paymentTotals.total),
+                            paymentTotals.currency,
+                          )}
+                        </span>
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
+
+                {canProcessOnline && clientSecret && stripePromise ? (
+                  <Elements key={clientSecret} stripe={stripePromise} options={{ clientSecret }}>
+                    <StepThree
+                      paymentDetails={config?.registers?.paymentDetails}
+                      paymentSettings={paymentSettings ?? null}
+                      paymentTotals={paymentTotals}
+                      selectedEntryFee={selectedEntryFee}
+                      sections={sections}
+                      requiresPayment={requiresPayment}
+                      onlineConfigured={Boolean(canProcessOnline)}
+                      clientSecret={clientSecret}
+                      registerPaymentHandler={setPaymentSubmitHandler}
+                      setPaymentBusy={setIsPaymentBusy}
+                      onPaymentElementReady={setIsPaymentElementReady}
+                      paymentIntentLoading={createPaymentIntent.isPending}
+                      paymentIntentError={paymentIntentErrorMessage}
+                      canAcceptOnlinePayment={true}
+                      tournamentId={tournamentId}
+                      retryPaymentIntent={ensurePaymentIntent}
+                    />
+                  </Elements>
+                ) : (
                   <StepThree
                     paymentDetails={config?.registers?.paymentDetails}
                     paymentSettings={paymentSettings ?? null}
@@ -801,31 +1045,12 @@ export default function TournamentRegistrationFormPage({ tournamentId }: Tournam
                     onPaymentElementReady={setIsPaymentElementReady}
                     paymentIntentLoading={createPaymentIntent.isPending}
                     paymentIntentError={paymentIntentErrorMessage}
-                    canAcceptOnlinePayment={true}
+                    canAcceptOnlinePayment={false}
                     tournamentId={tournamentId}
                     retryPaymentIntent={ensurePaymentIntent}
                   />
-                </Elements>
-              ) : (
-                <StepThree
-                  paymentDetails={config?.registers?.paymentDetails}
-                  paymentSettings={paymentSettings ?? null}
-                  paymentTotals={paymentTotals}
-                  selectedEntryFee={selectedEntryFee}
-                  sections={sections}
-                  requiresPayment={requiresPayment}
-                  onlineConfigured={Boolean(canProcessOnline)}
-                  clientSecret={clientSecret}
-                  registerPaymentHandler={setPaymentSubmitHandler}
-                  setPaymentBusy={setIsPaymentBusy}
-                  onPaymentElementReady={setIsPaymentElementReady}
-                  paymentIntentLoading={createPaymentIntent.isPending}
-                  paymentIntentError={paymentIntentErrorMessage}
-                  canAcceptOnlinePayment={false}
-                  tournamentId={tournamentId}
-                  retryPaymentIntent={ensurePaymentIntent}
-                />
-              )
+                )}
+              </>
             )}
 
             <div className="flex flex-col gap-3 border-t border-slate-200 pt-6 sm:flex-row sm:items-center sm:justify-between">
@@ -837,9 +1062,16 @@ export default function TournamentRegistrationFormPage({ tournamentId }: Tournam
                   Previous
                 </Button>
                 {currentStep < 3 ? (
-                  <Button type="button" onClick={handleNextStep}>
-                    Continue
-                  </Button>
+                  <>
+                    {currentStep === 2 && multiPlayerAllowed && !requiresPayment && (
+                      <Button type="button" variant="outline" onClick={handleAddAnotherPlayer}>
+                        Add Another Player
+                      </Button>
+                    )}
+                    <Button type="button" onClick={handleNextStep}>
+                      Continue
+                    </Button>
+                  </>
                 ) : (
                   <Button
                     type="button"

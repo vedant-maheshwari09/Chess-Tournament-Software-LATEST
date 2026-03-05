@@ -2516,7 +2516,8 @@ ${(config as any).organizerInfo}` : ""}
 
       // Check if user already registered for this tournament
       const existingRegistration = await storage.getPlayerRegistrationsByTournament(tournamentId);
-      if (existingRegistration.some((registration) => registration.userId === user.id)) {
+      const multiPlayerAllowed = Boolean(config.registers.allowMultiPlayerSignup);
+      if (!multiPlayerAllowed && existingRegistration.some((registration) => registration.userId === user.id)) {
         return res.status(400).json({ error: "You are already registered for this tournament" });
       }
       
