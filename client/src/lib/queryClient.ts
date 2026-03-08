@@ -28,6 +28,12 @@ export async function apiRequest(
     credentials: "include",
   });
 
+  if (res.status === 401) {
+    localStorage.removeItem("auth_token");
+    window.location.href = '/login';
+    throw new Error("Session expired. Please log in again.");
+  }
+
   await throwIfResNotOk(res);
   
   if (res.headers.get("content-type")?.includes("application/json")) {
