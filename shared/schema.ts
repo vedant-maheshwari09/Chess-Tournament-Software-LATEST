@@ -311,3 +311,4 @@ export type PlayerRegistration = typeof playerRegistrations.$inferSelect;
 export type InsertPlayerRegistration = z.infer<typeof insertPlayerRegistrationSchema>;
 export type TournamentStar = typeof tournamentStars.$inferSelect;
 export type InsertTournamentStar = z.infer<typeof insertTournamentStarSchema>;
+

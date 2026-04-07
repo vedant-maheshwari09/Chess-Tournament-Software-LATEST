@@ -463,3 +463,5 @@ function hasSufficientInput(query: string) {
 export async function preloadRatingData() {
   await Promise.all([ensureUSCFData(), ensureFideData()]);
 }
+
+

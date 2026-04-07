@@ -235,7 +235,7 @@ export interface IStorage {
   createPasswordReset(userId: number, code: string, expiresAt: Date): Promise<PasswordReset>;
   getPasswordResetByCode(code: string, userId: number): Promise<PasswordReset | undefined>;
   usePasswordReset(code: string, userId: number): Promise<boolean>;
-  
+
   createVerificationCode(verificationCode: InsertVerificationCode): Promise<VerificationCode>;
   getVerificationCodeByCode(code: string, userId: number, type?: string): Promise<VerificationCode | undefined>;
   useVerificationCode(code: string, userId: number, type?: string): Promise<boolean>;

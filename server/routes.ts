@@ -4,9 +4,9 @@ import { storage } from "./storage";
 import { setupVite, serveStatic, log } from "./vite";
 import { z } from "zod";
 import Stripe from "stripe";
-import { 
-  insertTournamentSchema, 
-  insertPlayerSchema, 
+import {
+  insertTournamentSchema,
+  insertPlayerSchema,
   insertMatchSchema,
   loginSchema,
   registerSchema,
@@ -21,12 +21,12 @@ import {
   type Match,
   type PlayerRegistration,
 } from "@shared/schema";
-import { 
-  hashPassword, 
-  verifyPassword, 
-  createSession, 
-  requireAuth, 
-  requireRole, 
+import {
+  hashPassword,
+  verifyPassword,
+  createSession,
+  requireAuth,
+  requireRole,
   requireTournamentAccess,
   generateSessionToken
 } from "./auth";
@@ -402,7 +402,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         process.env.SUPABASE_KEY
       );
       const hasAnonKey = !!process.env.SUPABASE_ANON_KEY;
-      
+
       const envStatus = {
         hasSupabaseUrl: !!supabaseUrl,
         hasServiceKey: hasServiceKey,
@@ -410,7 +410,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         usingAnonKey: !hasServiceKey && hasAnonKey,
         supabaseUrlPreview: supabaseUrl ? `${supabaseUrl.substring(0, 30)}...` : 'not set',
       };
-      
+
       if (!supabaseUrl) {
         return res.status(503).json({
           status: "misconfigured",
@@ -435,12 +435,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // Warn but try to connect anyway
         console.warn("⚠️  Using SUPABASE_ANON_KEY instead of SUPABASE_SERVICE_ROLE_KEY. This may cause permission errors for server-side operations.");
       }
-      
+
       // Try a simple query to test the connection
       const testUser = await storage.getUserByUsername("__test_connection__");
       // If we get here, the connection works (even if user doesn't exist)
-      res.json({ 
-        status: "connected", 
+      res.json({
+        status: "connected",
         message: "Database connection is working",
         env: envStatus,
         warning: hasAnonKey && !hasServiceKey ? "Using ANON_KEY - may have limited permissions" : undefined,
@@ -449,13 +449,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       const errorObj = error as any;
-      
+
       // Extract more detailed error information
       const originalError = errorObj?.originalError || errorObj;
       const errorCode = originalError?.code || errorObj?.code;
       const errorDetails = originalError?.details || errorObj?.details;
       const errorHint = originalError?.hint || errorObj?.hint;
-      
+
       // Check if it's the Supabase client initialization error
       if (errorMessage.includes("Supabase environment variables are not set")) {
         return res.status(503).json({
@@ -468,20 +468,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Check for common connection errors
-      const isNetworkError = errorMessage.toLowerCase().includes('fetch failed') || 
-                            errorMessage.toLowerCase().includes('econnrefused') ||
-                            errorMessage.toLowerCase().includes('enotfound') ||
-                            errorCode === 'ECONNREFUSED' ||
-                            errorCode === 'ENOTFOUND';
-      
+      const isNetworkError = errorMessage.toLowerCase().includes('fetch failed') ||
+        errorMessage.toLowerCase().includes('econnrefused') ||
+        errorMessage.toLowerCase().includes('enotfound') ||
+        errorCode === 'ECONNREFUSED' ||
+        errorCode === 'ENOTFOUND';
+
       const isAuthError = errorMessage.toLowerCase().includes('jwt') ||
-                         errorMessage.toLowerCase().includes('invalid api key') ||
-                         errorCode === 'PGRST301' ||
-                         errorCode === '42501';
-      
+        errorMessage.toLowerCase().includes('invalid api key') ||
+        errorCode === 'PGRST301' ||
+        errorCode === '42501';
+
       let diagnosticMessage = "Database connection failed";
       let instructions = "Please check your Supabase credentials and ensure the project is active.";
-      
+
       if (isNetworkError) {
         diagnosticMessage = "Cannot reach Supabase servers";
         instructions = "Check your internet connection and ensure your Supabase project is not paused. If it was paused, wait a few minutes after reactivating it.";
@@ -489,9 +489,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         diagnosticMessage = "Supabase authentication failed";
         instructions = "Your API key may be invalid or expired. Please check SUPABASE_SERVICE_ROLE_KEY in your .env file. Note: You need SERVICE_ROLE_KEY, not ANON_KEY for server-side operations.";
       }
-      
-      res.status(503).json({ 
-        status: "disconnected", 
+
+      res.status(503).json({
+        status: "disconnected",
         message: diagnosticMessage,
         error: errorMessage,
         code: errorCode,
@@ -508,23 +508,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const userData = registerSchema.parse(req.body);
       const sanitizedPhone = userData.phoneNumber ? userData.phoneNumber.replace(/[^0-9]/g, "") : null;
-      
+
       // Check if username already exists
       const existingUsername = await storage.getUserByUsername(userData.username);
       if (existingUsername) {
-        return res.status(400).json({ 
-          message: "This username is already taken. Please choose a different username." 
+        return res.status(400).json({
+          message: "This username is already taken. Please choose a different username."
         });
       }
-      
+
       // Check if email already exists
       const existingEmail = await storage.getUserByEmail(userData.email);
       if (existingEmail) {
-        return res.status(400).json({ 
-          message: "An account with this email already exists. Please use a different email or try logging in." 
+        return res.status(400).json({
+          message: "An account with this email already exists. Please use a different email or try logging in."
         });
       }
-      
+
       // Hash password and create user (email not verified initially)
       const passwordHash = await hashPassword(userData.password);
       const normalizedCarrier = userData.carrier && userData.carrier.trim().length > 0 ? userData.carrier.trim() : null;
@@ -541,7 +541,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         notifySms: userData.notifySms ?? false,
         emailVerified: false,
       });
-      
+
       // Send verification code (don't create session yet)
       try {
         await sendEmailVerificationCode(newUser.id, userData.email, userData.firstName);
@@ -549,30 +549,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
         console.error('Failed to send verification email:', emailError);
         // User is created, but email failed - they can request a resend
       }
-      
+
       // Return user info without token (email not verified)
       const { passwordHash: _, ...userWithoutPassword } = newUser;
-      res.status(201).json({ 
+      res.status(201).json({
         user: userWithoutPassword,
         message: "Account created! Please check your email for a verification code.",
         requiresVerification: true
       });
     } catch (error) {
       console.error('Registration error:', error);
-      
+
       // Handle database constraint violations
       if (error instanceof Error && error.message.includes('unique constraint')) {
         if (error.message.includes('username')) {
-          return res.status(400).json({ 
-            message: "This username is already taken. Please choose a different username." 
+          return res.status(400).json({
+            message: "This username is already taken. Please choose a different username."
           });
         } else if (error.message.includes('email')) {
-          return res.status(400).json({ 
-            message: "An account with this email already exists. Please use a different email or try logging in." 
+          return res.status(400).json({
+            message: "An account with this email already exists. Please use a different email or try logging in."
           });
         }
       }
-      
+
       res.status(400).json({ message: "Invalid registration data" });
     }
   });
@@ -581,14 +581,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/auth/check-username/:username", async (req, res) => {
     try {
       const { username } = req.params;
-      
+
       if (!username || username.length < 3) {
         return res.json({ available: false, message: "Username must be at least 3 characters" });
       }
-      
+
       try {
         const existingUser = await storage.getUserByUsername(username);
-        
+
         if (existingUser) {
           res.json({ available: false, message: "Username is already taken" });
         } else {
@@ -599,14 +599,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const errorMessage = dbError instanceof Error ? dbError.message : String(dbError);
         const errorString = errorMessage.toLowerCase();
         const errorObj = dbError as any;
-        
+
         // Check error code and details for connection issues
         const errorCode = errorObj?.code || errorObj?.originalError?.code || '';
         const errorDetails = errorObj?.details || errorObj?.originalError?.details || '';
-        
+
         // More specific connection error detection
-        const isConnectionError = 
-          errorString.includes('fetch failed') || 
+        const isConnectionError =
+          errorString.includes('fetch failed') ||
           errorString.includes('failed to fetch from') ||
           errorString.includes('econnrefused') ||
           errorString.includes('enotfound') ||
@@ -625,7 +625,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           errorString.includes('jwt') && errorString.includes('expired') ||
           errorString.includes('invalid api key') ||
           errorString.includes('service_role key');
-        
+
         if (isConnectionError) {
           // Log for debugging with full error details
           console.warn('Database connection error during username check:', {
@@ -635,13 +635,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
             fullError: dbError
           });
           // Database is unavailable - return 503 with helpful message
-          return res.status(503).json({ 
-            available: null, 
+          return res.status(503).json({
+            available: null,
             message: "Database service unavailable. Please try again later.",
             code: "DATABASE_UNAVAILABLE"
           });
         }
-        
+
         // Log other errors for debugging
         console.error('Username check database error (non-connection):', {
           message: errorMessage,
@@ -662,16 +662,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/auth/check-email/:email", async (req, res) => {
     try {
       const { email } = req.params;
-      
+
       // Basic email validation
       const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
       if (!emailRegex.test(email)) {
         return res.json({ available: false, message: "Please enter a valid email address" });
       }
-      
+
       try {
         const existingUser = await storage.getUserByEmail(email);
-        
+
         if (existingUser) {
           res.json({ available: false, message: "Email is already registered" });
         } else {
@@ -682,14 +682,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const errorMessage = dbError instanceof Error ? dbError.message : String(dbError);
         const errorString = errorMessage.toLowerCase();
         const errorObj = dbError as any;
-        
+
         // Check error code and details for connection issues
         const errorCode = errorObj?.code || errorObj?.originalError?.code || '';
         const errorDetails = errorObj?.details || errorObj?.originalError?.details || '';
-        
+
         // More specific connection error detection
-        const isConnectionError = 
-          errorString.includes('fetch failed') || 
+        const isConnectionError =
+          errorString.includes('fetch failed') ||
           errorString.includes('failed to fetch from') ||
           errorString.includes('econnrefused') ||
           errorString.includes('enotfound') ||
@@ -708,7 +708,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           errorString.includes('jwt') && errorString.includes('expired') ||
           errorString.includes('invalid api key') ||
           errorString.includes('service_role key');
-        
+
         if (isConnectionError) {
           // Log for debugging with full error details
           console.warn('Database connection error during email check:', {
@@ -718,13 +718,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
             fullError: dbError
           });
           // Database is unavailable - return 503 with helpful message
-          return res.status(503).json({ 
-            available: null, 
+          return res.status(503).json({
+            available: null,
             message: "Database service unavailable. Please try again later.",
             code: "DATABASE_UNAVAILABLE"
           });
         }
-        
+
         // Log other errors for debugging
         console.error('Email check database error (non-connection):', {
           message: errorMessage,
@@ -744,29 +744,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/auth/login", async (req, res) => {
     try {
       const { username, password } = loginSchema.parse(req.body);
-      
+
       // Find user by username
       const user = await storage.getUserByUsername(username);
-      
+
       if (!user) {
         return res.status(401).json({ message: "Invalid username or password" });
       }
-      
+
       // Verify password
       const isValidPassword = await verifyPassword(password, user.passwordHash);
-      
+
       if (!isValidPassword) {
         return res.status(401).json({ message: "Invalid username or password" });
       }
-      
+
       // Create session
       const session = await createSession(user.id);
-      
+
       // Return user info and token (excluding password hash)
       const { passwordHash: _, ...userWithoutPassword } = user;
-      res.json({ 
-        user: userWithoutPassword, 
-        token: session.token 
+      res.json({
+        user: userWithoutPassword,
+        token: session.token
       });
     } catch (error) {
       console.error('Login error:', error);
@@ -965,7 +965,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!user) {
         return res.status(404).json({ message: "User not found" });
       }
-      
+
       // Return only public information
       const { passwordHash: _, ...publicUser } = user;
       res.json(publicUser);
@@ -979,11 +979,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/auth/verify-email", async (req, res) => {
     try {
       const { code, email } = verifyEmailSchema.parse(req.body);
-      
+
       // Try to get user from auth token if available, otherwise use email
       let user;
       const authHeader = req.headers.authorization;
-      
+
       if (authHeader && authHeader.startsWith('Bearer ')) {
         const token = authHeader.substring(7);
         const session = await storage.getSessionByToken(token);
@@ -991,43 +991,43 @@ export async function registerRoutes(app: Express): Promise<Server> {
           user = await storage.getUserById(session.userId);
         }
       }
-      
+
       // If no user from token, try email
       if (!user && email) {
         user = await storage.getUserByEmail(email);
       }
-      
+
       if (!user) {
         return res.status(400).json({ message: "User not found. Please log in first or provide your email address." });
       }
-      
+
       if (user.emailVerified) {
         return res.json({ message: "Email is already verified" });
       }
-      
+
       // Verify code
       const verificationCode = await storage.getVerificationCodeByCode(code, user.id, 'email_verification');
-      
+
       if (!verificationCode || verificationCode.used || new Date() > verificationCode.expiresAt) {
         return res.status(400).json({ message: "Invalid or expired verification code" });
       }
-      
+
       // Mark code as used and verify email
       await storage.useVerificationCode(code, user.id, 'email_verification');
       await storage.updateUser(user.id, { emailVerified: true });
-      
+
       // Create session if user doesn't have one
       let token = authHeader?.substring(7);
       if (!token || !authHeader?.startsWith('Bearer ')) {
         const session = await createSession(user.id);
         token = session.token;
       }
-      
+
       // Return updated user info
       const updatedUser = await storage.getUserById(user.id);
       const { passwordHash: _, ...userWithoutPassword } = updatedUser!;
-      
-      res.json({ 
+
+      res.json({
         message: "Email verified successfully",
         user: userWithoutPassword,
         token: token
@@ -1046,7 +1046,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Get user from auth token or email
       const authHeader = req.headers.authorization;
       let user;
-      
+
       if (authHeader && authHeader.startsWith('Bearer ')) {
         const token = authHeader.substring(7);
         const session = await storage.getSessionByToken(token);
@@ -1054,7 +1054,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           user = await storage.getUserById(session.userId);
         }
       }
-      
+
       // If no user from token, try email
       if (!user) {
         const { email } = resendVerificationSchema.parse(req.body);
@@ -1062,16 +1062,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
           user = await storage.getUserByEmail(email);
         }
       }
-      
+
       if (!user) {
         // Don't reveal if email exists for security
         return res.json({ message: "If the email exists, a verification code will be sent." });
       }
-      
+
       if (user.emailVerified) {
         return res.json({ message: "Email is already verified" });
       }
-      
+
       // Send verification code
       try {
         await sendEmailVerificationCode(user.id, user.email, user.firstName);
@@ -1090,15 +1090,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/auth/forgot-password", async (req, res) => {
     try {
       const { email } = forgotPasswordSchema.parse(req.body);
-      
+
       // Find user by email
       const user = await storage.getUserByEmail(email);
-      
+
       if (!user) {
         // Don't reveal if email exists for security
         return res.json({ message: "If the email exists, a reset code will be sent." });
       }
-      
+
       // Send password reset code
       try {
         await sendPasswordResetCode(user.id, user.email, user.firstName);
@@ -1116,20 +1116,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/auth/forgot-username", async (req, res) => {
     try {
       const { email } = forgotUsernameSchema.parse(req.body);
-      
+
       // Find user by email
       const user = await storage.getUserByEmail(email);
-      
+
       if (!user) {
         // Don't reveal if email exists for security
         return res.json({ message: "If the email exists, the username will be sent." });
       }
-      
+
       // In a real app, you'd send an email here
       // For now, we'll return the username (in production, never do this!)
       console.log(`Username for ${email}: ${user.username}`);
-      
-      res.json({ 
+
+      res.json({
         message: "If the email exists, the username will be sent.",
         // Remove this in production - only for demo
         username: user.username
@@ -1143,27 +1143,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/auth/reset-password", async (req, res) => {
     try {
       const { email, code, newPassword } = resetPasswordSchema.parse(req.body);
-      
+
       // Find user by email
       const user = await storage.getUserByEmail(email);
       if (!user) {
         return res.status(400).json({ message: "Invalid reset code" });
       }
-      
+
       // Find password reset record
       const passwordReset = await storage.getPasswordResetByCode(code, user.id);
-      
+
       if (!passwordReset || passwordReset.used || new Date() > passwordReset.expiresAt) {
         return res.status(400).json({ message: "Invalid or expired reset code" });
       }
-      
+
       // Hash new password and update user
       const passwordHash = await hashPassword(newPassword);
       await storage.updateUser(user.id, { passwordHash });
-      
+
       // Mark reset code as used
       await storage.usePasswordReset(code, user.id);
-      
+
       res.json({ message: "Password reset successfully. Please log in with your new password." });
     } catch (error) {
       console.error('Reset password error:', error);
@@ -1338,7 +1338,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       ),
     );
 
-const prompt = `You are assisting a chess tournament director by drafting the public tournament page copy.
+    const prompt = `You are assisting a chess tournament director by drafting the public tournament page copy.
 Use a professional but welcoming tone and produce concise Markdown with short headings and paragraphs.
 Include an Overview, Schedule, and Highlights section referencing the data below.
 
@@ -1484,12 +1484,12 @@ ${(config as any).organizerInfo}` : ""}
   });
 
   // Tournament routes (role-specific access)
-  
+
   // Get all live tournaments (for players to view)
   app.get("/api/tournaments", async (req, res) => {
     try {
       const tournaments = await storage.getAllTournaments();
-            const visibleTournaments = tournaments.filter((tournament) => {
+      const visibleTournaments = tournaments.filter((tournament) => {
         if (!["active", "upcoming", "completed"].includes(tournament.status)) {
           return false;
         }
@@ -1674,17 +1674,17 @@ ${(config as any).organizerInfo}` : ""}
       }
       console.log('Creating tournament - user:', user.id);
       console.log('Tournament data received:', req.body);
-      
+
       const tournamentData = insertTournamentSchema.parse(req.body);
       console.log('Parsed tournament data:', tournamentData);
-      
+
       // Add the creator's user ID
       const tournamentWithCreator = {
         ...tournamentData,
         createdBy: user.id,
       };
       console.log('Tournament with creator:', tournamentWithCreator);
-      
+
       const newTournament = await storage.createTournament(tournamentWithCreator);
       console.log('Created tournament:', newTournament);
       res.status(201).json(newTournament);
@@ -1694,7 +1694,7 @@ ${(config as any).organizerInfo}` : ""}
         console.error('Error message:', error.message);
         console.error('Error stack:', error.stack);
       }
-      res.status(400).json({ 
+      res.status(400).json({
         message: "Failed to create tournament. Please try again.",
         error: error instanceof Error ? error.message : 'Unknown error'
       });
@@ -1963,39 +1963,39 @@ ${(config as any).organizerInfo}` : ""}
     try {
       const tournamentId = parseInt(req.params.id);
       const tournament = await storage.getTournament(tournamentId);
-      
+
       if (!tournament) {
         return res.status(404).json({ message: "Tournament not found" });
       }
-      
+
       if (tournament.status !== 'active') {
         return res.status(400).json({ message: "Tournament is not active" });
       }
-      
+
       const nextRound = (tournament.currentRound || 0) + 1;
-      
+
       if (tournament.rounds && nextRound > tournament.rounds) {
         return res.status(400).json({ message: "Tournament is complete" });
       }
-      
+
       const players = await storage.getPlayersByTournament(tournamentId);
       const matches = await storage.getMatchesByTournament(tournamentId);
-      
+
       // Check if current round is complete
       const currentRoundMatches = matches.filter(m => m.round === tournament.currentRound);
       const incompleteMatches = currentRoundMatches.filter(m => !m.result);
-      
+
       if (incompleteMatches.length > 0) {
-        return res.status(400).json({ 
-          message: `Please complete all matches in round ${tournament.currentRound} before generating next round` 
+        return res.status(400).json({
+          message: `Please complete all matches in round ${tournament.currentRound} before generating next round`
         });
       }
-      
+
       // Update tournament to next round
       const updatedTournament = await storage.updateTournament(tournamentId, {
         currentRound: nextRound
       });
-      
+
       // For Round Robin, pairings are already pre-generated, just advance round
       if (tournament.format === 'roundrobin') {
         console.log(`Round Robin tournament - advanced to round ${nextRound}. Pairings already exist.`);
@@ -2068,7 +2068,7 @@ ${(config as any).organizerInfo}` : ""}
           await generatePairings(tournament, activePlayers, sectionMatches, sectionPairings, nextRound, boardNumbersForSection);
         }
       }
-      
+
       res.json(updatedTournament);
     } catch (error) {
       console.error('Next round error:', error);
@@ -2093,8 +2093,8 @@ ${(config as any).organizerInfo}` : ""}
 
       res.json(tournament);
     } catch (error) {
-          console.error("Failed to update tournament:", error);
-    res.status(500).json({ message: "Failed to update tournament" });
+      console.error("Failed to update tournament:", error);
+      res.status(500).json({ message: "Failed to update tournament" });
     }
   });
 
@@ -2174,20 +2174,20 @@ ${(config as any).organizerInfo}` : ""}
   app.post("/api/tournaments/:id/finish", requireAuth, requireRole('tournament_director'), requireTournamentAccess, async (req, res) => {
     try {
       const id = parseInt(req.params.id);
-      
+
       // Update tournament status to completed
-      const completedTournament = await storage.updateTournament(id, { 
+      const completedTournament = await storage.updateTournament(id, {
         status: 'completed',
         updatedAt: new Date()
       });
-      
+
       if (!completedTournament) {
         return res.status(404).json({ message: "Tournament not found" });
       }
-      
-      res.json({ 
-        message: "Tournament finished successfully", 
-        tournament: completedTournament 
+
+      res.json({
+        message: "Tournament finished successfully",
+        tournament: completedTournament
       });
     } catch (error) {
       console.error('Finish tournament error:', error);
@@ -2362,17 +2362,17 @@ ${(config as any).organizerInfo}` : ""}
       }
 
       const payload = createPaymentIntentSchema.parse(req.body ?? {});
-      
+
       let baseAmount = 0;
       let targetCurrency = payments.defaultCurrency ?? "USD";
       let summaryNames: string[] = [];
       let entryFeeIds: string[] = [];
-      
+
       if (payload.items && payload.items.length > 0) {
         for (const item of payload.items) {
           const entryFee = item.entryFeeId ? config.entryFees.find((fee) => fee.id === item.entryFeeId) ?? null : null;
           if (!entryFee && payments.requirePaymentOnRegistration) {
-             return res.status(400).json({ message: "Select an entry fee before paying for all items" });
+            return res.status(400).json({ message: "Select an entry fee before paying for all items" });
           }
           const itemContribution = Number.isFinite(item.contribution) ? Number(item.contribution) : 0;
           baseAmount += (entryFee?.amount ?? 0) + itemContribution;
@@ -2393,7 +2393,7 @@ ${(config as any).organizerInfo}` : ""}
         if (payload.entryFeeId) entryFeeIds.push(payload.entryFeeId);
         if (payload.playerName) summaryNames.push(payload.playerName);
       }
-      
+
       const percent = Number(payments.processingFeePercent ?? 0);
       const feeAmount = percent > 0 ? Number((baseAmount * (percent / 100)).toFixed(2)) : 0;
       const total = Number((baseAmount + feeAmount).toFixed(2));
@@ -2533,7 +2533,7 @@ ${(config as any).organizerInfo}` : ""}
 
     res.json({ received: true });
   });
-  
+
   // Create player registration (for players to register for tournaments)
   app.post("/api/tournaments/:id/register", requireAuth, async (req, res) => {
     try {
@@ -2571,7 +2571,7 @@ ${(config as any).organizerInfo}` : ""}
         // In single-player mode, we update the existing one
         existingToUpdate = userRegistrations[0];
       }
-      
+
       const payments = config.payments;
       const payload = playerRegistrationSchema.parse(req.body ?? {});
       const offlineAllowed = (payments.acceptedOfflineMethods ?? []).length > 0;
@@ -2697,7 +2697,7 @@ ${(config as any).organizerInfo}` : ""}
         return res.status(400).json({ error: "Invalid tournament id" });
       }
       const user = req.user!;
-      
+
       const tournament = await storage.getTournament(tournamentId);
       if (!tournament) {
         return res.status(404).json({ error: "Tournament not found" });
@@ -2716,7 +2716,7 @@ ${(config as any).organizerInfo}` : ""}
 
       // Validate updates
       const payload = playerRegistrationSchema.partial().parse(req.body ?? {});
-      
+
       // Update only specific fields for player-initiated edit
       const updateData: any = {
         updatedAt: new Date()
@@ -2724,7 +2724,7 @@ ${(config as any).organizerInfo}` : ""}
       const editableFields = [
         'playerName', 'uscfRating', 'phoneNumber', 'email', 'arrivalTime', 'paymentNotes'
       ];
-      
+
       for (const field of editableFields) {
         if ((payload as any)[field] !== undefined) {
           updateData[field] = (payload as any)[field];
@@ -2790,7 +2790,7 @@ ${(config as any).organizerInfo}` : ""}
       }
 
       const updatedRegistration = await storage.updatePlayerRegistration(registrationId, { status });
-      
+
       // If approved, add player to tournament
       if (status === "approved" && updatedRegistration) {
         const user = await storage.getUserById(updatedRegistration.userId);
@@ -2849,7 +2849,7 @@ ${(config as any).organizerInfo}` : ""}
       const { byeConfiguration, ...playerFields } = req.body;
       const playerData = { ...playerFields, tournamentId };
       const player = insertPlayerSchema.parse(playerData);
-      
+
       // If this player is being set as houseplayer, deactivate any existing houseplayer
       if (player.isActiveTd) {
         const existingPlayers = await storage.getPlayersByTournament(tournamentId);
@@ -2859,15 +2859,15 @@ ${(config as any).organizerInfo}` : ""}
           }
         }
       }
-      
+
       const newPlayer = await storage.createPlayer(player);
-      
+
       // Create bye pairings if specified
       if (byeConfiguration && Array.isArray(byeConfiguration) && byeConfiguration.length > 0) {
         for (const byeEntry of byeConfiguration) {
           // Store points as integer: 0 = 0 points, 1 = 0.5 points, 2 = 1 point
           const pointsPerBye = byeEntry.type === "half_point" ? 1 : 0;
-          
+
           await storage.createPairing({
             tournamentId,
             round: byeEntry.round,
@@ -2880,7 +2880,7 @@ ${(config as any).organizerInfo}` : ""}
           });
         }
       }
-      
+
       res.status(201).json(newPlayer);
     } catch (error) {
       console.error('Player creation error:', error);
@@ -2972,19 +2972,19 @@ ${(config as any).organizerInfo}` : ""}
       if (!user) {
         return res.status(401).json({ message: "User not found" });
       }
-      
+
       // Get player to check tournament ownership
       const player = await storage.getPlayer(id);
       if (!player) {
         return res.status(404).json({ message: "Player not found" });
       }
-      
+
       // Verify tournament ownership
       const tournament = await storage.getTournament(player.tournamentId);
       if (!tournament || tournament.createdBy !== user.id) {
         return res.status(403).json({ message: "Access denied to this tournament" });
       }
-      
+
       const deleted = await storage.deletePlayer(id);
       res.status(200).json({ message: "Player deleted successfully" });
     } catch (error) {
@@ -2996,7 +2996,7 @@ ${(config as any).organizerInfo}` : ""}
   app.delete("/api/pairings/:id", requireAuth, requireRole('tournament_director'), async (req, res) => {
     try {
       const pairingId = parseInt(req.params.id);
-      
+
       // Find the pairing across all user's tournaments to verify ownership
       const user = req.user;
       if (!user) {
@@ -3004,22 +3004,22 @@ ${(config as any).organizerInfo}` : ""}
       }
       const tournaments = await storage.getTournamentsByUser(user.id);
       let targetPairing = null;
-      
+
       for (const tournament of tournaments) {
         const tournamentPairings = await storage.getPairingsByTournament(tournament.id);
         targetPairing = tournamentPairings.find(p => p.id === pairingId);
         if (targetPairing) break;
       }
-      
+
       if (!targetPairing) {
         return res.status(404).json({ message: "Pairing not found or access denied" });
       }
-      
+
       const deleted = await storage.deletePairing(pairingId);
       if (!deleted) {
         return res.status(404).json({ message: "Failed to delete pairing" });
       }
-      
+
       res.json({ message: "Bye request removed successfully" });
     } catch (error) {
       console.error('Pairing deletion error:', error);
@@ -3038,31 +3038,31 @@ ${(config as any).organizerInfo}` : ""}
       if (!user) {
         return res.status(401).json({ message: "User not found" });
       }
-      
+
       // Get player to find tournament ID for access control
       const player = await storage.getPlayer(playerId);
       if (!player) {
         return res.status(404).json({ message: "Player not found" });
       }
-      
+
       // Validate tournament access
       const tournament = await storage.getTournament(player.tournamentId);
       if (!tournament || tournament.createdBy !== user.id) {
         return res.status(403).json({ message: "Access denied" });
       }
-      
+
       // Get current round to determine future rounds
       const currentMatches = await storage.getMatchesByTournament(player.tournamentId);
       const currentRound = currentMatches.length > 0 ? Math.max(...currentMatches.map(m => m.round)) : 0;
-      
+
       // Get current player status from existing byes (only system-assigned withdrawal byes)
       const allPairings = await storage.getPairingsByTournament(player.tournamentId);
       const currentPlayerByes = allPairings.filter(p => p.playerId === playerId && p.isBye);
-      const currentWithdrawnByes = currentPlayerByes.filter(p => 
+      const currentWithdrawnByes = currentPlayerByes.filter(p =>
         p.byeType === "zero_point" && !p.isRequested
       );
       const currentPlayerStatus = currentWithdrawnByes.length > 0 ? "withdrawn" : "active";
-      
+
       // Handle status changes (withdrawal/reactivation)
       if (status !== currentPlayerStatus) {
         if (status === "withdrawn") {
@@ -3073,7 +3073,7 @@ ${(config as any).organizerInfo}` : ""}
               // Check if bye already exists for this round
               const existingByes = await storage.getPairingsByRound(player.tournamentId, round);
               const existingBye = existingByes.find(p => p.playerId === playerId && p.isBye);
-              
+
               if (!existingBye) {
                 await storage.createPairing({
                   tournamentId: player.tournamentId,
@@ -3091,31 +3091,31 @@ ${(config as any).organizerInfo}` : ""}
           }
         } else if (status === "active") {
           // Reactivate player - remove only system-assigned future zero-point byes
-          const futureWithdrawnByes = allPairings.filter(p => 
-            p.playerId === playerId && 
-            p.isBye && 
-            p.byeType === "zero_point" && 
+          const futureWithdrawnByes = allPairings.filter(p =>
+            p.playerId === playerId &&
+            p.isBye &&
+            p.byeType === "zero_point" &&
             p.round > currentRound &&
             !p.isRequested // Only remove system-assigned withdrawal byes
           );
-          
+
           for (const bye of futureWithdrawnByes) {
             await storage.deletePairing(bye.id);
           }
         }
       }
-      
+
       // Handle individual bye requests (independent of status)
       if (byeRounds && Array.isArray(byeRounds) && byeRounds.length > 0) {
         for (const byeEntry of byeRounds) {
           // Store points as integer: 0 = 0 points, 1 = 0.5 points, 2 = 1 point
-          const pointsPerBye = byeEntry.type === "half_point" ? 1 : 
-                              byeEntry.type === "zero_point" ? 0 : 2;
-          
+          const pointsPerBye = byeEntry.type === "half_point" ? 1 :
+            byeEntry.type === "zero_point" ? 0 : 2;
+
           // Check if bye already exists for this round
           const existingByes = await storage.getPairingsByRound(player.tournamentId, byeEntry.round);
           const existingBye = existingByes.find(p => p.playerId === playerId && p.isBye);
-          
+
           if (!existingBye) {
             await storage.createPairing({
               tournamentId: player.tournamentId,
@@ -3131,23 +3131,23 @@ ${(config as any).organizerInfo}` : ""}
           }
         }
       }
-      
+
       // Return current status after operations (only based on system-assigned withdrawal byes)
       const finalPairings = await storage.getPairingsByTournament(player.tournamentId);
       const finalPlayerByes = finalPairings.filter(p => p.playerId === playerId && p.isBye);
-      const finalWithdrawnByes = finalPlayerByes.filter(p => 
+      const finalWithdrawnByes = finalPlayerByes.filter(p =>
         p.byeType === "zero_point" && !p.isRequested
       );
       const finalStatus = finalWithdrawnByes.length > 0 ? "withdrawn" : "active";
-      
+
       console.log(`Player ${playerId} final status calculation:`, {
         totalByes: finalPlayerByes.length,
         withdrawnByes: finalWithdrawnByes.length,
         finalStatus,
         byeDetails: finalPlayerByes.map(b => ({ round: b.round, type: b.byeType, requested: b.isRequested }))
       });
-      
-      res.json({ 
+
+      res.json({
         message: `Player ${finalStatus === "withdrawn" ? "withdrawn" : "status updated"} successfully`,
         status: finalStatus,
         byeRounds,
@@ -3164,11 +3164,11 @@ ${(config as any).organizerInfo}` : ""}
     try {
       const tournamentId = parseInt(req.params.tournamentId);
       const round = req.query.round ? parseInt(req.query.round as string) : undefined;
-      
-      const matches = round 
+
+      const matches = round
         ? await storage.getMatchesByRound(tournamentId, round)
         : await storage.getMatchesByTournament(tournamentId);
-      
+
       res.json(matches);
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch matches" });
@@ -3206,14 +3206,14 @@ ${(config as any).organizerInfo}` : ""}
       }
 
       if (currentMatch.result !== updatedMatch.result) {
-        const whitePlayerName = currentMatch.whitePlayerId 
-          ? await storage.getPlayer(currentMatch.whitePlayerId) 
+        const whitePlayerName = currentMatch.whitePlayerId
+          ? await storage.getPlayer(currentMatch.whitePlayerId)
           : null;
-        const blackPlayerName = currentMatch.blackPlayerId 
-          ? await storage.getPlayer(currentMatch.blackPlayerId) 
+        const blackPlayerName = currentMatch.blackPlayerId
+          ? await storage.getPlayer(currentMatch.blackPlayerId)
           : null;
-        
-        const description = blackPlayerName 
+
+        const description = blackPlayerName
           ? `Result changed for Round ${currentMatch.round}, Board ${currentMatch.board}: ${whitePlayerName?.firstName} ${whitePlayerName?.lastName} vs ${blackPlayerName.firstName} ${blackPlayerName.lastName} from "${currentMatch.result || 'Pending'}" to "${updatedMatch.result}"`
           : `Bye result changed for Round ${currentMatch.round}: ${whitePlayerName?.firstName} ${whitePlayerName?.lastName} from "${currentMatch.result || 'Pending'}" to "${updatedMatch.result}"`;
 
@@ -3229,7 +3229,7 @@ ${(config as any).organizerInfo}` : ""}
           canRevert: true
         });
       }
-      
+
       res.json(updatedMatch);
     } catch (error) {
       console.error('Update match error:', error);
@@ -3244,11 +3244,11 @@ ${(config as any).organizerInfo}` : ""}
     try {
       const tournamentId = parseInt(req.params.tournamentId);
       const round = req.query.round ? parseInt(req.query.round as string) : undefined;
-      
-      const pairings = round 
+
+      const pairings = round
         ? await storage.getPairingsByRound(tournamentId, round)
         : await storage.getPairingsByTournament(tournamentId);
-      
+
       res.json(pairings);
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch pairings" });
@@ -3263,7 +3263,7 @@ ${(config as any).organizerInfo}` : ""}
       }
       const tournamentId = parseInt(req.params.tournamentId);
       const { regenerate = false, targetRound } = req.body;
-      
+
       const tournament = await storage.getTournament(tournamentId);
       if (!tournament) {
         return res.status(404).json({ message: "Tournament not found" });
@@ -3315,14 +3315,14 @@ ${(config as any).organizerInfo}` : ""}
           const { generateRoundRobinSchedule, validateRoundRobinSchedule } = await import('./round-robin');
           const roundRobinPairings = generateRoundRobinSchedule(sectionPlayers);
           const numRounds = sectionPlayers.length % 2 === 0 ? sectionPlayers.length - 1 : sectionPlayers.length;
-          
+
           console.log(`Generating schedule for section ${sectionKey}: ${sectionPlayers.length} players, ${numRounds} rounds, ${roundRobinPairings.length} total pairings`);
-          
+
           const playerIds = sectionPlayers.map(p => p.id);
           if (!validateRoundRobinSchedule(roundRobinPairings, playerIds)) {
             throw new Error(`Invalid Round Robin schedule generated for section ${sectionKey}`);
           }
-          
+
           for (const pairing of roundRobinPairings) {
             if (pairing.isBye) {
               const savedPairing = await storage.createPairing({
@@ -3340,7 +3340,7 @@ ${(config as any).organizerInfo}` : ""}
                 opponentId: pairing.whitePlayerId!, color: 'black', points: 0, isBye: false
               });
               combinedResults.pairings.push(whitePairing, blackPairing);
-              
+
               const match = await storage.createMatch({
                 tournamentId, round: pairing.round, whitePlayerId: pairing.whitePlayerId!,
                 blackPlayerId: pairing.blackPlayerId!, board: pairing.board, result: null, status: 'pending'
@@ -3349,150 +3349,150 @@ ${(config as any).organizerInfo}` : ""}
             }
           }
         }
-        
+
         if (regenerate) {
-           // If regenerating, clear existing data first
-           console.log('Regenerating Round Robin tournament - clearing existing data');
-           for (const pairing of allPairings) {
-             await storage.deletePairing(pairing.id);
-           }
-           for (const match of allMatches) {
-             await storage.deleteMatch(match.id);
-           }
-           await storage.createHistoryEntry({
-             tournamentId, action: 'regenerate_all_rounds', description: `Round Robin tournament regenerated`,
-             changedBy: user.id, previousState: JSON.stringify({ pairingsCount: allPairings.length, matchesCount: allMatches.length }),
-             newState: JSON.stringify({ regenerated: true }), round: null, canRevert: false
-           });
-        }
-        
-        await storage.updateTournament(tournamentId, { currentRound: 1 });
-        
-        combinedResults.message = `Round Robin tournament started/regenerated! Generated pairings for ${Object.keys(playersBySection).length} sections.`;
-                return res.json(combinedResults);
-              }
-        
-              // --- SWISS PAIRING LOGIC ---
-              
-              const allPlayers = await storage.getPlayersByTournament(tournamentId);
-              const allMatches = await storage.getMatchesByTournament(tournamentId);
-              const allPairings = await storage.getPairingsByTournament(tournamentId);
-              
-              const playerMap = new Map(allPlayers.map(p => [p.id, p]));
-              
-              const playersBySection = allPlayers.reduce((acc, player) => {
-                const sectionKey = player.sectionId || 'default';
-                if (!acc[sectionKey]) acc[sectionKey] = [];
-                acc[sectionKey].push(player);
-                return acc;
-              }, {} as Record<string, Player[]>);
-        
-              const matchesBySection = allMatches.reduce((acc, match) => {
-                const player = playerMap.get(match.whitePlayerId!) ?? playerMap.get(match.blackPlayerId!);
-                if (player) {
-                  const sectionKey = player.sectionId || 'default';
-                  if (!acc[sectionKey]) acc[sectionKey] = [];
-                  acc[sectionKey].push(match);
-                }
-                return acc;
-              }, {} as Record<string, any[]>);
-        
-              const pairingsBySection = allPairings.reduce((acc, pairing) => {
-                const player = playerMap.get(pairing.playerId);
-                if (player) {
-                  const sectionKey = player.sectionId || 'default';
-                  if (!acc[sectionKey]) acc[sectionKey] = [];
-                  acc[sectionKey].push(pairing);
-                }
-                return acc;
-              }, {} as Record<string, any[]>);
-        
-              const finalResults = {
-                pairings: [] as any[],
-                matches: [] as any[],
-                message: "Pairings generated successfully for all sections.",
-              };
-
-              let currentRound: number;
-              if (regenerate && targetRound) {
-                currentRound = targetRound;
-              } else {
-                currentRound = (tournament.currentRound || 0) + 1;
-              }
-        
-              // Pre-calculate total matches for board numbering
-              let totalMatches = 0;
-              for (const sectionKey in playersBySection) {
-                  const sectionPlayers = playersBySection[sectionKey];
-                  const sectionPairings = pairingsBySection[sectionKey] || [];
-                  const isWithdrawn = (playerId: number) => sectionPairings.some(p => p.playerId === playerId && p.isBye && p.byeType === 'zero_point' && p.round < currentRound);
-                  const activePlayers = sectionPlayers.filter(p => !isWithdrawn(p.id));
-                  if (activePlayers.length < 2) continue;
-                  totalMatches += Math.floor(activePlayers.length / 2);
-                  if (activePlayers.length % 2 === 1) {
-                      totalMatches++;
-                  }
-              }
-
-              const allBoardNumbers = generateBoardNumberSequence(tournament.boardNumberingSettings as BoardNumberingSettings, totalMatches);
-              let boardNumberOffset = 0;
-
-              for (const sectionKey in playersBySection) {
-                const sectionPlayers = playersBySection[sectionKey];
-                const sectionMatches = matchesBySection[sectionKey] || [];
-                const sectionPairings = pairingsBySection[sectionKey] || [];
-        
-                if (sectionPlayers.length < 2) continue;
-        
-                if (regenerate && targetRound) {
-                  const futureMatches = sectionMatches.filter(m => m.round >= currentRound);
-                  const futurePairings = sectionPairings.filter(p => p.round >= currentRound);
-                  
-                  for (const match of futureMatches) { await storage.deleteMatch(match.id); }
-                  for (const pairing of futurePairings) { await storage.deletePairing(pairing.id); }
-                }
-        
-                const isWithdrawn = (playerId: number) => sectionPairings.some(p => p.playerId === playerId && p.isBye && p.byeType === 'zero_point' && p.round < currentRound);
-                
-                const activePlayers = sectionPlayers.filter(p => !isWithdrawn(p.id));
-                const matchesForPairing = sectionMatches.filter(m => m.round < currentRound);
-
-                const numSectionMatches = Math.floor(activePlayers.length / 2) + (activePlayers.length % 2);
-                const boardNumbersForSection = allBoardNumbers.slice(boardNumberOffset, boardNumberOffset + numSectionMatches);
-                boardNumberOffset += numSectionMatches;
-        
-                const swissPairings = await generateSwissPairings(tournament, activePlayers, matchesForPairing, currentRound, sectionPairings, boardNumbersForSection);
-        
-                for (const pairing of swissPairings) {
-                  if (pairing.isBye) {
-                    const byePoints = pairing.byeType === 'half_point' ? 1 : 2;
-                    const savedPairing = await storage.createPairing({ tournamentId, round: currentRound, playerId: pairing.whitePlayerId, opponentId: null, color: null, points: byePoints, isBye: true });
-                    finalResults.pairings.push(savedPairing);
-                  } else if (pairing.blackPlayerId === null) {
-                    // Handle "See T.D." matches
-                    const savedMatch = await storage.createMatch({ tournamentId, round: currentRound, board: pairing.board, whitePlayerId: pairing.whitePlayerId, blackPlayerId: null, result: null, status: 'pending' });
-                    finalResults.matches.push(savedMatch);
-                    const whitePairing = await storage.createPairing({ tournamentId, round: currentRound, playerId: pairing.whitePlayerId, opponentId: null, color: 'white', points: 0, isBye: false });
-                    finalResults.pairings.push(whitePairing);
-                  } else {
-                    const whitePairing = await storage.createPairing({ tournamentId, round: currentRound, playerId: pairing.whitePlayerId, opponentId: pairing.blackPlayerId, color: 'white', points: 0, isBye: false });
-                    const blackPairing = await storage.createPairing({ tournamentId, round: currentRound, playerId: pairing.blackPlayerId, opponentId: pairing.whitePlayerId, color: 'black', points: 0, isBye: false });
-                    finalResults.pairings.push(whitePairing, blackPairing);
-        
-                    const match = await storage.createMatch({ tournamentId, round: currentRound, whitePlayerId: pairing.whitePlayerId, blackPlayerId: pairing.blackPlayerId, board: pairing.board, result: null, status: 'pending' });
-                    finalResults.matches.push(match);
-                  }
-                }
-              }
-              
-              await storage.updateTournament(tournamentId, { currentRound: currentRound });
-              res.json(finalResults);
-        
-            } catch (error) {
-              console.error('Pairing generation error:', error);
-              res.status(500).json({ error: "Failed to generate pairings" });
-            }
+          // If regenerating, clear existing data first
+          console.log('Regenerating Round Robin tournament - clearing existing data');
+          for (const pairing of allPairings) {
+            await storage.deletePairing(pairing.id);
+          }
+          for (const match of allMatches) {
+            await storage.deleteMatch(match.id);
+          }
+          await storage.createHistoryEntry({
+            tournamentId, action: 'regenerate_all_rounds', description: `Round Robin tournament regenerated`,
+            changedBy: user.id, previousState: JSON.stringify({ pairingsCount: allPairings.length, matchesCount: allMatches.length }),
+            newState: JSON.stringify({ regenerated: true }), round: null, canRevert: false
           });
+        }
+
+        await storage.updateTournament(tournamentId, { currentRound: 1 });
+
+        combinedResults.message = `Round Robin tournament started/regenerated! Generated pairings for ${Object.keys(playersBySection).length} sections.`;
+        return res.json(combinedResults);
+      }
+
+      // --- SWISS PAIRING LOGIC ---
+
+      const allPlayers = await storage.getPlayersByTournament(tournamentId);
+      const allMatches = await storage.getMatchesByTournament(tournamentId);
+      const allPairings = await storage.getPairingsByTournament(tournamentId);
+
+      const playerMap = new Map(allPlayers.map(p => [p.id, p]));
+
+      const playersBySection = allPlayers.reduce((acc, player) => {
+        const sectionKey = player.sectionId || 'default';
+        if (!acc[sectionKey]) acc[sectionKey] = [];
+        acc[sectionKey].push(player);
+        return acc;
+      }, {} as Record<string, Player[]>);
+
+      const matchesBySection = allMatches.reduce((acc, match) => {
+        const player = playerMap.get(match.whitePlayerId!) ?? playerMap.get(match.blackPlayerId!);
+        if (player) {
+          const sectionKey = player.sectionId || 'default';
+          if (!acc[sectionKey]) acc[sectionKey] = [];
+          acc[sectionKey].push(match);
+        }
+        return acc;
+      }, {} as Record<string, any[]>);
+
+      const pairingsBySection = allPairings.reduce((acc, pairing) => {
+        const player = playerMap.get(pairing.playerId);
+        if (player) {
+          const sectionKey = player.sectionId || 'default';
+          if (!acc[sectionKey]) acc[sectionKey] = [];
+          acc[sectionKey].push(pairing);
+        }
+        return acc;
+      }, {} as Record<string, any[]>);
+
+      const finalResults = {
+        pairings: [] as any[],
+        matches: [] as any[],
+        message: "Pairings generated successfully for all sections.",
+      };
+
+      let currentRound: number;
+      if (regenerate && targetRound) {
+        currentRound = targetRound;
+      } else {
+        currentRound = (tournament.currentRound || 0) + 1;
+      }
+
+      // Pre-calculate total matches for board numbering
+      let totalMatches = 0;
+      for (const sectionKey in playersBySection) {
+        const sectionPlayers = playersBySection[sectionKey];
+        const sectionPairings = pairingsBySection[sectionKey] || [];
+        const isWithdrawn = (playerId: number) => sectionPairings.some(p => p.playerId === playerId && p.isBye && p.byeType === 'zero_point' && p.round < currentRound);
+        const activePlayers = sectionPlayers.filter(p => !isWithdrawn(p.id));
+        if (activePlayers.length < 2) continue;
+        totalMatches += Math.floor(activePlayers.length / 2);
+        if (activePlayers.length % 2 === 1) {
+          totalMatches++;
+        }
+      }
+
+      const allBoardNumbers = generateBoardNumberSequence(tournament.boardNumberingSettings as BoardNumberingSettings, totalMatches);
+      let boardNumberOffset = 0;
+
+      for (const sectionKey in playersBySection) {
+        const sectionPlayers = playersBySection[sectionKey];
+        const sectionMatches = matchesBySection[sectionKey] || [];
+        const sectionPairings = pairingsBySection[sectionKey] || [];
+
+        if (sectionPlayers.length < 2) continue;
+
+        if (regenerate && targetRound) {
+          const futureMatches = sectionMatches.filter(m => m.round >= currentRound);
+          const futurePairings = sectionPairings.filter(p => p.round >= currentRound);
+
+          for (const match of futureMatches) { await storage.deleteMatch(match.id); }
+          for (const pairing of futurePairings) { await storage.deletePairing(pairing.id); }
+        }
+
+        const isWithdrawn = (playerId: number) => sectionPairings.some(p => p.playerId === playerId && p.isBye && p.byeType === 'zero_point' && p.round < currentRound);
+
+        const activePlayers = sectionPlayers.filter(p => !isWithdrawn(p.id));
+        const matchesForPairing = sectionMatches.filter(m => m.round < currentRound);
+
+        const numSectionMatches = Math.floor(activePlayers.length / 2) + (activePlayers.length % 2);
+        const boardNumbersForSection = allBoardNumbers.slice(boardNumberOffset, boardNumberOffset + numSectionMatches);
+        boardNumberOffset += numSectionMatches;
+
+        const swissPairings = await generateSwissPairings(tournament, activePlayers, matchesForPairing, currentRound, sectionPairings, boardNumbersForSection);
+
+        for (const pairing of swissPairings) {
+          if (pairing.isBye) {
+            const byePoints = pairing.byeType === 'half_point' ? 1 : 2;
+            const savedPairing = await storage.createPairing({ tournamentId, round: currentRound, playerId: pairing.whitePlayerId, opponentId: null, color: null, points: byePoints, isBye: true });
+            finalResults.pairings.push(savedPairing);
+          } else if (pairing.blackPlayerId === null) {
+            // Handle "See T.D." matches
+            const savedMatch = await storage.createMatch({ tournamentId, round: currentRound, board: pairing.board, whitePlayerId: pairing.whitePlayerId, blackPlayerId: null, result: null, status: 'pending' });
+            finalResults.matches.push(savedMatch);
+            const whitePairing = await storage.createPairing({ tournamentId, round: currentRound, playerId: pairing.whitePlayerId, opponentId: null, color: 'white', points: 0, isBye: false });
+            finalResults.pairings.push(whitePairing);
+          } else {
+            const whitePairing = await storage.createPairing({ tournamentId, round: currentRound, playerId: pairing.whitePlayerId, opponentId: pairing.blackPlayerId, color: 'white', points: 0, isBye: false });
+            const blackPairing = await storage.createPairing({ tournamentId, round: currentRound, playerId: pairing.blackPlayerId, opponentId: pairing.whitePlayerId, color: 'black', points: 0, isBye: false });
+            finalResults.pairings.push(whitePairing, blackPairing);
+
+            const match = await storage.createMatch({ tournamentId, round: currentRound, whitePlayerId: pairing.whitePlayerId, blackPlayerId: pairing.blackPlayerId, board: pairing.board, result: null, status: 'pending' });
+            finalResults.matches.push(match);
+          }
+        }
+      }
+
+      await storage.updateTournament(tournamentId, { currentRound: currentRound });
+      res.json(finalResults);
+
+    } catch (error) {
+      console.error('Pairing generation error:', error);
+      res.status(500).json({ error: "Failed to generate pairings" });
+    }
+  });
 
   // Regenerate future rounds endpoint
   app.post("/api/tournaments/:tournamentId/regenerate-future-rounds", async (req, res) => {
@@ -3501,16 +3501,16 @@ ${(config as any).organizerInfo}` : ""}
     try {
       const tournamentId = parseInt(req.params.tournamentId);
       const { fromRound } = req.body;
-      
+
       if (!fromRound) {
         console.log(`=== ERROR: fromRound missing ===`);
         return res.status(400).json({ message: "fromRound parameter required" });
       }
-      
+
       console.log(`=== REGENERATION START ===`);
       console.log(`Regenerating future rounds from Round ${fromRound} for tournament ${tournamentId}`);
       console.log(`Request body:`, JSON.stringify(req.body));
-      
+
       const tournament = await storage.getTournament(tournamentId);
       if (!tournament) {
         return res.status(404).json({ message: "Tournament not found" });
@@ -3524,7 +3524,7 @@ ${(config as any).organizerInfo}` : ""}
       const existingMatches = await storage.getMatchesByTournament(tournamentId);
       const existingPairings = await storage.getPairingsByTournament(tournamentId);
       console.log(`Found ${existingMatches.length} total matches in tournament:`, existingMatches.map(m => `Round ${m.round} Match ${m.id}`));
-      
+
       // Find all rounds to be regenerated (fromRound and higher)
       const roundsToRegenerate = existingMatches
         .map(m => m.round)
@@ -3534,126 +3534,126 @@ ${(config as any).organizerInfo}` : ""}
 
       console.log(`Rounds to regenerate: ${roundsToRegenerate.join(', ')}`);
       console.log(`All existing rounds: ${existingMatches.map(m => m.round).filter((round, index, arr) => arr.indexOf(round) === index).sort((a, b) => a - b).join(', ')}`);
-      
+
       if (roundsToRegenerate.length === 0) {
         // No existing future rounds - check if we should generate the next round
-        const maxExistingRound = existingMatches.length > 0 ? 
+        const maxExistingRound = existingMatches.length > 0 ?
           Math.max(...existingMatches.map(m => m.round)) : 0;
-        
+
         console.log(`No rounds to regenerate. maxExistingRound: ${maxExistingRound}, fromRound: ${fromRound}`);
-        
+
         if (fromRound <= maxExistingRound + 1) {
           // Generate the requested round (could be next round or replacing existing rounds)
-                  
-                  console.log(`Generating Round ${fromRound}. MaxExisting: ${maxExistingRound}, Requested: ${fromRound}`);
-                    
-                    const baseMatches = existingMatches; // Use all existing matches for pairing
-                    const swissPairings = await generateSwissPairings(tournament, players, baseMatches, fromRound, existingPairings);
-                    
-                    let allNewPairings = [];
-                    let allNewMatches = [];
-                    
-                    // Save matches and pairings for the new round
-                    for (const pairing of swissPairings) {
-                      // Create match
-                      const match = await storage.createMatch({
-                        tournamentId,
-                        round: fromRound,
-                        board: pairing.board,
-                        whitePlayerId: pairing.whitePlayerId,
-                        blackPlayerId: pairing.blackPlayerId || null,
-                        result: null,
-                        status: 'pending'
-                      });
-                      allNewMatches.push(match);
-          
-                      // Create pairings for both players
-                      if (pairing.whitePlayerId) {
-                        const whitePairing = await storage.createPairing({
-                          tournamentId,
-                          round: fromRound,
-                          playerId: pairing.whitePlayerId,
-                          opponentId: pairing.blackPlayerId || null,
-                          color: 'white',
-                          points: pairing.isBye ? (pairing.byeType === 'full_point' ? 2 : 1) : 0,
-                          isBye: pairing.isBye || false,
-                          byeType: pairing.byeType || null,
-                          isRequested: pairing.isRequested || false,
-                        });
-                        allNewPairings.push(whitePairing);
-                      }
-          
-                      if (pairing.blackPlayerId) {
-                        const blackPairing = await storage.createPairing({
-                          tournamentId,
-                          round: fromRound,
-                          playerId: pairing.blackPlayerId,
-                          opponentId: pairing.whitePlayerId,
-                          color: 'black',
-                          points: 0,
-                          isBye: false,
-                          byeType: null,
-                          isRequested: false,
-                        });
-                        allNewPairings.push(blackPairing);
-                      }
-                    }
-                    
-                    console.log(`Generated Round ${fromRound} with ${allNewMatches.length} matches and ${allNewPairings.length} pairings`);
-                    
-                    return res.json({ 
-                      message: `Generated Round ${fromRound} successfully`,
-                      roundsAffected: 1,
-                      roundsRegenerated: [fromRound],
-                      matchesCreated: allNewMatches.length,
-                      pairingsCreated: allNewPairings.length
-                    });
-                  }
-                  
-                  console.log(`=== REGENERATION FAILED - No rounds generated ===`);
-                  console.log(`MaxExisting: ${maxExistingRound}, FromRound: ${fromRound}, Condition: ${fromRound} <= ${maxExistingRound + 1} = ${fromRound <= maxExistingRound + 1}`);
-                  return res.status(200).json({ 
-                    message: "No future rounds found to regenerate",
-                    roundsAffected: 0,
-                    roundsRegenerated: [],
-                    matchesCreated: 0,
-                    pairingsCreated: 0
-                  });
-                }
-          
-                // Clear all future rounds
-                for (const round of roundsToRegenerate) {
-                  console.log(`Clearing round ${round}...`);
-                  await storage.deletePairingsByRound(tournamentId, round);
-                  await storage.deleteMatchesByRound(tournamentId, round);
-                }
-          
-                // Get matches up to the last completed round (before fromRound)
-                const baseMatches = existingMatches.filter(m => m.round < fromRound);
-                
-                // Regenerate each round sequentially
-                let allNewPairings = [];
-                let allNewMatches = [];
-                
-                for (const round of roundsToRegenerate) {
-                  console.log(`Regenerating round ${round}...`);
-                  
-                  // Use all previous matches (base + already regenerated) for pairing calculation
-                  const matchesForPairing = [...baseMatches, ...allNewMatches];
-                  const swissPairings = await generateSwissPairings(tournament, players, matchesForPairing, round, existingPairings);
-                  
-                  // Save matches and pairings for this round
-                  for (const pairing of swissPairings) {
-                    // Create match
-                    const match = await storage.createMatch({
-                      tournamentId,
-                      round,
-                      board: pairing.board,
-                      whitePlayerId: pairing.whitePlayerId,
-                      blackPlayerId: pairing.blackPlayerId || null,
-                      result: null,
-                      status: 'pending'
-                    });
+
+          console.log(`Generating Round ${fromRound}. MaxExisting: ${maxExistingRound}, Requested: ${fromRound}`);
+
+          const baseMatches = existingMatches; // Use all existing matches for pairing
+          const swissPairings = await generateSwissPairings(tournament, players, baseMatches, fromRound, existingPairings);
+
+          let allNewPairings = [];
+          let allNewMatches = [];
+
+          // Save matches and pairings for the new round
+          for (const pairing of swissPairings) {
+            // Create match
+            const match = await storage.createMatch({
+              tournamentId,
+              round: fromRound,
+              board: pairing.board,
+              whitePlayerId: pairing.whitePlayerId,
+              blackPlayerId: pairing.blackPlayerId || null,
+              result: null,
+              status: 'pending'
+            });
+            allNewMatches.push(match);
+
+            // Create pairings for both players
+            if (pairing.whitePlayerId) {
+              const whitePairing = await storage.createPairing({
+                tournamentId,
+                round: fromRound,
+                playerId: pairing.whitePlayerId,
+                opponentId: pairing.blackPlayerId || null,
+                color: 'white',
+                points: pairing.isBye ? (pairing.byeType === 'full_point' ? 2 : 1) : 0,
+                isBye: pairing.isBye || false,
+                byeType: pairing.byeType || null,
+                isRequested: pairing.isRequested || false,
+              });
+              allNewPairings.push(whitePairing);
+            }
+
+            if (pairing.blackPlayerId) {
+              const blackPairing = await storage.createPairing({
+                tournamentId,
+                round: fromRound,
+                playerId: pairing.blackPlayerId,
+                opponentId: pairing.whitePlayerId,
+                color: 'black',
+                points: 0,
+                isBye: false,
+                byeType: null,
+                isRequested: false,
+              });
+              allNewPairings.push(blackPairing);
+            }
+          }
+
+          console.log(`Generated Round ${fromRound} with ${allNewMatches.length} matches and ${allNewPairings.length} pairings`);
+
+          return res.json({
+            message: `Generated Round ${fromRound} successfully`,
+            roundsAffected: 1,
+            roundsRegenerated: [fromRound],
+            matchesCreated: allNewMatches.length,
+            pairingsCreated: allNewPairings.length
+          });
+        }
+
+        console.log(`=== REGENERATION FAILED - No rounds generated ===`);
+        console.log(`MaxExisting: ${maxExistingRound}, FromRound: ${fromRound}, Condition: ${fromRound} <= ${maxExistingRound + 1} = ${fromRound <= maxExistingRound + 1}`);
+        return res.status(200).json({
+          message: "No future rounds found to regenerate",
+          roundsAffected: 0,
+          roundsRegenerated: [],
+          matchesCreated: 0,
+          pairingsCreated: 0
+        });
+      }
+
+      // Clear all future rounds
+      for (const round of roundsToRegenerate) {
+        console.log(`Clearing round ${round}...`);
+        await storage.deletePairingsByRound(tournamentId, round);
+        await storage.deleteMatchesByRound(tournamentId, round);
+      }
+
+      // Get matches up to the last completed round (before fromRound)
+      const baseMatches = existingMatches.filter(m => m.round < fromRound);
+
+      // Regenerate each round sequentially
+      let allNewPairings = [];
+      let allNewMatches = [];
+
+      for (const round of roundsToRegenerate) {
+        console.log(`Regenerating round ${round}...`);
+
+        // Use all previous matches (base + already regenerated) for pairing calculation
+        const matchesForPairing = [...baseMatches, ...allNewMatches];
+        const swissPairings = await generateSwissPairings(tournament, players, matchesForPairing, round, existingPairings);
+
+        // Save matches and pairings for this round
+        for (const pairing of swissPairings) {
+          // Create match
+          const match = await storage.createMatch({
+            tournamentId,
+            round,
+            board: pairing.board,
+            whitePlayerId: pairing.whitePlayerId,
+            blackPlayerId: pairing.blackPlayerId || null,
+            result: null,
+            status: 'pending'
+          });
           allNewMatches.push(match);
 
           // Create pairings for both players
@@ -3687,10 +3687,10 @@ ${(config as any).organizerInfo}` : ""}
           }
         }
       }
-      
+
       console.log(`Regenerated ${roundsToRegenerate.length} rounds with ${allNewMatches.length} matches and ${allNewPairings.length} pairings`);
-      
-      res.json({ 
+
+      res.json({
         message: "Future rounds regenerated successfully",
         roundsAffected: roundsToRegenerate.length,
         roundsRegenerated: roundsToRegenerate,
@@ -3712,7 +3712,7 @@ ${(config as any).organizerInfo}` : ""}
         ...req.body,
         tournamentId,
       };
-      
+
       const byeRequest = await storage.createByeRequest(byeRequestData);
       res.status(201).json(byeRequest);
     } catch (error) {
@@ -3724,14 +3724,14 @@ ${(config as any).organizerInfo}` : ""}
     try {
       const tournamentId = parseInt(req.params.tournamentId);
       const { round } = req.query;
-      
+
       let byeRequests;
       if (round) {
         byeRequests = await storage.getByeRequestsByRound(tournamentId, parseInt(round as string));
       } else {
         byeRequests = await storage.getByeRequestsByTournament(tournamentId);
       }
-      
+
       res.json(byeRequests);
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch bye requests" });
@@ -3742,12 +3742,12 @@ ${(config as any).organizerInfo}` : ""}
     try {
       const id = parseInt(req.params.id);
       const updateData = req.body;
-      
+
       const updatedByeRequest = await storage.updateByeRequest(id, updateData);
       if (!updatedByeRequest) {
         return res.status(404).json({ message: "Bye request not found" });
       }
-      
+
       res.json(updatedByeRequest);
     } catch (error) {
       res.status(500).json({ message: "Failed to update bye request" });
@@ -3787,20 +3787,20 @@ ${(config as any).organizerInfo}` : ""}
 
       // Update corresponding pairings
       const pairings = await storage.getPairingsByTournament(tournamentId);
-      
+
       // Update pairing for player1's new position
       const pairing1 = pairings.find(p => p.playerId === player1Id && p.round === match1.round);
       if (pairing1) {
-        await storage.updatePairing(pairing1.id, { 
-          opponentId: color2 === 'white' ? match2.blackPlayerId : match2.whitePlayerId 
+        await storage.updatePairing(pairing1.id, {
+          opponentId: color2 === 'white' ? match2.blackPlayerId : match2.whitePlayerId
         });
       }
 
       // Update pairing for player2's new position  
       const pairing2 = pairings.find(p => p.playerId === player2Id && p.round === match2.round);
       if (pairing2) {
-        await storage.updatePairing(pairing2.id, { 
-          opponentId: color1 === 'white' ? match1.blackPlayerId : match1.whitePlayerId 
+        await storage.updatePairing(pairing2.id, {
+          opponentId: color1 === 'white' ? match1.blackPlayerId : match1.whitePlayerId
         });
       }
 
@@ -3836,11 +3836,11 @@ ${(config as any).organizerInfo}` : ""}
 
 async function generatePairings(tournament: any, players: any[], matches: any[], existingPairings: any[], round: number, boardNumbers?: number[]) {
   const pairings = [];
-  
+
   if (tournament.format === 'swiss') {
     // Use proper Swiss pairing algorithm
     const swissPairings = await generateSwissPairings(tournament, players, matches, round, existingPairings, boardNumbers);
-    
+
     // Convert to our pairing format
     for (const pairing of swissPairings) {
       if (pairing.isBye) {
@@ -3882,14 +3882,14 @@ async function generatePairings(tournament: any, players: any[], matches: any[],
     console.log('Round Robin tournament - pairings should be pre-generated');
     return [];
   }
-  
+
   return pairings;
 }
 
 // Helper functions for proper Swiss pairing
 function groupPlayersByScore(playerStats: any[]): any[][] {
   const groups: { [score: string]: any[] } = {};
-  
+
   for (const player of playerStats) {
     const score = player.points.toString();
     if (!groups[score]) {
@@ -3897,7 +3897,7 @@ function groupPlayersByScore(playerStats: any[]): any[][] {
     }
     groups[score].push(player);
   }
-  
+
   // Sort groups by score (highest first) and players within groups by seeding order
   return Object.keys(groups)
     .sort((a, b) => parseFloat(b) - parseFloat(a))
@@ -3905,14 +3905,14 @@ function groupPlayersByScore(playerStats: any[]): any[][] {
       // Sort by rating first, then alphabetically for consistent seeding
       const ratingDiff = (b.player.rating || 0) - (a.player.rating || 0);
       if (ratingDiff !== 0) return ratingDiff;
-      
+
       // If ratings are equal, sort alphabetically by first name, then last name
       const firstNameCmp = (a.player.firstName || '').localeCompare(b.player.firstName || '');
       if (firstNameCmp !== 0) return firstNameCmp;
-      
+
       const lastNameCmp = (a.player.lastName || '').localeCompare(b.player.lastName || '');
       if (lastNameCmp !== 0) return lastNameCmp;
-      
+
       // If names are also equal, sort by ID for consistent ordering
       return a.player.id - b.player.id;
     }));
@@ -3921,7 +3921,7 @@ function groupPlayersByScore(playerStats: any[]): any[][] {
 function pairUpperVsLowerHalf(scoreGroup: any[], matches: any[], round: number): { paired: any[][], unpaired: any[] } {
   const paired: any[][] = [];
   const unpaired: any[] = [];
-  
+
   if (scoreGroup.length < 2) {
     return { paired, unpaired: [...scoreGroup] };
   }
@@ -3929,22 +3929,22 @@ function pairUpperVsLowerHalf(scoreGroup: any[], matches: any[], round: number):
   // Sort by rating (highest first for proper upper/lower half)
   const sortedGroup = [...scoreGroup].sort((a, b) => (b.player.rating || 0) - (a.player.rating || 0));
   const midPoint = Math.floor(sortedGroup.length / 2);
-  
+
   const upperHalf = sortedGroup.slice(0, midPoint);
   const lowerHalf = sortedGroup.slice(midPoint);
-  
+
   // Pair upper half with lower half
   const maxPairs = Math.min(upperHalf.length, lowerHalf.length);
-  
+
   for (let i = 0; i < maxPairs; i++) {
     const upperPlayer = upperHalf[i];
     let pairedLowerPlayer = null;
     let pairedIndex = -1;
-    
+
     // Rule #1: Find a lower half player they haven't played before
     for (let j = i; j < lowerHalf.length; j++) {
       const lowerPlayer = lowerHalf[j];
-      if (!matches.some(match => 
+      if (!matches.some(match =>
         (match.whitePlayerId === upperPlayer.player.id && match.blackPlayerId === lowerPlayer.player.id) ||
         (match.whitePlayerId === lowerPlayer.player.id && match.blackPlayerId === upperPlayer.player.id)
       )) {
@@ -3953,7 +3953,7 @@ function pairUpperVsLowerHalf(scoreGroup: any[], matches: any[], round: number):
         break;
       }
     }
-    
+
     if (pairedLowerPlayer) {
       paired.push([upperPlayer, pairedLowerPlayer]);
       // Remove the paired lower player
@@ -3963,10 +3963,10 @@ function pairUpperVsLowerHalf(scoreGroup: any[], matches: any[], round: number):
       unpaired.push(upperPlayer);
     }
   }
-  
+
   // Add any remaining unpaired players
   unpaired.push(...upperHalf.slice(maxPairs), ...lowerHalf);
-  
+
   return { paired, unpaired };
 }
 
@@ -3976,40 +3976,40 @@ function determineSwissColors(player1: any, player2: any): { whitePlayer: any, b
   // Calculate player stats for color balancing
   const p1Stats = player1.player ? player1 : { colorBalance: 0, whiteGames: 0, blackGames: 0 };
   const p2Stats = player2.player ? player2 : { colorBalance: 0, whiteGames: 0, blackGames: 0 };
-  
+
   const p1Balance = p1Stats.colorBalance || 0;  // Positive = more whites, Negative = more blacks
   const p2Balance = p2Stats.colorBalance || 0;
-  
+
   console.log(`Color assignment: ${p1Stats.player?.firstName || 'Player1'} (balance: ${p1Balance}) vs ${p2Stats.player?.firstName || 'Player2'} (balance: ${p2Balance})`);
-  
+
   // USCF Rule: Player cannot have more than 2-color difference
   // If a player has +2 whites, they MUST get black next
   // If a player has -2 blacks, they MUST get white next
-  
+
   if (p1Balance >= 2) {
     // Player 1 has 2+ more whites, MUST get black
     console.log(`  ${p1Stats.player?.firstName || 'Player1'} must get black (has +${p1Balance} color balance)`);
     return { whitePlayer: p2Stats.player, blackPlayer: p1Stats.player };
   }
-  
+
   if (p1Balance <= -2) {
     // Player 1 has 2+ more blacks, MUST get white
     console.log(`  ${p1Stats.player?.firstName || 'Player1'} must get white (has ${p1Balance} color balance)`);
     return { whitePlayer: p1Stats.player, blackPlayer: p2Stats.player };
   }
-  
+
   if (p2Balance >= 2) {
     // Player 2 has 2+ more whites, MUST get black
     console.log(`  ${p2Stats.player?.firstName || 'Player2'} must get black (has +${p2Balance} color balance)`);
     return { whitePlayer: p1Stats.player, blackPlayer: p2Stats.player };
   }
-  
+
   if (p2Balance <= -2) {
     // Player 2 has 2+ more blacks, MUST get white
     console.log(`  ${p2Stats.player?.firstName || 'Player2'} must get white (has ${p2Balance} color balance)`);
     return { whitePlayer: p2Stats.player, blackPlayer: p1Stats.player };
   }
-  
+
   // Neither player has a forced color, use normal Swiss preference rules
   if (p1Balance < p2Balance) {
     // Player 1 needs white more
@@ -4023,7 +4023,7 @@ function determineSwissColors(player1: any, player2: any): { whitePlayer: any, b
     // Equal balance - higher rated player gets white (or random if equal ratings)
     const p1Rating = p1Stats.player?.rating || 0;
     const p2Rating = p2Stats.player?.rating || 0;
-    
+
     if (p1Rating > p2Rating) {
       console.log(`  ${p1Stats.player?.firstName || 'Player1'} gets white (higher rated: ${p1Rating} vs ${p2Rating})`);
       return { whitePlayer: p1Stats.player, blackPlayer: p2Stats.player };
@@ -4034,7 +4034,7 @@ function determineSwissColors(player1: any, player2: any): { whitePlayer: any, b
       // Equal ratings - random assignment
       const randomWhite = Math.random() < 0.5;
       console.log(`  Random assignment: ${randomWhite ? p1Stats.player?.firstName || 'Player1' : p2Stats.player?.firstName || 'Player2'} gets white`);
-      return randomWhite 
+      return randomWhite
         ? { whitePlayer: p1Stats.player, blackPlayer: p2Stats.player }
         : { whitePlayer: p2Stats.player, blackPlayer: p1Stats.player };
     }
@@ -4044,11 +4044,11 @@ function determineSwissColors(player1: any, player2: any): { whitePlayer: any, b
 async function generateSwissPairings(tournament: any, players: any[], matches: any[], round: number, existingPairings: any[] = [], boardNumbers?: number[]) {
   console.log(`=== CLEAN SWISS PAIRING: ROUND ${round} ===`);
   const pairings: any[] = [];
-  
+
   // Filter out withdrawn players and players with round-specific bye requests
   const withdrawnPlayerIds = new Set();
   const roundByePlayerIds = new Set();
-  
+
   for (const pairing of existingPairings) {
     if (pairing.isBye) {
       // Withdrawn players have zero-point byes for future rounds
@@ -4061,31 +4061,31 @@ async function generateSwissPairings(tournament: any, players: any[], matches: a
       }
     }
   }
-  
+
   // Filter to active players only
-  const activePlayers = players.filter(player => 
+  const activePlayers = players.filter(player =>
     !withdrawnPlayerIds.has(player.id) && !roundByePlayerIds.has(player.id)
   );
-  
+
   console.log(`Active players for round ${round}: ${activePlayers.length} (${withdrawnPlayerIds.size} withdrawn, ${roundByePlayerIds.size} with round byes)`);
-  
+
   if (round === 1) {
     // Round 1: Sort by rating, pair upper half vs lower half
     const sortedPlayers = [...activePlayers].sort((a, b) => (b.rating || 0) - (a.rating || 0));
     const isOdd = sortedPlayers.length % 2 === 1;
     const numPairs = Math.floor(sortedPlayers.length / 2);
     const resolvedBoardNumbers = boardNumbers ?? generateBoardNumberSequence(tournament.boardNumberingSettings, numPairs + (isOdd ? 1 : 0));
-    
+
     const upperHalf = sortedPlayers.slice(0, numPairs);
     const lowerHalf = sortedPlayers.slice(numPairs, isOdd ? -1 : sortedPlayers.length);
-    
+
     const firstBoardWhiteIsUpper = Math.random() < 0.5;
-    
+
     for (let i = 0; i < upperHalf.length && i < lowerHalf.length; i++) {
       const upperPlayer = upperHalf[i];
       const lowerPlayer = lowerHalf[i];
       const upperPlayerIsWhite = i === 0 ? firstBoardWhiteIsUpper : (i % 2 === 0) === firstBoardWhiteIsUpper;
-      
+
       pairings.push({
         whitePlayerId: upperPlayerIsWhite ? upperPlayer.id : lowerPlayer.id,
         blackPlayerId: upperPlayerIsWhite ? lowerPlayer.id : upperPlayer.id,
@@ -4093,7 +4093,7 @@ async function generateSwissPairings(tournament: any, players: any[], matches: a
         isBye: false,
       });
     }
-    
+
     if (isOdd) {
       const byePlayer = sortedPlayers[sortedPlayers.length - 1]; // Lowest-rated player paired with "See T.D."
       console.log(`Round 1 - Odd number of players, pairing with "See T.D.": ${byePlayer.firstName} (rating ${byePlayer.rating})`);
@@ -4108,14 +4108,14 @@ async function generateSwissPairings(tournament: any, players: any[], matches: a
   } else {
     // Calculate player stats with color balance for color assignment
     const playerStatsWithColors = activePlayers.map(player => {
-      const playerMatches = matches.filter(m => 
+      const playerMatches = matches.filter(m =>
         m.whitePlayerId === player.id || m.blackPlayerId === player.id
       );
-      
+
       let points = 0;
       let whiteGames = 0;
       let blackGames = 0;
-      
+
       // Add points from matches
       for (const match of playerMatches) {
         if (match.whitePlayerId === player.id) {
@@ -4125,58 +4125,58 @@ async function generateSwissPairings(tournament: any, players: any[], matches: a
           blackGames++;
           points += getPointsForResult(match.result, "black");
         }
-        
+
         // Debug logging for this player's matches
         if (match.whitePlayerId === player.id || match.blackPlayerId === player.id) {
           console.log(`${player.firstName} match result: ${match.result} (points now: ${points})`);
         }
       }
-      
+
       // Add points from bye pairings (convert from integer mapping: 0=0pts, 1=0.5pts, 2=1pt)
-      const playerByes = existingPairings.filter(p => 
+      const playerByes = existingPairings.filter(p =>
         p.playerId === player.id && p.isBye && p.points !== null && p.round < round
       );
-      
+
       for (const bye of playerByes) {
         const byePoints = bye.points === 1 ? 0.5 : bye.points === 2 ? 1 : 0;
         points += byePoints;
       }
-      
-      return { 
-        player, 
-        points, 
-        whiteGames, 
-        blackGames, 
-        colorBalance: whiteGames - blackGames 
+
+      return {
+        player,
+        points,
+        whiteGames,
+        blackGames,
+        colorBalance: whiteGames - blackGames
       };
     });
-    
+
     // Sort by points (highest first), then by rating
     const sortedPlayers = [...playerStatsWithColors].sort((a, b) => {
       if (b.points !== a.points) return b.points - a.points;
       return (b.player.rating || 0) - (a.player.rating || 0);
     });
-    
+
     console.log('Current standings:');
     sortedPlayers.forEach((p, i) => {
-      console.log(`${i+1}. ${p.player.firstName} ${p.player.lastName}: ${p.points} points`);
+      console.log(`${i + 1}. ${p.player.firstName} ${p.player.lastName}: ${p.points} points`);
     });
-    
+
     // Helper function to check if two players have played before
     const havePlayed = (player1Id: number, player2Id: number) => {
-      return matches.some(m => 
+      return matches.some(m =>
         (m.whitePlayerId === player1Id && m.blackPlayerId === player2Id) ||
         (m.whitePlayerId === player2Id && m.blackPlayerId === player1Id)
       );
     };
-    
+
     // Helper function for USCF color assignment with 2-color max rule
     const assignColors = (p1: any, p2: any) => {
       const p1Balance = p1.colorBalance || 0;  // Positive = more whites, Negative = more blacks
       const p2Balance = p2.colorBalance || 0;
-      
+
       console.log(`Color assignment: ${p1.player.firstName} (balance: ${p1Balance}) vs ${p2.player.firstName} (balance: ${p2Balance})`);
-      
+
       // USCF Rule: Player cannot have more than 2-color difference
       if (p1Balance >= 2) {
         console.log(`  ${p1.player.firstName} must get black (has +${p1Balance} color balance)`);
@@ -4194,7 +4194,7 @@ async function generateSwissPairings(tournament: any, players: any[], matches: a
         console.log(`  ${p2.player.firstName} must get white (has ${p2Balance} color balance)`);
         return { whitePlayer: p2.player, blackPlayer: p1.player };
       }
-      
+
       // Normal preference rules
       if (p1Balance < p2Balance) {
         return { whitePlayer: p1.player, blackPlayer: p2.player };
@@ -4204,12 +4204,12 @@ async function generateSwissPairings(tournament: any, players: any[], matches: a
         // Equal balance - higher rated gets white
         const p1Rating = p1.player.rating || 0;
         const p2Rating = p2.player.rating || 0;
-        return p1Rating > p2Rating 
+        return p1Rating > p2Rating
           ? { whitePlayer: p1.player, blackPlayer: p2.player }
           : { whitePlayer: p2.player, blackPlayer: p1.player };
       }
     };
-    
+
     // Round 3 pairing logic: Player 3 (highest points) vs Player 8, avoiding repeat pairings
     if (round === 3 && sortedPlayers.length >= 8) {
       const p1 = sortedPlayers[0]; // Player 3 (highest points: 2.0)
@@ -4220,13 +4220,13 @@ async function generateSwissPairings(tournament: any, players: any[], matches: a
       const p6 = sortedPlayers[5]; // Player 2 (0.5 points)
       const p7 = sortedPlayers[6]; // Player 7 (0.5 points)
       const p8 = sortedPlayers[7]; // Player 1 (0.0 points)
-      
+
       console.log('Round 3 - Corrected pairings with Player 3 on Board 1:');
       console.log(`Board 1: ${p1.player.firstName} vs ${p3.player.firstName} (combined: ${p1.points + p3.points} pts)`);
       console.log(`Board 2: ${p2.player.firstName} vs ${p4.player.firstName} (combined: ${p2.points + p4.points} pts)`);
       console.log(`Board 3: ${p5.player.firstName} vs ${p6.player.firstName} (combined: ${p5.points + p6.points} pts)`);
       console.log(`Board 4: ${p7.player.firstName} vs ${p8.player.firstName} (combined: ${p7.points + p8.points} pts)`);
-      
+
       // Create pairings with proper board ordering by combined points
       const round3Pairings = [
         { p1: p1, p2: p3, combined: p1.points + p3.points }, // Player 3 vs 8
@@ -4234,11 +4234,11 @@ async function generateSwissPairings(tournament: any, players: any[], matches: a
         { p1: p5, p2: p6, combined: p5.points + p6.points }, // Player 5 vs 2
         { p1: p7, p2: p8, combined: p7.points + p8.points }  // Player 7 vs 1
       ];
-      
+
       // Sort by combined points (highest first) for proper board ordering
       round3Pairings.sort((a, b) => b.combined - a.combined);
       const resolvedBoardNumbers = boardNumbers ?? generateBoardNumberSequence(tournament.boardNumberingSettings, round3Pairings.length);
-      
+
       for (let i = 0; i < round3Pairings.length; i++) {
         const pairing = round3Pairings[i];
         const colors = assignColors(pairing.p1, pairing.p2);
@@ -4253,7 +4253,7 @@ async function generateSwissPairings(tournament: any, players: any[], matches: a
       // Simple greedy algorithm for other rounds
       let unpaired = [...sortedPlayers];
       const tempPairings = [];
-      
+
       // Track players who have already received "See T.D." pairings
       const playersWithSeeTD = new Set();
       for (const match of matches) {
@@ -4261,13 +4261,13 @@ async function generateSwissPairings(tournament: any, players: any[], matches: a
           playersWithSeeTD.add(match.whitePlayerId);
         }
       }
-      
+
       // Check if we have odd number - pair with "See T.D." instead of automatic bye
       let seeTableDirectorPlayer = null;
       if (unpaired.length % 2 === 1) {
         // Find a player who hasn't received "See T.D." yet, preferring lowest-rated
         let candidateIndex = unpaired.length - 1; // Start with lowest points/rating
-        
+
         // Look for a player who hasn't had "See T.D." yet
         for (let i = unpaired.length - 1; i >= 0; i--) {
           if (!playersWithSeeTD.has(unpaired[i].player.id)) {
@@ -4275,25 +4275,25 @@ async function generateSwissPairings(tournament: any, players: any[], matches: a
             break;
           }
         }
-        
+
         seeTableDirectorPlayer = unpaired[candidateIndex];
         console.log(`Odd number of players - pairing with "See T.D.": ${seeTableDirectorPlayer.player.firstName} (${seeTableDirectorPlayer.points} pts, rating ${seeTableDirectorPlayer.player.rating})${playersWithSeeTD.has(seeTableDirectorPlayer.player.id) ? ' [REPEAT - no alternatives]' : ' [FIRST TIME]'}`);
-        
+
         // Remove "See T.D." player from unpaired list
         unpaired.splice(candidateIndex, 1);
       }
-      
+
       while (unpaired.length > 1) {
         const player1 = unpaired.shift()!;
         let bestOpponent = null;
         let bestOpponentIndex = -1;
-        
+
         console.log(`Finding opponent for ${player1.player.firstName} (${player1.points}pts)`);
-        
+
         // First try to find opponents who haven't played this player before
         for (let i = 0; i < unpaired.length; i++) {
           const candidate = unpaired[i];
-          
+
           if (!havePlayed(player1.player.id, candidate.player.id)) {
             bestOpponent = candidate;
             bestOpponentIndex = i;
@@ -4301,7 +4301,7 @@ async function generateSwissPairings(tournament: any, players: any[], matches: a
             break;
           }
         }
-        
+
         // If no first-time opponents available, allow repeat pairings (USCF allows this)
         if (!bestOpponent && unpaired.length > 0) {
           console.log(`  No first-time opponents available for ${player1.player.firstName} - allowing repeat pairing`);
@@ -4309,7 +4309,7 @@ async function generateSwissPairings(tournament: any, players: any[], matches: a
           bestOpponentIndex = 0;
           console.log(`  ✓ REPEAT PAIRING: ${player1.player.firstName} vs ${bestOpponent.player.firstName} (second time)`);
         }
-        
+
         if (bestOpponent) {
           unpaired.splice(bestOpponentIndex, 1);
           tempPairings.push({
@@ -4329,12 +4329,12 @@ async function generateSwissPairings(tournament: any, players: any[], matches: a
           });
         }
       }
-      
+
       // All players should be paired now since we handled odd numbers upfront
       if (unpaired.length === 1) {
         console.error(`Error: Still have unpaired player: ${unpaired[0].player.firstName}`);
       }
-      
+
       // Sort pairings by combined points and assign board numbers
       tempPairings.sort((a, b) => b.combined - a.combined);
       const resolvedBoardNumbers = boardNumbers ?? generateBoardNumberSequence(tournament.boardNumberingSettings, tempPairings.length + (seeTableDirectorPlayer ? 1 : 0));
@@ -4348,7 +4348,7 @@ async function generateSwissPairings(tournament: any, players: any[], matches: a
           isBye: false,
         });
       }
-      
+
       // Add "See T.D." pairing for the odd player
       if (seeTableDirectorPlayer) {
         pairings.push({
@@ -4361,7 +4361,7 @@ async function generateSwissPairings(tournament: any, players: any[], matches: a
       }
     }
   }
-  
+
   return pairings;
 }
 

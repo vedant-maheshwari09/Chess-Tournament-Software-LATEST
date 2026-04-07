@@ -465,68 +465,68 @@ export default function PlayerDashboard() {
 
   // Show tournament list (View button navigates to /tournaments/:id)
   return (
-      <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
-        <div className="bg-white dark:bg-gray-800 shadow">
-          <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-            <div className="flex items-center justify-between py-6">
-              <div>
-                <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Tournament Dashboard</h1>
-                <p className="text-gray-600 dark:text-gray-300">
-                  Welcome, {user?.username}. Explore tournaments to follow or join.
-                </p>
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
+      <div className="bg-white dark:bg-gray-800 shadow">
+        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+          <div className="flex items-center justify-between py-6">
+            <div>
+              <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Tournament Dashboard</h1>
+              <p className="text-gray-600 dark:text-gray-300">
+                Welcome, {user?.username}. Explore tournaments to follow or join.
+              </p>
+            </div>
+            <div className="flex items-center gap-4">
+              <div className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-300">
+                <Users className="h-4 w-4" />
+                Player Account
               </div>
-              <div className="flex items-center gap-4">
-                <div className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-300">
-                  <Users className="h-4 w-4" />
-                  Player Account
-                </div>
-                <SettingsMenu />
-              </div>
+              <SettingsMenu />
             </div>
           </div>
         </div>
-
-        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 pt-6 pb-10">
-          <Breadcrumbs steps={[]} />
-          {tournaments.length > 0 ? (
-            <div className="mb-6 flex flex-wrap items-center justify-end gap-3">
-              <span className="text-sm text-slate-500">Sort by:</span>
-              <Select value={sortKey} onValueChange={(value) => setSortKey(value as SortKey)}>
-                <SelectTrigger className="w-48">
-                  <SelectValue placeholder="Sort tournaments" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="date">Start Date</SelectItem>
-                  <SelectItem value="players">Players</SelectItem>
-                  <SelectItem value="state">State</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          ) : null}
-
-          <Tabs value={activeTab} onValueChange={(tab) => setLocation(`/dashboard/${tab}`)} className="w-full">
-            <TabsList className="flex w-full flex-wrap flex-row-reverse gap-3 bg-transparent">
-              {sectionsData.map((section) => (
-                <TabsTrigger
-                  key={section.key}
-                  value={section.key}
-                  className="flex min-w-[200px] flex-1 flex-col items-center justify-center gap-1 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-center text-sm font-medium text-slate-600 shadow-sm transition whitespace-normal break-words data-[state=active]:border-blue-200 data-[state=active]:bg-blue-50 data-[state=active]:text-blue-900"
-                >
-                  <span className="leading-tight">{section.label}</span>
-                  <span className="text-xs text-slate-500 leading-tight">
-                    {section.items.length} tournament{section.items.length === 1 ? "" : "s"}
-                  </span>
-                </TabsTrigger>
-              ))}
-            </TabsList>
-
-            {sectionsData.map((section) => (
-              <TabsContent key={section.key} value={section.key} className="mt-8 space-y-6">
-                {renderSection(section)}
-              </TabsContent>
-            ))}
-          </Tabs>
-        </div>
       </div>
-    );
+
+      <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 pt-6 pb-10">
+        <Breadcrumbs steps={[]} />
+        {tournaments.length > 0 ? (
+          <div className="mb-6 flex flex-wrap items-center justify-end gap-3">
+            <span className="text-sm text-slate-500">Sort by:</span>
+            <Select value={sortKey} onValueChange={(value) => setSortKey(value as SortKey)}>
+              <SelectTrigger className="w-48">
+                <SelectValue placeholder="Sort tournaments" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="date">Start Date</SelectItem>
+                <SelectItem value="players">Players</SelectItem>
+                <SelectItem value="state">State</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        ) : null}
+
+        <Tabs value={activeTab} onValueChange={(tab) => setLocation(`/dashboard/${tab}`)} className="w-full">
+          <TabsList className="flex w-full flex-wrap flex-row-reverse gap-3 bg-transparent">
+            {sectionsData.map((section) => (
+              <TabsTrigger
+                key={section.key}
+                value={section.key}
+                className="flex min-w-[200px] flex-1 flex-col items-center justify-center gap-1 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-center text-sm font-medium text-slate-600 shadow-sm transition whitespace-normal break-words data-[state=active]:border-blue-200 data-[state=active]:bg-blue-50 data-[state=active]:text-blue-900"
+              >
+                <span className="leading-tight">{section.label}</span>
+                <span className="text-xs text-slate-500 leading-tight">
+                  {section.items.length} tournament{section.items.length === 1 ? "" : "s"}
+                </span>
+              </TabsTrigger>
+            ))}
+          </TabsList>
+
+          {sectionsData.map((section) => (
+            <TabsContent key={section.key} value={section.key} className="mt-8 space-y-6">
+              {renderSection(section)}
+            </TabsContent>
+          ))}
+        </Tabs>
+      </div>
+    </div>
+  );
 }

@@ -375,35 +375,26 @@ export function UscfReportSection({ value, onChange, onDownload }: UscfReportSec
         <CardDescription>Match the official USCF post-tournament summary layout before exporting.</CardDescription>
       </CardHeader>
       <CardContent className="space-y-8 pt-6">
-        <div className="grid gap-6 md:grid-cols-2">
-          <div className="space-y-2">
-            <Label htmlFor="uscf-state">State</Label>
-            <Select
-              value={value.state ?? "unset"}
-              onValueChange={(next) => onChange({ state: next === "unset" ? undefined : next })}
-            >
-              <SelectTrigger id="uscf-state">
-                <SelectValue placeholder="Select state" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="unset">Select state</SelectItem>
-                {US_STATES.map((state) => (
-                  <SelectItem key={state.code} value={state.code}>
-                    {state.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="uscf-zip">ZIP Code</Label>
-            <Input
-              id="uscf-zip"
-              value={value.zipCode ?? ""}
-              onChange={(event) => onChange({ zipCode: event.target.value })}
-            />
-          </div>
+        <div className="space-y-2">
+          <Label htmlFor="uscf-state">State</Label>
+          <Select
+            value={value.state ?? "unset"}
+            onValueChange={(next) => onChange({ state: next === "unset" ? undefined : next })}
+          >
+            <SelectTrigger id="uscf-state">
+              <SelectValue placeholder="Select state" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="unset">Select state</SelectItem>
+              {US_STATES.map((state) => (
+                <SelectItem key={state.code} value={state.code}>
+                  {state.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
+
 
         <div className="grid gap-6 md:grid-cols-2">
           <div className="space-y-2">

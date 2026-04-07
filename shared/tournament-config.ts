@@ -70,8 +70,8 @@ export interface FideRegistrationData {
 
 export interface UscfReportData {
   state?: string;
-  zipCode?: string;
   affiliateId?: string;
+
   tournamentDirector?: string;
   assistantDirector?: string;
   sendCrossTableTo?: "affiliate" | "tournament_director" | "none";
@@ -386,8 +386,8 @@ export function createDefaultConfig(format: Tournament["format"], mode: Tourname
     },
     uscf: {
       state: "",
-      zipCode: "",
       sendCrossTableTo: "none",
+
       scholastic: false,
       grandPrixPoints: "",
     },

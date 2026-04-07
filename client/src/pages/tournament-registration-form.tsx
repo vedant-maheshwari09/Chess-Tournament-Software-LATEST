@@ -333,6 +333,31 @@ export default function TournamentRegistrationFormPage({ tournamentId }: Tournam
     [selectedEntryFee, processingContributionValue, paymentSettings],
   );
 
+  const groupPaymentTotals = useMemo(() => {
+    if (!multiPlayerAllowed || playerDrafts.length === 0) {
+      return paymentTotals;
+    }
+    
+    return playerDrafts.reduce((acc, entry) => {
+      const values = entry.values;
+      const entryFee = entryFees.find(f => f.id === values.entryFeeId) ?? null;
+      const contribution = parseContribution(values.processingContribution);
+      const totals = computePaymentTotals(entryFee, contribution, paymentSettings);
+      
+      return {
+        subtotal: acc.subtotal + totals.subtotal,
+        feeAmount: acc.feeAmount + totals.feeAmount,
+        total: acc.total + totals.total,
+        currency: totals.currency
+      };
+    }, { 
+      subtotal: 0, 
+      feeAmount: 0, 
+      total: 0, 
+      currency: paymentTotals.currency 
+    });
+  }, [playerDrafts, entryFees, paymentSettings, paymentTotals, multiPlayerAllowed]);
+
   useEffect(() => {
     if (!canProcessOnline) {
       setClientSecret(null);
@@ -626,22 +651,7 @@ export default function TournamentRegistrationFormPage({ tournamentId }: Tournam
         amountPaid: values.amountPaid,
       };
 
-      let list: RegistrationFormValues[];
-      if (editingDraftId) {
-        // Replace the edited player's draft with the current form values;
-        // all others get the same payment override
-        list = playerDrafts.map((entry) =>
-          entry.id === editingDraftId
-            ? { ...values }
-            : { ...entry.values, ...paymentOverride },
-        );
-      } else {
-        // Normal flow: all saved drafts + current player appended
-        list = [
-          ...playerDrafts.map((entry) => ({ ...entry.values, ...paymentOverride })),
-          { ...values },
-        ];
-      }
+      const list = playerDrafts.map((entry) => ({ ...entry.values, ...paymentOverride }));
       groupRegisterMutation.mutate(list);
       return;
     }
@@ -827,6 +837,30 @@ export default function TournamentRegistrationFormPage({ tournamentId }: Tournam
       }
       return;
     }
+
+    // When moving to the final review step, finalize the current player into the drafts list
+    if (currentStep === 2) {
+      const currentValues = form.getValues();
+      const hasData = Boolean(currentValues.firstName?.trim() || currentValues.lastName?.trim());
+
+      if (hasData) {
+        if (editingDraftId) {
+          // Commit edit
+          setPlayerDrafts((prev) =>
+            prev.map((entry) => (entry.id === editingDraftId ? { ...entry, values: currentValues } : entry)),
+          );
+        } else {
+          // Save new player as draft and set as 'currently active' draft
+          const draftId =
+            typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+              ? crypto.randomUUID()
+              : `player-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+          setPlayerDrafts((prev) => [...prev, { id: draftId, values: currentValues }]);
+          setEditingDraftId(draftId);
+        }
+      }
+    }
+
     setCurrentStep((prev) => Math.min(prev + 1, 3));
   };
 
@@ -888,18 +922,32 @@ export default function TournamentRegistrationFormPage({ tournamentId }: Tournam
       setPlayerDrafts((prev) => [...prev, { id: draftId, values: currentValues }]);
     }
 
-    // Reset for the next player, keeping some sensible defaults like email
+    // Reset for the next player - clean reset to prevent leakage
     form.reset({
-      ...currentValues,
+      // We keep standard search-related modes but clear all player-specific data
+      lookupMode: "profile",
+      ratingProvider: "none",
       firstName: "",
       lastName: "",
       uscfId: "",
       fideId: "",
       uscfRating: "",
       fideRating: "",
+      // Keep main contact email if it exists as a group default, but clear the rest
+      email: currentValues.email, 
+      phoneNumber: currentValues.phoneNumber,
+      address1: "",
+      address2: "",
+      city: "",
+      state: "",
+      postalCode: "",
+      country: "United States",
+      pairingNotifications: "email",
+      newsletter: true,
       sectionChoice: "",
       entryFeeId: "",
       processingContribution: "0",
+      paymentAcknowledgement: false,
       byePreference: "none",
       byeRounds: [],
       arrivalTime: "",
@@ -1072,8 +1120,8 @@ export default function TournamentRegistrationFormPage({ tournamentId }: Tournam
         <FormProvider {...form}>
           <form onSubmit={(event) => event.preventDefault()} className="space-y-6">
 
-            {/* ===== Multi-player roster panel ===== */}
-            {multiPlayerAllowed && (allDraftValues.length > 0 || currentStep > 1) && (
+            {/* ===== Multi-player roster panel (Hidden in Step 3 to avoid double summary) ===== */}
+            {multiPlayerAllowed && currentStep < 3 && (playerDrafts.length > 0 || editingDraftId) && (
               <div className="overflow-hidden rounded-2xl border border-blue-200/60 bg-white shadow-md ring-1 ring-black/5">
                 <div className="flex items-center gap-4 border-b border-blue-100/80 bg-gradient-to-r from-blue-50/90 via-indigo-50/40 to-white px-6 py-4">
                   <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-500 shadow-lg shadow-blue-200">
@@ -1082,7 +1130,7 @@ export default function TournamentRegistrationFormPage({ tournamentId }: Tournam
                   <div>
                     <h3 className="text-lg font-bold leading-tight text-slate-900">Group Registration</h3>
                     <p className="text-xs font-medium text-blue-700/80">
-                      {playerDrafts.length} player{playerDrafts.length !== 1 ? "s" : ""} saved · 1 in progress
+                      {playerDrafts.length} player{playerDrafts.length !== 1 ? "s" : ""} saved
                     </p>
                   </div>
                 </div>
@@ -1091,9 +1139,6 @@ export default function TournamentRegistrationFormPage({ tournamentId }: Tournam
                     const values = entry.values;
                     const name = `${values.firstName} ${values.lastName}`.trim() || "Unnamed player";
                     const initials = getInitials(values.firstName ?? "", values.lastName ?? "");
-                    const entryFee = entryFees.find((fee) => fee.id === values.entryFeeId) ?? null;
-                    const contribution = parseContribution(values.processingContribution);
-                    const totals = computePaymentTotals(entryFee, contribution, paymentSettings);
                     const isEditing = editingDraftId === entry.id;
 
                     return (
@@ -1121,14 +1166,8 @@ export default function TournamentRegistrationFormPage({ tournamentId }: Tournam
                           </div>
                           <p className="truncate text-xs text-slate-500">
                             {values.sectionChoice || "Section TBD"}
-                            {entryFee && ` · ${entryFee.section}`}
                           </p>
                         </div>
-                        <p className="shrink-0 text-sm font-bold text-blue-700">
-                          {entryFee
-                            ? formatCurrency(entryFee.amount + contribution, entryFee.currency)
-                            : formatCurrency(totals.total, totals.currency)}
-                        </p>
                         <div className="flex shrink-0 items-center gap-1">
                           <button
                             type="button"
@@ -1150,22 +1189,23 @@ export default function TournamentRegistrationFormPage({ tournamentId }: Tournam
                     );
                   })}
 
-                  {/* Current in-progress player */}
-                  <div className="flex items-center gap-3 bg-blue-50/40 px-5 py-3">
-                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border-2 border-dashed border-blue-300 bg-blue-50 text-xs font-bold text-blue-600">
-                      {playerDrafts.length + 1}
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2">
-                        <p className="truncate text-sm font-medium text-slate-700">{currentPlayerLabel}</p>
-                        <span className="rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-blue-700">In progress</span>
+                  {/* Current in-progress info bar (not in Step 3) */}
+                  {!editingDraftId && currentStep < 3 && (
+                    <div className="flex items-center gap-3 bg-blue-50/40 px-5 py-3">
+                      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border-2 border-dashed border-blue-300 bg-blue-50 text-xs font-bold text-blue-600">
+                        {playerDrafts.length + 1}
                       </div>
-                      <p className="text-xs text-slate-500">Section: {currentPlayerSection}</p>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2">
+                          <p className="truncate text-sm font-medium text-slate-700">{currentPlayerLabel}</p>
+                          <span className="rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-blue-700">
+                            In progress
+                          </span>
+                        </div>
+                        <p className="text-xs text-slate-500">Step {currentStep}: Filling details</p>
+                      </div>
                     </div>
-                    <p className="shrink-0 text-sm font-bold text-blue-700">
-                      {formatCurrency(paymentTotals.total, paymentTotals.currency)}
-                    </p>
-                  </div>
+                  )}
                 </div>
               </div>
             )}
@@ -1189,54 +1229,97 @@ export default function TournamentRegistrationFormPage({ tournamentId }: Tournam
                         <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-500 shadow-lg shadow-blue-200">
                           <CreditCard className="h-5 w-5 text-white" />
                         </div>
-                        <div>
-                          <h3 className="text-lg font-bold leading-tight text-slate-900">Group Enrollment</h3>
-                          <p className="text-xs font-medium text-blue-700/80">Reviewing payment for all registration entries</p>
+                        <div className="min-w-0 flex-1">
+                          <h3 className="text-lg font-bold leading-tight text-slate-900">Registration Summary</h3>
+                          <p className="text-xs font-medium text-blue-700/80">
+                            {playerDrafts.length} player{playerDrafts.length !== 1 ? "s" : ""} included
+                          </p>
                         </div>
                       </div>
+                      
                       <div className="divide-y divide-slate-100">
-                        {allDraftValues.map((values, index) => {
+                        {playerDrafts.map((entry, index) => {
+                          const values = entry.values;
                           const name = `${values.firstName} ${values.lastName}`.trim() || `Player ${index + 1}`;
                           const entryFee = entryFees.find((fee) => fee.id === values.entryFeeId) ?? null;
                           const contribution = parseContribution(values.processingContribution);
                           const totals = computePaymentTotals(entryFee, contribution, paymentSettings);
                           return (
-                            <div key={`${name}-${index}`} className="flex items-center justify-between px-5 py-3">
-                              <div>
-                                <p className="text-sm font-medium text-slate-900">{name}</p>
-                                <p className="text-xs text-slate-500">{values.sectionChoice || "Section TBD"}</p>
+                            <div key={entry.id} className="flex items-center justify-between px-6 py-4 transition hover:bg-slate-50/50">
+                              <div className="flex min-w-0 flex-1 items-center gap-4">
+                                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-blue-50 text-xs font-bold text-blue-700 shadow-sm ring-1 ring-blue-100/50">
+                                  {getInitials(values.firstName ?? "", values.lastName ?? "") || (index + 1)}
+                                </div>
+                                <div className="min-w-0 flex-1">
+                                  <div className="flex items-center gap-2">
+                                    <p className="truncate text-sm font-semibold text-slate-900">{name}</p>
+                                    <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-emerald-700">
+                                      Ready
+                                    </span>
+                                  </div>
+                                  <p className="truncate text-xs text-slate-500">
+                                    {values.sectionChoice || "Section TBA"} · {entryFee?.section ?? "Base Entry"}
+                                  </p>
+                                </div>
                               </div>
-                              <span className="text-sm font-bold text-blue-700">
-                                {formatCurrency(totals.total, totals.currency)}
-                              </span>
+                              <div className="ml-4 flex items-center gap-6">
+                                <div className="text-right">
+                                  <span className="block text-sm font-bold text-blue-700">
+                                    {formatCurrency(totals.total, totals.currency)}
+                                  </span>
+                                  {totals.feeAmount > 0 && (
+                                    <span className="text-[10px] text-slate-400">Incl. {formatCurrency(totals.feeAmount, totals.currency)} fee</span>
+                                  )}
+                                </div>
+                                <div className="flex items-center gap-1.5 shrink-0">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleEditDraft(entry.id)}
+                                    className="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 shadow-sm transition hover:border-blue-300 hover:text-blue-600 active:scale-95"
+                                    title="Edit player"
+                                  >
+                                    <Pencil className="h-3.5 w-3.5" />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleRemoveDraft(entry.id)}
+                                    className="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-400 shadow-sm transition hover:border-red-200 hover:text-red-500 active:scale-95"
+                                    title="Remove player"
+                                  >
+                                    <Trash2 className="h-3.5 w-3.5" />
+                                  </button>
+                                </div>
+                              </div>
                             </div>
                           );
                         })}
-                        <div className="flex items-center justify-between px-5 py-3">
-                          <div>
-                            <p className="text-sm font-medium text-slate-900">
-                              {`${form.getValues("firstName") ?? ""} ${form.getValues("lastName") ?? ""}`.trim() || "Current player"}
-                            </p>
-                            <p className="text-xs text-slate-500">{form.getValues("sectionChoice") || "Section TBD"}</p>
-                          </div>
-                          <span className="text-sm font-bold text-blue-700">
-                            {formatCurrency(paymentTotals.total, paymentTotals.currency)}
-                          </span>
-                        </div>
-                        <div className="flex items-center justify-between bg-blue-50/60 px-5 py-3">
-                          <span className="text-sm font-bold text-slate-900">Combined total</span>
-                          <span className="text-sm font-bold text-blue-700">
-                            {formatCurrency(
-                              allDraftValues.reduce((sum, values) => {
-                                const entryFee = entryFees.find((fee) => fee.id === values.entryFeeId) ?? null;
-                                const contribution = parseContribution(values.processingContribution);
-                                const totals = computePaymentTotals(entryFee, contribution, paymentSettings);
-                                return sum + totals.total;
-                              }, paymentTotals.total),
-                              paymentTotals.currency,
-                            )}
-                          </span>
-                        </div>
+                      </div>
+
+                      <div className="flex items-center justify-between border-t border-blue-100 bg-blue-50/40 px-6 py-4">
+                        <span className="text-sm font-bold text-slate-900">Combined registration total</span>
+                        <span className="text-lg font-black text-blue-700">
+                          {formatCurrency(
+                            playerDrafts.reduce((sum, entry) => {
+                              const values = entry.values;
+                              const entryFee = entryFees.find((fee) => fee.id === values.entryFeeId) ?? null;
+                              const contribution = parseContribution(values.processingContribution);
+                              const totals = computePaymentTotals(entryFee, contribution, paymentSettings);
+                              return sum + totals.total;
+                            }, 0),
+                            paymentTotals.currency,
+                          )}
+                        </span>
+                      </div>
+
+                      <div className="border-t border-slate-100 bg-white p-5 text-center">
+                        <button
+                          type="button"
+                          onClick={handleAddAnotherPlayer}
+                          className="inline-flex items-center gap-2 rounded-xl border-2 border-dashed border-blue-200 bg-blue-50/50 px-8 py-3 text-sm font-bold text-blue-700 transition hover:border-blue-400 hover:bg-blue-50 hover:text-blue-800 active:scale-95"
+                        >
+                          <Plus className="h-4 w-4" />
+                          Add another player to this registration
+                        </button>
                       </div>
                     </div>
                   )}
@@ -1246,7 +1329,10 @@ export default function TournamentRegistrationFormPage({ tournamentId }: Tournam
                       <StepThree
                         paymentDetails={config?.registers?.paymentDetails}
                         paymentSettings={paymentSettings ?? null}
-                        paymentTotals={paymentTotals}
+                        paymentTotals={groupPaymentTotals}
+                        playerDrafts={playerDrafts}
+                        onEditDraft={handleEditDraft}
+                        onRemoveDraft={handleRemoveDraft}
                         selectedEntryFee={selectedEntryFee}
                         sections={sections}
                         requiresPayment={requiresPayment}
@@ -1266,7 +1352,10 @@ export default function TournamentRegistrationFormPage({ tournamentId }: Tournam
                     <StepThree
                       paymentDetails={config?.registers?.paymentDetails}
                       paymentSettings={paymentSettings ?? null}
-                      paymentTotals={paymentTotals}
+                      paymentTotals={groupPaymentTotals}
+                      playerDrafts={playerDrafts}
+                      onEditDraft={handleEditDraft}
+                      onRemoveDraft={handleRemoveDraft}
                       selectedEntryFee={selectedEntryFee}
                       sections={sections}
                       requiresPayment={requiresPayment}
@@ -1293,28 +1382,20 @@ export default function TournamentRegistrationFormPage({ tournamentId }: Tournam
                   <span className="font-medium text-slate-600">Step {currentStep}</span> of {totalSteps} · {stepMeta[currentStep - 1]?.title}
                 </div>
                 <div className="flex flex-1 items-center justify-end gap-2.5 sm:flex-initial">
-                  <button
-                    type="button"
-                    onClick={handlePrevStep}
-                    disabled={currentStep === 1}
-                    className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-4 text-sm font-medium text-slate-600 shadow-sm transition hover:bg-slate-50 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-40"
-                  >
-                    <ArrowLeft className="h-3.5 w-3.5" />
-                    Back
-                  </button>
+                  {currentStep > 1 && (
+                    <button
+                      type="button"
+                      onClick={handlePrevStep}
+                      className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-4 text-sm font-medium text-slate-600 shadow-sm transition hover:bg-slate-50 hover:text-slate-900 active:scale-95"
+                    >
+                      <ArrowLeft className="h-3.5 w-3.5" />
+                      Back
+                    </button>
+                  )}
 
                   {currentStep < 3 ? (
                     <div className="flex items-center gap-2">
-                      {currentStep === 2 && multiPlayerAllowed && (
-                        <button
-                          type="button"
-                          onClick={handleAddAnotherPlayer}
-                          className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-blue-200 bg-blue-50 px-4 text-sm font-semibold text-blue-700 shadow-sm transition hover:border-blue-300 hover:bg-blue-100"
-                        >
-                          <Plus className="h-3.5 w-3.5" />
-                          Add another player
-                        </button>
-                      )}
+                      {/* Add another player button removed from step 2 footer — moved to step 3 */}
                       <button
                         type="button"
                         onClick={handleNextStep}
@@ -2156,6 +2237,9 @@ interface StepThreeProps {
   canAcceptOnlinePayment: boolean;
   tournamentId: number;
   retryPaymentIntent: () => void;
+  playerDrafts?: Array<{ id: string; values: Partial<RegistrationFormValues> }>;
+  onEditDraft?: (id: string) => void;
+  onRemoveDraft?: (id: string) => void;
 }
 
 function StepThree(props: StepThreeProps) {
@@ -2193,6 +2277,9 @@ function StepThreeContent({
   canAcceptOnlinePayment,
   tournamentId,
   retryPaymentIntent,
+  playerDrafts = [],
+  onEditDraft,
+  onRemoveDraft,
   stripe,
   elements,
 }: StepThreeContentProps) {
@@ -2224,6 +2311,10 @@ function StepThreeContent({
 
   const offlineMethods = paymentSettings?.acceptedOfflineMethods ?? [];
   const offlineAllowed = offlineMethods.length > 0;
+  const showPaymentToggle = canAcceptOnlinePayment && offlineAllowed && requiresPayment;
+  const [activePaymentMode, setActivePaymentMode] = useState<"online" | "offline">(
+    canAcceptOnlinePayment ? "online" : "offline"
+  );
   const offlineInstructions = paymentSettings?.offlineInstructions;
   const offlineInfoBlocks = ((offlineAllowed || !requiresPayment) ? [offlineInstructions, paymentDetails] : []) as Array<
     string | null | undefined
@@ -2280,9 +2371,17 @@ function StepThreeContent({
   }, [canAcceptOnlinePayment, onPaymentElementReady]);
 
   const handlePaymentConfirmation = useCallback(async () => {
-    if (!canAcceptOnlinePayment || !requiresPayment) {
+    if (!requiresPayment) {
       return true;
     }
+    if (activePaymentMode === "offline" || !canAcceptOnlinePayment) {
+      form.setValue("paymentStatus", "unpaid", { shouldDirty: true, shouldValidate: true });
+      form.setValue("paymentMethod", "offline", { shouldDirty: true, shouldValidate: true });
+      form.setValue("amountDue", paymentTotals.total, { shouldDirty: false });
+      form.setValue("currency", paymentTotals.currency, { shouldDirty: false });
+      return true;
+    }
+
     if (!stripe || !elements) {
       toast({
         title: "Payment unavailable",
@@ -2421,21 +2520,9 @@ function StepThreeContent({
   ]);
 
   useEffect(() => {
-    if (!paymentSettings?.onlineEnabled || !requiresPayment || !onlineConfigured || !canAcceptOnlinePayment) {
-      registerPaymentHandler(async () => true);
-      return () => registerPaymentHandler(null);
-    }
-
     registerPaymentHandler(handlePaymentConfirmation);
     return () => registerPaymentHandler(null);
-  }, [
-    registerPaymentHandler,
-    handlePaymentConfirmation,
-    paymentSettings?.onlineEnabled,
-    requiresPayment,
-    onlineConfigured,
-    canAcceptOnlinePayment,
-  ]);
+  }, [registerPaymentHandler, handlePaymentConfirmation]);
 
   return (
     <div className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm">
@@ -2460,19 +2547,15 @@ function StepThreeContent({
             </span>
           </div>
           <div className="mt-3 space-y-3 text-sm text-slate-600">
-            <div className="flex items-center justify-between">
-              <span>Entry fee</span>
-              <span className="font-medium text-blue-700">
-                {selectedEntryFee
-                  ? formatCurrency(selectedEntryFee.amount, selectedEntryFee.currency)
-                  : isOfflineEntry
-                    ? "To be confirmed"
-                    : "Select an entry fee"}
+            <div className="flex items-center justify-between font-medium">
+              <span>{playerDrafts.length > 1 ? `Subtotal (${playerDrafts.length} players)` : "Entry fee"}</span>
+              <span className="text-blue-700">
+                {formatCurrency(paymentTotals.subtotal, paymentTotals.currency)}
               </span>
             </div>
-            {selectedEntryFee && (
+            {playerDrafts.length <= 1 && selectedEntryFee && (
               <p className="text-xs text-slate-500">
-                Section: {selectedEntryFee.section} · {formatEntryFeeRange(selectedEntryFee, sections, sectionChoiceOption)}
+                Section: {selectedEntryFee.section}
               </p>
             )}
             {contributionAllowed ? (
@@ -2520,92 +2603,139 @@ function StepThreeContent({
           </div>
         </div>
 
-        <div className="space-y-3 rounded-xl border border-blue-100/70 bg-white/80 p-4 shadow-sm">
-          <div className="flex items-center justify-between">
-            <h3 className="text-sm font-semibold text-slate-900">Payment method</h3>
-            {requiresPayment && <Badge variant="outline">Required</Badge>}
+        {showPaymentToggle && (
+          <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white/80 p-2 shadow-sm">
+            <button
+              type="button"
+              onClick={() => setActivePaymentMode("online")}
+              className={cn(
+                "flex flex-1 items-center justify-center gap-2 rounded-lg px-3 py-2.5 text-sm font-medium transition-all",
+                activePaymentMode === "online"
+                  ? "bg-blue-600 text-white shadow-md shadow-blue-200"
+                  : "text-slate-600 hover:bg-slate-100",
+              )}
+            >
+              <CreditCard className="h-4 w-4" />
+              Pay Online
+            </button>
+            <button
+              type="button"
+              onClick={() => setActivePaymentMode("offline")}
+              className={cn(
+                "flex flex-1 items-center justify-center gap-2 rounded-lg px-3 py-2.5 text-sm font-medium transition-all",
+                activePaymentMode === "offline"
+                  ? "bg-slate-800 text-white shadow-md shadow-slate-200"
+                  : "text-slate-600 hover:bg-slate-100",
+              )}
+            >
+              <Wallet className="h-4 w-4" />
+              Pay Later (Offline)
+            </button>
           </div>
-          {canAcceptOnlinePayment ? (
-            <div className="space-y-3">
-              {paymentIntentLoading ? (
-                <div className="flex items-center justify-center gap-2 rounded-lg border border-dashed border-blue-200 bg-blue-50/60 p-4 text-sm text-blue-600">
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  Preparing secure checkout...
-                </div>
-              ) : (
-                <div className="rounded-lg border border-blue-200 bg-white p-4">
-                  <PaymentElement
-                    options={{ layout: "tabs" }}
-                    onReady={() => onPaymentElementReady(!requiresPayment)}
-                    onChange={(event) => onPaymentElementReady(!requiresPayment || Boolean(event.complete))}
-                  />
-                </div>
-              )}
-              {paymentIntentError && (
-                <div className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 p-3 text-xs text-red-600">
-                  <AlertCircle className="mt-0.5 h-4 w-4" />
-                  <span>{paymentIntentError}</span>
-                </div>
-              )}
-              <p className="text-xs text-slate-500">
-                Payments are securely processed by Stripe. Your receipt will be sent to {email || "your email"} when the payment succeeds.
-              </p>
+        )}
+
+        {(activePaymentMode === "online" || !offlineAllowed) && (
+          <div className="space-y-3 rounded-xl border border-blue-100/70 bg-white/80 p-4 shadow-sm">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-semibold text-slate-900">Payment method</h3>
+              {requiresPayment && <Badge variant="outline">Required</Badge>}
             </div>
-          ) : (
-            <div className="space-y-3 rounded-lg border border-dashed border-slate-200 bg-slate-50/70 p-4 text-xs text-slate-600">
-              {paymentIntentError ? (
-                <>
-                  <div className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 p-3 text-red-600">
+            {canAcceptOnlinePayment ? (
+              <div className="space-y-3">
+                {paymentIntentLoading ? (
+                  <div className="flex items-center justify-center gap-2 rounded-lg border border-dashed border-blue-200 bg-blue-50/60 p-4 text-sm text-blue-600">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Preparing secure checkout...
+                  </div>
+                ) : (
+                  <div className="rounded-lg border border-blue-200 bg-white p-4">
+                    <PaymentElement
+                      options={{ layout: "tabs" }}
+                      onReady={() => onPaymentElementReady(!requiresPayment)}
+                      onChange={(event) => onPaymentElementReady(!requiresPayment || Boolean(event.complete))}
+                    />
+                  </div>
+                )}
+                {paymentIntentError && (
+                  <div className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 p-3 text-xs text-red-600">
                     <AlertCircle className="mt-0.5 h-4 w-4" />
                     <span>{paymentIntentError}</span>
                   </div>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    onClick={retryPaymentIntent}
-                    disabled={paymentIntentLoading}
-                  >
-                    Retry payment setup
-                  </Button>
-                </>
-              ) : requiresPayment ? (
-                <p className="font-medium text-slate-700">
-                  Stripe checkout is unavailable right now. Please contact the tournament director to arrange payment.
+                )}
+                <p className="text-xs text-slate-500">
+                  Payments are securely processed by Stripe. Your receipt will be sent to {email || "your email"} when the payment succeeds.
                 </p>
-              ) : (
-                <p>Online checkout is disabled. Follow the offline instructions below to complete payment.</p>
-              )}
-            </div>
-          )}
-        </div>
-
-        <div className="space-y-3 rounded-xl border border-blue-100/70 bg-white/80 p-4 shadow-sm">
-          <h3 className="text-sm font-semibold text-slate-900">Offline payment options</h3>
-          {offlineAllowed ? (
-            <div className="flex flex-wrap gap-2">
-              {offlineMethods.map((method) => (
-                <span key={method} className="rounded-full bg-blue-100 px-3 py-1 text-xs font-semibold text-blue-700">
-                  {OFFLINE_METHOD_LABELS[method] ?? method}
-                </span>
-              ))}
-            </div>
-          ) : (
-            <div className="rounded-lg border border-dashed border-red-200 bg-red-50 p-3 text-xs text-red-600">
-              Offline payments are disabled for this tournament. Players must pay online to finalize registration.
-            </div>
-          )}
-          {offlineInfoBlocks
-            .filter((block): block is string => Boolean(block && block.trim()))
-            .map((block, index) => (
-              <div
-                key={`${index}-${block.slice(0, 12)}`}
-                className="rounded-lg border border-blue-200 bg-blue-50/70 p-3 text-xs leading-5 text-blue-700"
-              >
-                {block}
               </div>
-            ))}
-        </div>
+            ) : (
+              <div className="space-y-3 rounded-lg border border-dashed border-slate-200 bg-slate-50/70 p-4 text-xs text-slate-600">
+                {paymentIntentError ? (
+                  <>
+                    <div className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 p-3 text-red-600">
+                      <AlertCircle className="mt-0.5 h-4 w-4" />
+                      <span>{paymentIntentError}</span>
+                    </div>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={retryPaymentIntent}
+                      disabled={paymentIntentLoading}
+                    >
+                      Retry payment setup
+                    </Button>
+                  </>
+                ) : requiresPayment ? (
+                  <p className="font-medium text-slate-700">
+                    Stripe checkout is unavailable right now. Please contact the tournament director to arrange payment.
+                  </p>
+                ) : (
+                  <p>Online checkout is disabled. Follow the offline instructions below to complete payment.</p>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {(activePaymentMode === "offline" || !canAcceptOnlinePayment) && (
+          <div className="space-y-3 rounded-xl border border-blue-100/70 bg-white/80 p-4 shadow-sm">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-semibold text-slate-900">Offline payment options</h3>
+              {!canAcceptOnlinePayment && <Badge variant="secondary">Alternative</Badge>}
+            </div>
+            {offlineAllowed ? (
+              <div className="space-y-3">
+                <div className="flex flex-wrap gap-2">
+                  {offlineMethods.map((method) => (
+                    <span key={method} className="rounded-full bg-blue-100 px-3 py-1 text-xs font-semibold text-blue-700">
+                      {OFFLINE_METHOD_LABELS[method] ?? method}
+                    </span>
+                  ))}
+                </div>
+                <div className="rounded-lg border border-amber-200 bg-amber-50/70 p-3 text-xs leading-5 text-amber-800">
+                  <div className="flex items-center gap-2 mb-1.5 font-bold uppercase tracking-tight">
+                    <AlertCircle className="h-3.5 w-3.5" />
+                    Important: PENDING REGISTRATION
+                  </div>
+                  If choosing an offline method, your registration will remain in a <strong>Pending</strong> status and isn't guaranteed until payment is finalized with the director.
+                </div>
+              </div>
+            ) : (
+              <div className="rounded-lg border border-dashed border-red-200 bg-red-50 p-3 text-xs text-red-600 font-medium">
+                Offline payments are strictly disabled. Online checkout is required to secure your spot.
+              </div>
+            )}
+            {offlineInfoBlocks
+              .filter((block): block is string => Boolean(block && block.trim()))
+              .map((block, index) => (
+                <div
+                  key={`${index}-${block.slice(0, 12)}`}
+                  className="rounded-lg border border-blue-200 bg-blue-50/70 p-3 text-xs leading-5 text-blue-700"
+                >
+                  {block}
+                </div>
+              ))}
+          </div>
+        )}
 
         <div className="space-y-2 rounded-lg border border-blue-100/70 bg-blue-50/60 p-4">
           <label className="flex items-start gap-3 text-sm text-slate-700">
@@ -2627,22 +2757,72 @@ function StepThreeContent({
 
         <div className="rounded-lg border border-slate-200 bg-white/80 p-4 shadow-sm">
           <h3 className="text-sm font-semibold text-slate-900">Review your information</h3>
-          <div className="mt-3 grid gap-3 text-sm text-slate-600 sm:grid-cols-2">
-            {summary
-              .filter((item) => Boolean(item.value))
-              .map((item) => (
-                <div key={item.label}>
-                  <p className="text-xs uppercase tracking-wide text-slate-400">{item.label}</p>
-                  <p className="font-medium text-slate-800">{item.value}</p>
+          <div className="mt-4 space-y-4">
+            {playerDrafts.map((draft, idx) => {
+              const vals = draft.values;
+              return (
+                <div key={draft.id} className={cn("text-sm text-slate-600", idx > 0 && "pt-5 border-t border-slate-100")}>
+                  <div className="mb-3 flex items-center justify-between">
+                    <p className="font-semibold text-slate-900">Player {idx + 1}: {vals.firstName} {vals.lastName}</p>
+                    <div className="flex gap-2">
+                       <button 
+                         type="button" 
+                         onClick={() => onEditDraft?.(draft.id)}
+                         className="flex items-center gap-1 text-xs font-medium text-blue-600 hover:text-blue-700"
+                       >
+                         <Pencil className="h-3 w-3" /> Edit
+                       </button>
+                       {playerDrafts.length > 1 && (
+                         <button 
+                           type="button" 
+                           onClick={() => onRemoveDraft?.(draft.id)}
+                           className="flex items-center gap-1 text-xs font-medium text-red-500 hover:text-red-700"
+                         >
+                           <Trash2 className="h-3 w-3" /> Remove
+                         </button>
+                       )}
+                    </div>
+                  </div>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div>
+                      <p className="text-xs uppercase tracking-wide text-slate-400">Section</p>
+                      <p className="font-medium text-slate-800">{vals.sectionChoice}</p>
+                    </div>
+                    {vals.uscfId && (
+                      <div>
+                        <p className="text-xs uppercase tracking-wide text-slate-400">USCF ID</p>
+                        <p className="font-medium text-slate-800">{vals.uscfId}</p>
+                      </div>
+                    )}
+                    {(vals.email || email) && (
+                      <div>
+                        <p className="text-xs uppercase tracking-wide text-slate-400">Email</p>
+                        <p className="font-medium text-slate-800">{vals.email || email}</p>
+                      </div>
+                    )}
+                    {(vals.phoneNumber || phoneNumber) && (
+                      <div>
+                        <p className="text-xs uppercase tracking-wide text-slate-400">Phone</p>
+                        <p className="font-medium text-slate-800">{vals.phoneNumber || phoneNumber}</p>
+                      </div>
+                    )}
+                    {vals.arrivalTime && (
+                      <div>
+                        <p className="text-xs uppercase tracking-wide text-slate-400">Arrival</p>
+                        <p className="font-medium text-slate-800">{vals.arrivalTime}</p>
+                      </div>
+                    )}
+                    {vals.notes && (
+                      <div className="sm:col-span-2">
+                         <p className="text-xs uppercase tracking-wide text-slate-400">Notes</p>
+                         <p className="mt-1 leading-relaxed font-medium text-slate-800">{vals.notes}</p>
+                      </div>
+                    )}
+                  </div>
                 </div>
-              ))}
+              );
+            })}
           </div>
-          {notes && (
-            <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50/70 p-3 text-sm text-slate-700">
-              <p className="text-xs uppercase tracking-wide text-slate-500">Notes</p>
-              <p className="mt-1 leading-6">{notes}</p>
-            </div>
-          )}
         </div>
       </div>
     </div>
