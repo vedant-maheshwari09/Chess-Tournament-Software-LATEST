@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { ComponentType } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useLocation } from "wouter";
+import { useLocation, useRoute } from "wouter";
 import { Trophy, Users, Eye, ArrowLeft, Medal, Info, Calculator, PauseCircle, Star, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import SettingsMenu from "@/components/settings-menu";
+import { Breadcrumbs } from "@/components/breadcrumbs";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
 import type { Tournament, Player, PlayerRegistration as PlayerRegistrationType, TournamentStar } from "@shared/schema";
@@ -57,9 +58,10 @@ export default function PlayerDashboard() {
   const { user } = useAuth();
   const { toast } = useToast();
   const [selectedTournament, setSelectedTournament] = useState<Tournament | null>(null);
-  const [activeTab, setActiveTab] = useState<string>("ongoing");
   const [detailTab, setDetailTab] = useState<DetailTabKey>("pairings");
-  const [, setLocation] = useLocation();
+  const [location, setLocation] = useLocation();
+  const [, dashboardParams] = useRoute("/dashboard/:tab");
+  const activeTab = dashboardParams?.tab ?? "ongoing";
   const queryClient = useQueryClient();
   const isPlayer = user?.role === "player";
   const [pendingStarId, setPendingStarId] = useState<number | null>(null);
@@ -133,11 +135,11 @@ export default function PlayerDashboard() {
           result && typeof result === "object" && "tournamentId" in result
             ? (result as TournamentStar)
             : {
-                id: Date.now(),
-                tournamentId,
-                userId: user?.id ?? 0,
-                createdAt: new Date(),
-              };
+              id: Date.now(),
+              tournamentId,
+              userId: user?.id ?? 0,
+              createdAt: new Date(),
+            };
         const filtered = current.filter((entry) => entry.tournamentId !== tournamentId);
         return [...filtered, normalized];
       });
@@ -338,7 +340,7 @@ export default function PlayerDashboard() {
     }
 
     const rowClass = isStarred
-      ? "border-b border-slate-200 bg-amber-50/70 transition last:border-b-0 hover:bg-amber-100 dark:bg-amber-900/30 dark:hover:bg-amber-900/40"
+      ? "border-b border-slate-200 bg-blue-50/60 transition last:border-b-0 hover:bg-blue-100/60 dark:bg-blue-900/20 dark:hover:bg-blue-900/30"
       : "border-b border-slate-200 bg-white transition last:border-b-0 hover:bg-slate-50 dark:bg-slate-800/60 dark:hover:bg-slate-700/60";
 
     return (
@@ -358,10 +360,10 @@ export default function PlayerDashboard() {
               aria-label={isStarred ? "Remove from favorites" : "Add to favorites"}
             >
               {isPendingStar ? (
-                <Loader2 className="h-4 w-4 animate-spin text-amber-500" />
+                <Loader2 className="h-4 w-4 animate-spin text-blue-500" />
               ) : (
                 <Star
-                  className={isStarred ? "h-4 w-4 text-amber-500" : "h-4 w-4 text-slate-400"}
+                  className={isStarred ? "h-4 w-4 text-blue-500" : "h-4 w-4 text-slate-400"}
                   fill={isStarred ? "currentColor" : "none"}
                 />
               )}
@@ -389,7 +391,7 @@ export default function PlayerDashboard() {
           <Button
             variant="outline"
             size="sm"
-            onClick={() => setSelectedTournament(tournament)}
+            onClick={() => setLocation(`/tournaments/${tournament.id}`)}
             className="inline-flex items-center gap-2"
           >
             <Eye className="h-4 w-4" />
@@ -449,45 +451,6 @@ export default function PlayerDashboard() {
     );
   };
 
-  const tournamentConfig = useMemo(
-    () => (selectedTournament ? parseTournamentConfig(selectedTournament) : null),
-    [selectedTournament],
-  );
-  const schedule = tournamentConfig?.schedule ?? [];
-  const infoHtml = useMemo(
-    () => renderTournamentPageContent(tournamentConfig?.tournamentPageContent ?? ""),
-    [tournamentConfig?.tournamentPageContent],
-  );
-  const predictorEnabled = Boolean(tournamentConfig?.registers?.enablePairingPredictor);
-  const tournamentHasStarted = Boolean(
-    selectedTournament &&
-      ((selectedTournament.currentRound ?? 0) > 0 ||
-        selectedTournament.status === "active" ||
-        selectedTournament.status === "completed"),
-  );
-  const showPredictorTab = Boolean(
-    selectedTournament && predictorEnabled && selectedTournament.format === "swiss" && tournamentHasStarted,
-  );
-  const visibleTabMeta = useMemo(
-    () => DETAIL_TAB_META.filter((tab) => (showPredictorTab ? true : tab.key !== "predictor")),
-    [showPredictorTab],
-  );
-  const visibleTabs = useMemo<DetailTabKey[]>(
-    () => visibleTabMeta.map((tab) => tab.key as DetailTabKey),
-    [visibleTabMeta],
-  );
-
-  useEffect(() => {
-    if (!visibleTabs.includes(detailTab)) {
-      setDetailTab(visibleTabs[0] ?? "pairings");
-    }
-  }, [visibleTabs, detailTab]);
-
-  useEffect(() => {
-    if (selectedTournament) {
-      setDetailTab(visibleTabs[0] ?? "pairings");
-    }
-  }, [selectedTournament?.id, visibleTabs]);
 
   if (isLoading || statsLoading) {
     return (
@@ -500,9 +463,8 @@ export default function PlayerDashboard() {
     );
   }
 
-  // If no tournament selected, show tournament list
-  if (!selectedTournament) {
-    return (
+  // Show tournament list (View button navigates to /tournaments/:id)
+  return (
       <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
         <div className="bg-white dark:bg-gray-800 shadow">
           <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
@@ -525,6 +487,7 @@ export default function PlayerDashboard() {
         </div>
 
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 pt-6 pb-10">
+          <Breadcrumbs steps={[]} />
           {tournaments.length > 0 ? (
             <div className="mb-6 flex flex-wrap items-center justify-end gap-3">
               <span className="text-sm text-slate-500">Sort by:</span>
@@ -541,13 +504,13 @@ export default function PlayerDashboard() {
             </div>
           ) : null}
 
-          <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+          <Tabs value={activeTab} onValueChange={(tab) => setLocation(`/dashboard/${tab}`)} className="w-full">
             <TabsList className="flex w-full flex-wrap flex-row-reverse gap-3 bg-transparent">
               {sectionsData.map((section) => (
                 <TabsTrigger
                   key={section.key}
                   value={section.key}
-                  className="flex min-w-[200px] flex-1 flex-col items-center justify-center gap-1 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-center text-sm font-medium text-slate-600 shadow-sm transition whitespace-normal break-words data-[state=active]:border-indigo-200 data-[state=active]:bg-indigo-50 data-[state=active]:text-indigo-900"
+                  className="flex min-w-[200px] flex-1 flex-col items-center justify-center gap-1 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-center text-sm font-medium text-slate-600 shadow-sm transition whitespace-normal break-words data-[state=active]:border-blue-200 data-[state=active]:bg-blue-50 data-[state=active]:text-blue-900"
                 >
                   <span className="leading-tight">{section.label}</span>
                   <span className="text-xs text-slate-500 leading-tight">
@@ -566,137 +529,4 @@ export default function PlayerDashboard() {
         </div>
       </div>
     );
-  }
-
-  if (!tournamentConfig) {
-    return null;
-  }
-
-  // Tournament Details View
-  return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
-      {/* Header with Back Button */}
-      <div className="bg-white dark:bg-gray-800 shadow">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between py-6">
-            <div className="flex items-center gap-4">
-              <Button
-                variant="ghost"
-                onClick={() => setSelectedTournament(null)}
-                className="flex items-center gap-2"
-              >
-                <ArrowLeft className="h-4 w-4" />
-                Back to Tournaments
-              </Button>
-              <div>
-                <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
-                  {getFormatIcon(selectedTournament.format)} {selectedTournament.name}
-                </h1>
-                <p className="text-gray-600 dark:text-gray-300">
-                  {getFormatName(selectedTournament.format)} • {selectedTournament.rounds} rounds
-                </p>
-              </div>
-            </div>
-            <div className="flex items-center gap-4">
-              <Badge className={getStatusColor(selectedTournament.status)}>
-                {selectedTournament.status}
-              </Badge>
-              <Button
-                variant="outline"
-                onClick={() => setLocation(`/tournaments/${selectedTournament.id}/register/form`)}
-              >
-                Register
-              </Button>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Tournament Content */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <Tabs value={detailTab} onValueChange={(value) => setDetailTab(value as DetailTabKey)} className="space-y-6">
-          <TabsList className="grid w-full gap-2 sm:grid-cols-3 md:grid-cols-5">
-            {visibleTabMeta.map(({ key, label, icon: Icon }) => (
-              <TabsTrigger key={key} value={key} className="flex items-center justify-center gap-2 text-sm font-semibold">
-                <Icon className="h-4 w-4" />
-                {label}
-              </TabsTrigger>
-            ))}
-          </TabsList>
-
-          <TabsContent value="pairings" className="space-y-6">
-            <Card>
-              <CardHeader>
-                <CardTitle>Current Round Pairings</CardTitle>
-                <CardDescription>Live pairings and match results</CardDescription>
-              </CardHeader>
-              <CardContent>
-                {selectedTournament.format === "swiss" || selectedTournament.format === "roundrobin" ? (
-                  <SwissPairings tournamentId={selectedTournament.id} activeSection="all" showExportControls={false} />
-                ) : (
-                  <p className="text-gray-600 dark:text-gray-400">
-                    Pairings view not available for {getFormatName(selectedTournament.format)} format
-                  </p>
-                )}
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          <TabsContent value="standings" className="space-y-6">
-            <Card>
-              <CardHeader>
-                <CardTitle>Live Standings</CardTitle>
-                <CardDescription>Current tournament standings and results</CardDescription>
-              </CardHeader>
-              <CardContent>
-                {selectedTournament.format === "roundrobin" ? (
-                  <RoundRobinCrosstable tournamentId={selectedTournament.id} />
-                ) : selectedTournament.format === "swiss" ? (
-                  <SwissStandings tournamentId={selectedTournament.id} showExportControls={false} />
-                ) : (
-                  <Standings tournamentId={selectedTournament.id} showExportControls={false} />
-                )}
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          <TabsContent value="byes" className="space-y-6">
-            <Card>
-              <CardHeader>
-                <CardTitle>Registered Byes</CardTitle>
-                <CardDescription>Approved half-point and full-point byes</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <TournamentByes tournamentId={selectedTournament.id} />
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          {showPredictorTab ? (
-            <TabsContent value="predictor" className="space-y-6">
-              <PairingPredictor tournamentId={selectedTournament.id} tournament={selectedTournament} />
-            </TabsContent>
-          ) : null}
-
-          <TabsContent value="info" className="space-y-6">
-            <Card>
-              <CardHeader>
-                <CardTitle>Public Tournament Page</CardTitle>
-                <CardDescription>Information provided by the tournament director</CardDescription>
-              </CardHeader>
-              <CardContent>
-                {infoHtml.trim() ? (
-                  <div className="prose prose-slate max-w-none" dangerouslySetInnerHTML={{ __html: infoHtml }} />
-                ) : (
-                  <p className="text-sm text-slate-600">
-                    The tournament director has not published public page content yet.
-                  </p>
-                )}
-              </CardContent>
-            </Card>
-          </TabsContent>
-        </Tabs>
-      </div>
-    </div>
-  );
 }

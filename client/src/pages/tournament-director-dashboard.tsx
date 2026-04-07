@@ -1,7 +1,7 @@
-import { useMemo, useState, type ReactNode } from "react";
+import { useMemo, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Plus, Trophy, Users } from "lucide-react";
-import { Link } from "wouter";
+import { Link, useLocation, useRoute } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -9,10 +9,13 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useAuth } from "@/hooks/useAuth";
 import type { Tournament } from "@shared/schema";
 import SettingsMenu from "@/components/settings-menu";
+import { Breadcrumbs } from "@/components/breadcrumbs";
 
 export default function TournamentDirectorDashboard() {
   const { user } = useAuth();
-  const [activeTab, setActiveTab] = useState<string>("drafts");
+  const [, setLocation] = useLocation();
+  const [, dashboardParams] = useRoute("/dashboard/:tab");
+  const activeTab = dashboardParams?.tab ?? "drafts";
 
   const { data: tournaments = [], isLoading } = useQuery<Tournament[]>({
     queryKey: ["/api/my-tournaments"],
@@ -228,7 +231,8 @@ export default function TournamentDirectorDashboard() {
       </div>
 
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-8">
-        <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+        <Breadcrumbs steps={[]} />
+        <Tabs value={activeTab} onValueChange={(tab) => setLocation(`/dashboard/${tab}`)} className="w-full">
           <TabsList className="grid w-full grid-cols-1 gap-3 bg-transparent sm:grid-cols-2 lg:grid-cols-4 mb-6">
             {sections.map((section) => (
               <TabsTrigger

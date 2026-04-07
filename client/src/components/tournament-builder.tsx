@@ -769,7 +769,7 @@ function StepTwo({ format, mode, config, onConfigChange, onBack: _onBack, onCanc
   const collectFeesButtonClass = collectFeesStatus === "connected"
     ? "bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm"
     : collectFeesStatus === "pending"
-    ? "bg-amber-500 hover:bg-amber-600 text-white shadow-sm"
+    ? "bg-blue-500 hover:bg-blue-600 text-white shadow-sm"
     : "bg-red-600 hover:bg-red-700 text-white shadow-sm";
   const updateDetails = (updates: Partial<TournamentConfig["details"]>) =>
     onConfigChange({ ...config, details: { ...config.details, ...updates } });
@@ -1518,6 +1518,7 @@ function StepTwo({ format, mode, config, onConfigChange, onBack: _onBack, onCanc
   const handlePaymentSettingsSave = () => {
     commitPaymentSettings(paymentSettingsDraft);
     setPaymentsDialogOpen(false);
+    onSave();
   };
 
   const handleDownloadChessResults = () => {
@@ -2355,7 +2356,7 @@ function StepTwo({ format, mode, config, onConfigChange, onBack: _onBack, onCanc
                 )}
 
                 {sections.length > 0 && sectionsMissingPricing.length > 0 && (
-                  <div className="rounded-lg border border-dashed border-amber-200 bg-amber-50 p-3 text-xs text-amber-700">
+                  <div className="rounded-lg border border-dashed border-blue-200 bg-blue-50 p-3 text-xs text-blue-700">
                     {sectionsMissingPricing.length === 1
                       ? `${sectionsMissingPricing[0].name || "Unnamed section"} still needs an entry rule.`
                       : `The following sections still need at least one entry rule: ${sectionsMissingPricing
@@ -2872,6 +2873,22 @@ function StepTwo({ format, mode, config, onConfigChange, onBack: _onBack, onCanc
                                                     </div>
                                                     <p className="text-xs text-muted-foreground">
                                                       When enabled, a single account can register multiple players for this event.
+                                                    </p>
+
+                                                    <div className="flex items-center space-x-2">
+                                                      <Switch
+                                                        id="allow-edit-registration"
+                                                        checked={config.registers.allowEditRegistration}
+                                                        onCheckedChange={(checked) =>
+                                                          updateRegisters({ allowEditRegistration: checked })
+                                                        }
+                                                      />
+                                                      <Label htmlFor="allow-edit-registration">
+                                                        Allow Registration Editing
+                                                      </Label>
+                                                    </div>
+                                                    <p className="text-xs text-muted-foreground">
+                                                      When enabled, players can edit their registration details after submission (director will be notified).
                                                     </p>
                                                   </div>
 

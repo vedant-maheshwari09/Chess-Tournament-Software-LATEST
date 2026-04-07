@@ -28,6 +28,7 @@ import {
 import { GeneralSettingsCard } from "@/components/tournament-settings/GeneralSettingsCard";
 import { BoardNumberingCard } from "@/components/tournament-settings/BoardNumberingCard";
 import { Loader2 } from "lucide-react";
+import { Breadcrumbs } from "@/components/breadcrumbs";
 
 type SettingsSection = "basic" | "details" | "schedule" | "payments" | "prizes" | "player-signup" | "rate-tournament" | "general" | "board-numbering" | "fide" | "uscf" | "chess-results";
 
@@ -381,15 +382,34 @@ export default function TournamentSettingsPage({ tournamentId, section }: Tourna
     );
   }
 
+  const sectionLabels: Record<SettingsSection, string> = {
+    basic: "Basic",
+    general: "General",
+    details: "Details",
+    schedule: "Schedule",
+    payments: "Payments",
+    prizes: "Prizes",
+    "player-signup": "Player Signup",
+    "rate-tournament": "Rating",
+    fide: "FIDE",
+    uscf: "USCF",
+    "chess-results": "Chess-Results",
+    "board-numbering": "Boards",
+  };
+
   return (
     <div className="min-h-screen bg-slate-50">
       <div className="mx-auto max-w-6xl space-y-6 p-6">
+        <Breadcrumbs
+          steps={[
+            { label: tournament?.name || "Tournament", href: `/tournaments/${tournamentId}` },
+            { label: "Options", href: `/tournaments/${tournamentId}/settings` },
+            { label: sectionLabels[currentSection] }
+          ]}
+        />
         <div className="flex flex-col gap-4 border-b pb-4 md:flex-row md:items-center md:justify-between">
           <div className="space-y-2">
             <div className="flex flex-wrap items-center gap-2">
-              <Button variant="outline" onClick={() => setLocation(`/tournaments/${tournamentId}/manage`)}>
-                Back to tournament
-              </Button>
               {unsavedChanges && <Badge variant="destructive">Unsaved changes</Badge>}
             </div>
             <div>

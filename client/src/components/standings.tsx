@@ -273,11 +273,11 @@ export default function Standings({ tournamentId, showExportControls = true }: S
   const getPositionIcon = (position: number) => {
     switch (position) {
       case 1:
-        return <Trophy className="h-5 w-5 text-yellow-500" />;
+        return <Trophy className="h-5 w-5 text-slate-500" />;
       case 2:
         return <Medal className="h-5 w-5 text-gray-400" />;
       case 3:
-        return <Award className="h-5 w-5 text-amber-600" />;
+        return <Award className="h-5 w-5 text-blue-600" />;
       default:
         return <span className="text-gray-500 font-medium">{position}</span>;
     }
@@ -285,7 +285,7 @@ export default function Standings({ tournamentId, showExportControls = true }: S
 
   const getPositionBadge = (position: number) => {
     if (position <= 3) {
-      return <Badge variant="default" className="bg-yellow-100 text-yellow-800">Top 3</Badge>;
+      return <Badge variant="default" className="bg-slate-100 text-slate-800">Top 3</Badge>;
     }
     return null;
   };
@@ -385,7 +385,7 @@ export default function Standings({ tournamentId, showExportControls = true }: S
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
                 {standings.map((standing) => (
-                  <tr key={standing.player.id} className={standing.position <= 3 ? 'bg-yellow-50' : ''}>
+                  <tr key={standing.player.id} className={standing.position <= 3 ? 'bg-slate-50' : ''}>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="flex items-center">
                         {getPositionIcon(standing.position)}

@@ -114,15 +114,15 @@ export default function KnockoutBracket({ tournamentId }: KnockoutBracketProps) 
                 {/* Finals */}
                 <div className="space-y-4">
                   <h4 className="text-center text-sm font-medium text-gray-700 mb-4">Final</h4>
-                  <div className="bg-yellow-50 border-2 border-yellow-200 rounded-lg p-4 w-64">
+                  <div className="bg-slate-50 border-2 border-slate-200 rounded-lg p-4 w-64">
                     <div className="flex items-center justify-center mb-4">
-                      <Trophy className="h-6 w-6 text-yellow-600" />
+                      <Trophy className="h-6 w-6 text-slate-600" />
                     </div>
                     <div className="text-center text-sm text-gray-600">
                       Winner of Semifinal
                     </div>
                     <div className="mt-2 text-center">
-                      <span className="text-xs text-yellow-600 font-medium">TBD</span>
+                      <span className="text-xs text-slate-600 font-medium">TBD</span>
                     </div>
                   </div>
                 </div>

@@ -7,15 +7,26 @@ import {
   AlertCircle,
   ArrowLeft,
   Calendar,
+  Check,
   ChevronDown,
+  ChevronRight,
   Clock,
+  CreditCard,
   Loader2,
   Mail,
   MapPin,
+  Pencil,
+  Plus,
   Search,
+  Shield,
   ShieldCheck,
+  Trash2,
+  Trophy,
   User,
+  Users,
+  Wallet,
 } from "lucide-react";
+import { Breadcrumbs } from "@/components/breadcrumbs";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { cn } from "@/lib/utils";
@@ -130,10 +141,10 @@ const formatDate = (value: string | Date | null | undefined) => {
 };
 
 const statusStyles: Record<string, string> = {
-  draft: "bg-amber-100 text-amber-800",
-  upcoming: "bg-blue-100 text-blue-800",
-  active: "bg-emerald-100 text-emerald-800",
-  completed: "bg-slate-200 text-slate-700",
+  draft: "bg-blue-100/80 text-blue-800 border border-blue-200/50",
+  upcoming: "bg-blue-50/80 text-blue-700 border border-blue-200/50",
+  active: "bg-emerald-50 text-emerald-700 border border-emerald-200/50",
+  completed: "bg-slate-100 text-slate-600 border border-slate-200/50",
 };
 
 const SECTION_FALLBACKS: Record<string, string> = {
@@ -288,6 +299,7 @@ export default function TournamentRegistrationFormPage({ tournamentId }: Tournam
 
   const [playerDrafts, setPlayerDrafts] = useState<PlayerDraft[]>([]);
   const [editingDraftId, setEditingDraftId] = useState<string | null>(null);
+  const allDraftValues: RegistrationFormValues[] = playerDrafts.map((entry) => entry.values);
   const stripePromise = useMemo(() => {
     if (!paymentsConfigResponse?.publishableKey) {
       return null;
@@ -339,6 +351,31 @@ export default function TournamentRegistrationFormPage({ tournamentId }: Tournam
     }
   }, [currentStep]);
 
+  // Pre-fill form with existing registration data when in "Edit" mode
+  useEffect(() => {
+    if (existingRegistration && !editingDraftId && currentStep === 1) {
+      const names = (existingRegistration.playerName || "").split(" ");
+      const firstName = names[0] || "";
+      const lastName = names.slice(1).join(" ") || "";
+
+      const reg = existingRegistration as any;
+      form.reset({
+        lookupMode: "manual", // Default to manual when editing to show all fields
+        firstName,
+        lastName,
+        email: reg.email || "",
+        phoneNumber: reg.phoneNumber || "",
+        sectionChoice: reg.sectionChoice || "",
+        entryFeeId: reg.entryFeeId || "",
+        processingContribution: (reg.processingContribution || 0).toString(),
+        notes: reg.arrivalTime || "", // Using arrivalTime field as notes/extra info as per mutation
+        ratingProvider: "manual",
+        uscfRating: reg.uscfRating?.toString() || "",
+        paymentStatus: (reg.paymentStatus as any) || "unpaid",
+      });
+    }
+  }, [existingRegistration, form, editingDraftId, currentStep]);
+
   const registerMutation = useMutation({
     mutationFn: async (values: RegistrationFormValues) => {
       const payload = {
@@ -386,7 +423,13 @@ export default function TournamentRegistrationFormPage({ tournamentId }: Tournam
   });
 
   const createPaymentIntent = useMutation({
-    mutationFn: async (body: { entryFeeId?: string; contribution: number; receiptEmail?: string; playerName?: string }) => {
+    mutationFn: async (body: {
+      entryFeeId?: string;
+      contribution: number;
+      receiptEmail?: string;
+      playerName?: string;
+      items?: Array<{ entryFeeId?: string; contribution: number; playerName?: string }>;
+    }) => {
       const response = await apiRequest(`/api/tournaments/${tournamentId}/payments/intent`, {
         method: "POST",
         body: JSON.stringify(body),
@@ -401,14 +444,23 @@ export default function TournamentRegistrationFormPage({ tournamentId }: Tournam
       form.setValue("amountPaid", 0, { shouldDirty: false });
       form.setValue("paymentStatus", "unpaid", { shouldDirty: false });
       setIsPaymentElementReady(false);
-      const entryFeeId = form.getValues("entryFeeId");
-      const contribution = parseContribution(form.getValues("processingContribution"));
+
+      const items = allDraftValues.map(d => {
+        const id = d.entryFeeId && d.entryFeeId !== NO_ENTRY_FEE_ID ? d.entryFeeId : "offline";
+        const c = parseContribution(d.processingContribution);
+        const name = `${d.firstName ?? ""} ${d.lastName ?? ""}`.trim().toLowerCase();
+        return `${id}|${c.toFixed(2)}|${name}`;
+      });
+
+      const currentEntryFeeIdRaw = form.getValues("entryFeeId");
+      const normalizedEntryFeeId = currentEntryFeeIdRaw && currentEntryFeeIdRaw !== NO_ENTRY_FEE_ID ? currentEntryFeeIdRaw : "offline";
+      const currentContribution = parseContribution(form.getValues("processingContribution"));
+      const currentName = `${form.getValues("firstName") ?? ""} ${form.getValues("lastName") ?? ""}`.trim().toLowerCase();
+
+      items.push(`${normalizedEntryFeeId}|${currentContribution.toFixed(2)}|${currentName}`);
+
       const email = (form.getValues("email") ?? "").trim().toLowerCase();
-      const playerName = `${form.getValues("firstName") ?? ""} ${form.getValues("lastName") ?? ""}`
-        .trim()
-        .toLowerCase();
-      const normalizedEntryFeeKey = entryFeeId && entryFeeId !== NO_ENTRY_FEE_ID ? entryFeeId : "offline";
-      paymentIntentRequestKeyRef.current = `${normalizedEntryFeeKey}|${contribution.toFixed(2)}|${email}|${playerName}`;
+      paymentIntentRequestKeyRef.current = `${items.join(";")}|${email}`;
     },
     onError: (error: Error) => {
       paymentIntentRequestKeyRef.current = null;
@@ -425,10 +477,10 @@ export default function TournamentRegistrationFormPage({ tournamentId }: Tournam
       return;
     }
 
-    const entryFeeIdRaw = form.getValues("entryFeeId");
-    const normalizedEntryFeeId = entryFeeIdRaw && entryFeeIdRaw !== NO_ENTRY_FEE_ID ? entryFeeIdRaw : undefined;
+    const currentEntryFeeIdRaw = form.getValues("entryFeeId");
+    const normalizedEntryFeeId = currentEntryFeeIdRaw && currentEntryFeeIdRaw !== NO_ENTRY_FEE_ID ? currentEntryFeeIdRaw : undefined;
 
-    if (!normalizedEntryFeeId && requiresPayment) {
+    if (!normalizedEntryFeeId && requiresPayment && allDraftValues.length === 0) {
       paymentIntentRequestKeyRef.current = null;
       toast({
         title: "Confirm entry fee",
@@ -442,7 +494,21 @@ export default function TournamentRegistrationFormPage({ tournamentId }: Tournam
     const receiptEmail = (form.getValues("email") ?? "").trim();
     const playerName = `${form.getValues("firstName") ?? ""} ${form.getValues("lastName") ?? ""}`.trim();
 
-    const requestKey = `${normalizedEntryFeeId ?? "offline"}|${contribution.toFixed(2)}|${receiptEmail.toLowerCase()}|${playerName.toLowerCase()}`;
+    const itemsPayload = allDraftValues.map(draft => {
+      const eFee = draft.entryFeeId && draft.entryFeeId !== NO_ENTRY_FEE_ID ? draft.entryFeeId : undefined;
+      const c = parseContribution(draft.processingContribution);
+      const name = `${draft.firstName ?? ""} ${draft.lastName ?? ""}`.trim();
+      return { entryFeeId: eFee, contribution: c, playerName: name };
+    });
+
+    itemsPayload.push({
+      entryFeeId: normalizedEntryFeeId,
+      contribution,
+      playerName,
+    });
+
+    const itemsKey = itemsPayload.map(i => `${i.entryFeeId ?? "offline"}|${i.contribution.toFixed(2)}|${i.playerName.toLowerCase()}`).join(";");
+    const requestKey = `${itemsKey}|${receiptEmail.toLowerCase()}`;
 
     if (paymentIntentRequestKeyRef.current === requestKey && clientSecret) {
       return;
@@ -451,15 +517,14 @@ export default function TournamentRegistrationFormPage({ tournamentId }: Tournam
     paymentIntentRequestKeyRef.current = requestKey;
     try {
       await createPaymentIntent.mutateAsync({
-        entryFeeId: normalizedEntryFeeId,
-        contribution,
+        contribution: 0,
         receiptEmail: receiptEmail || undefined,
-        playerName: playerName || undefined,
+        items: itemsPayload,
       });
     } catch {
       paymentIntentRequestKeyRef.current = null;
     }
-  }, [canProcessOnline, createPaymentIntent, form, clientSecret, requiresPayment, toast]);
+  }, [canProcessOnline, createPaymentIntent, form, clientSecret, requiresPayment, toast, allDraftValues]);
 
   useEffect(() => {
     if (currentStep !== 3) {
@@ -549,24 +614,40 @@ export default function TournamentRegistrationFormPage({ tournamentId }: Tournam
       }
     }
     const values = form.getValues();
-    if (multiPlayerAllowed && !requiresPayment && playerDrafts.length > 0) {
-      const list = playerDrafts.map((entry) => entry.values);
+    if (multiPlayerAllowed && playerDrafts.length > 0) {
+      // Payment fields from the final step should propagate to all entries
+      const paymentOverride = {
+        paymentIntentId: values.paymentIntentId,
+        paymentStatus: values.paymentStatus,
+        paymentReceiptUrl: values.paymentReceiptUrl,
+        paymentMethod: values.paymentMethod,
+        currency: values.currency,
+        amountDue: values.amountDue,
+        amountPaid: values.amountPaid,
+      };
+
+      let list: RegistrationFormValues[];
       if (editingDraftId) {
-        const index = playerDrafts.findIndex((entry) => entry.id === editingDraftId);
-        if (index >= 0) {
-          list[index] = values;
-        } else {
-          list.push(values);
-        }
+        // Replace the edited player's draft with the current form values;
+        // all others get the same payment override
+        list = playerDrafts.map((entry) =>
+          entry.id === editingDraftId
+            ? { ...values }
+            : { ...entry.values, ...paymentOverride },
+        );
       } else {
-        list.push(values);
+        // Normal flow: all saved drafts + current player appended
+        list = [
+          ...playerDrafts.map((entry) => ({ ...entry.values, ...paymentOverride })),
+          { ...values },
+        ];
       }
       groupRegisterMutation.mutate(list);
       return;
     }
 
     registerMutation.mutate(values);
-  }, [editingDraftId, form, groupRegisterMutation, multiPlayerAllowed, playerDrafts, registerMutation, requiresPayment]);
+  }, [editingDraftId, form, groupRegisterMutation, multiPlayerAllowed, playerDrafts, registerMutation]);
 
   const paymentIntentErrorMessage = createPaymentIntent.error
     ? createPaymentIntent.error instanceof Error
@@ -577,10 +658,10 @@ export default function TournamentRegistrationFormPage({ tournamentId }: Tournam
   const submitButtonLabel = registerMutation.isPending || groupRegisterMutation.isPending
     ? "Submitting..."
     : isPaymentBusy
-    ? "Processing payment..."
-    : requiresPayment
-    ? "Pay & submit"
-    : "Submit registration";
+      ? "Processing payment..."
+      : requiresPayment
+        ? "Pay & submit"
+        : "Submit registration";
 
   const disableSubmitButton =
     registerMutation.isPending ||
@@ -590,10 +671,14 @@ export default function TournamentRegistrationFormPage({ tournamentId }: Tournam
 
   if (isLoading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-slate-50">
+      <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-slate-900 via-slate-950 to-slate-900">
         <div className="text-center">
-          <div className="mx-auto h-12 w-12 animate-spin rounded-full border-b-2 border-indigo-500"></div>
-          <p className="mt-4 text-slate-600">Loading registration form...</p>
+          <div className="relative mx-auto h-16 w-16">
+            <div className="absolute inset-0 animate-spin rounded-full border-b-2 border-blue-500"></div>
+            <div className="absolute inset-2 animate-spin rounded-full border-t-2 border-blue-400/30" style={{ animationDuration: '1.5s', animationDirection: 'reverse' }}></div>
+            <Trophy className="absolute inset-0 m-auto h-6 w-6 text-blue-500" />
+          </div>
+          <p className="mt-6 text-sm font-medium text-blue-200/70 tracking-wide uppercase">Preparing registration environment...</p>
         </div>
       </div>
     );
@@ -601,89 +686,97 @@ export default function TournamentRegistrationFormPage({ tournamentId }: Tournam
 
   if (!tournament || !config) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-slate-50 px-4">
-        <Card className="max-w-md">
-          <CardContent className="pt-8 pb-10 text-center">
-            <ShieldCheck className="mx-auto mb-4 h-12 w-12 text-slate-400" />
-            <h2 className="text-lg font-semibold text-slate-900">Tournament unavailable</h2>
-            <p className="mt-2 text-sm text-slate-600">
-              This registration form could not be loaded. Please return to the tournament page and try again.
-            </p>
-            <Button className="mt-6" onClick={() => setLocation(`/tournaments/${tournamentId}`)}>
-              Back to Tournament
-            </Button>
-          </CardContent>
-        </Card>
+      <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-slate-50 to-blue-50/30 px-4">
+        <div className="w-full max-w-md">
+          <div className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white/80 shadow-2xl backdrop-blur">
+            <div className="bg-gradient-to-r from-slate-900 to-slate-800 p-8 text-center text-white">
+              <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-blue-500 shadow-xl shadow-blue-500/20">
+                <ShieldCheck className="h-7 w-7 text-white" />
+              </div>
+              <h2 className="text-xl font-bold">Tournament unavailable</h2>
+            </div>
+            <div className="p-8 text-center">
+              <p className="text-sm leading-relaxed text-slate-500">
+                This registration form could not be loaded. This might happen if the tournament has been archived, paused, or deleted.
+              </p>
+              <Button
+                className="mt-8 w-full bg-blue-500 font-semibold hover:bg-blue-600 shadow-lg shadow-blue-200"
+                onClick={() => setLocation(`/tournaments/${tournamentId}`)}
+              >
+                <ArrowLeft className="mr-2 h-4 w-4" />
+                Back to Tournament Page
+              </Button>
+            </div>
+          </div>
+        </div>
       </div>
     );
   }
 
   if (existingRegistration && !multiPlayerAllowed) {
     return (
-      <div className="min-h-screen bg-slate-50">
-        <div className="border-b bg-white">
-          <div className="mx-auto flex max-w-6xl flex-col gap-6 px-4 py-8 sm:px-6 lg:px-8">
-            <div className="flex items-center gap-3 text-sm text-slate-500">
+      <div className="min-h-screen bg-gradient-to-b from-slate-50 via-white to-white">
+        <div className="border-b border-slate-200/60 bg-gradient-to-r from-white via-blue-50/30 to-white">
+          <div className="mx-auto flex max-w-6xl flex-col gap-4 px-4 py-8 sm:px-6 lg:px-8">
+            <div className="flex items-center gap-3">
               <Button
                 variant="ghost"
-                className="px-0 text-slate-600"
+                size="sm"
+                className="gap-1.5 font-medium text-slate-600 hover:bg-blue-50 hover:text-blue-700"
                 onClick={() => setLocation(`/tournaments/${tournamentId}`)}
               >
-                <ArrowLeft className="mr-2 h-4 w-4" />
-                Back
+                <ArrowLeft className="h-4 w-4" />
+                Back to tournament
               </Button>
-              <Badge className={statusStyles[tournament.status] ?? "bg-slate-200 text-slate-700"}>
+              <span className="text-slate-300">·</span>
+              <Badge className={cn("text-xs border-0", statusStyles[tournament.status] ?? "bg-slate-200 text-slate-700")}>
                 {tournament.status.charAt(0).toUpperCase() + tournament.status.slice(1)}
               </Badge>
             </div>
-            <div className="space-y-3">
-              <h1 className="text-3xl font-semibold text-slate-900">{tournament.name}</h1>
-              <p className="text-slate-600">You have already submitted a registration for this event.</p>
-            </div>
+            <h1 className="text-3xl font-extrabold tracking-tight text-slate-900">{tournament.name}</h1>
           </div>
         </div>
 
-        <div className="mx-auto max-w-4xl px-4 py-10 sm:px-6 lg:px-8">
-          <Card className="shadow-sm">
-            <CardHeader>
-              <CardTitle>Registration Status</CardTitle>
-              <CardDescription>
-                Your entry is currently marked as {existingRegistration.status}.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
+        <div className="mx-auto max-w-2xl px-4 py-12 sm:px-6">
+          <div className="overflow-hidden rounded-2xl border border-emerald-200/80 bg-white shadow-xl">
+            <div className="bg-gradient-to-r from-emerald-500 to-emerald-600 px-6 py-5">
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-white/20">
+                  <Check className="h-5 w-5 text-white" />
+                </div>
+                <div>
+                  <h2 className="text-base font-semibold text-white">Registration Submitted</h2>
+                  <p className="text-xs text-emerald-100">Your entry is being reviewed by the tournament director.</p>
+                </div>
+              </div>
+            </div>
+            <div className="p-6">
               <div className="grid grid-cols-2 gap-4 text-sm">
                 {existingRegistration.playerName && (
-                  <div>
-                    <p className="text-xs uppercase tracking-wider text-slate-500">Player Name</p>
-                    <p className="font-medium text-slate-900">{existingRegistration.playerName}</p>
+                  <div className="rounded-lg border border-slate-100 bg-slate-50/70 p-3">
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Player Name</p>
+                    <p className="mt-1 font-medium text-slate-900">{existingRegistration.playerName}</p>
                   </div>
                 )}
                 {existingRegistration.uscfRating && (
-                  <div>
-                    <p className="text-xs uppercase tracking-wider text-slate-500">USCF Rating</p>
-                    <p className="font-medium text-slate-900">{existingRegistration.uscfRating}</p>
+                  <div className="rounded-lg border border-slate-100 bg-slate-50/70 p-3">
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">USCF Rating</p>
+                    <p className="mt-1 font-medium text-slate-900">{existingRegistration.uscfRating}</p>
                   </div>
                 )}
                 {existingRegistration.email && (
-                  <div>
-                    <p className="text-xs uppercase tracking-wider text-slate-500">Email</p>
-                    <p className="font-medium text-slate-900">{existingRegistration.email}</p>
-                  </div>
-                )}
-                {existingRegistration.phoneNumber && (
-                  <div>
-                    <p className="text-xs uppercase tracking-wider text-slate-500">Phone</p>
-                    <p className="font-medium text-slate-900">{existingRegistration.phoneNumber}</p>
+                  <div className="col-span-2 rounded-lg border border-slate-100 bg-slate-50/70 p-3">
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Email</p>
+                    <p className="mt-1 font-medium text-slate-900">{existingRegistration.email}</p>
                   </div>
                 )}
               </div>
-              <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-600">
-                We&apos;ll email you once the tournament director processes your registration.
+              <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+                We&apos;ll notify you once the tournament director processes your registration.
               </div>
-              <Button onClick={() => setLocation(`/tournaments/${tournamentId}`)}>Return to tournament page</Button>
-            </CardContent>
-          </Card>
+              <Button className="mt-6 w-full" onClick={() => setLocation(`/tournaments/${tournamentId}`)}>Return to tournament page</Button>
+            </div>
+          </div>
         </div>
       </div>
     );
@@ -743,7 +836,7 @@ export default function TournamentRegistrationFormPage({ tournamentId }: Tournam
 
 
   const handleAddAnotherPlayer = async () => {
-    if (!multiPlayerAllowed || requiresPayment) {
+    if (!multiPlayerAllowed) {
       return;
     }
 
@@ -825,6 +918,29 @@ export default function TournamentRegistrationFormPage({ tournamentId }: Tournam
   const handleEditDraft = (draftId: string) => {
     const draft = playerDrafts.find((entry) => entry.id === draftId);
     if (!draft) return;
+
+    // Before switching, save the current in-progress player so they aren't lost.
+    const currentValues = form.getValues();
+    const hasCurrentData = Boolean(
+      currentValues.firstName?.trim() || currentValues.lastName?.trim()
+    );
+
+    if (editingDraftId) {
+      // We were already editing a draft — update it with the current form state
+      setPlayerDrafts((prev) =>
+        prev.map((entry) =>
+          entry.id === editingDraftId ? { ...entry, values: currentValues } : entry,
+        ),
+      );
+    } else if (hasCurrentData) {
+      // There's an unsaved in-progress player — save them as a new draft
+      const newDraftId =
+        typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+          ? crypto.randomUUID()
+          : `player-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      setPlayerDrafts((prev) => [...prev, { id: newDraftId, values: currentValues }]);
+    }
+
     setEditingDraftId(draftId);
     form.reset(draft.values);
     setCurrentStep(1);
@@ -836,284 +952,317 @@ export default function TournamentRegistrationFormPage({ tournamentId }: Tournam
     }
     setPlayerDrafts((prev) => prev.filter((entry) => entry.id !== draftId));
   };
-
-  const allDraftValues: RegistrationFormValues[] = playerDrafts.map((entry) => entry.values);
   const currentPlayerLabel =
     `${form.getValues("firstName") ?? ""} ${form.getValues("lastName") ?? ""}`.trim() || "Current player";
   const currentPlayerSection = form.getValues("sectionChoice") || "Not selected";
 
+  const getInitials = (firstName: string, lastName: string) => {
+    return `${(firstName || "")[0] ?? ""}${(lastName || "")[0] ?? ""}`.toUpperCase();
+  };
+
   return (
-    <div className="min-h-screen bg-gradient-to-b from-slate-50 via-white to-white">
-      <div className="border-b border-slate-200/60 bg-gradient-to-r from-white via-indigo-50/60 to-white">
-        <div className="mx-auto flex max-w-6xl flex-col gap-6 px-4 py-8 sm:px-6 lg:px-8">
-          <div className="flex flex-wrap items-center justify-between gap-3 text-sm text-slate-500">
-            <Button variant="ghost" className="px-0 text-slate-600" onClick={() => setLocation(`/tournaments/${tournamentId}`)}>
-              <ArrowLeft className="mr-2 h-4 w-4" />
-              Back to Tournament
-            </Button>
-            <div className="flex items-center gap-2">
-              <Badge className={statusStyles[tournament.status] ?? "bg-slate-200 text-slate-700"}>
-                {tournament.status.charAt(0).toUpperCase() + tournament.status.slice(1)}
-              </Badge>
-            </div>
+    <div className="min-h-screen bg-[#f7f6f3]">
+      {/* ===== Hero Header ===== */}
+      <div className="relative overflow-hidden bg-white/80 backdrop-blur-md border-b border-slate-100/60">
+        <div className="relative mx-auto max-w-6xl px-4 pb-6 pt-5 sm:px-6 lg:px-8">
+          <div className="mb-4">
+            <Breadcrumbs steps={[{ label: tournament.name, href: `/tournaments/${tournamentId}` }, { label: "Registration" }]} />
+          </div>
+          {/* top nav row */}
+          <div className="flex items-center justify-between">
+            <button
+              type="button"
+              onClick={() => setLocation(`/tournaments/${tournamentId}`)}
+              className="group flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold text-slate-600 transition-all hover:bg-slate-100 hover:text-slate-900 active:scale-95"
+            >
+              <ArrowLeft className="h-4 w-4 transition group-hover:-translate-x-0.5" />
+              Back to tournament
+            </button>
+            <Badge
+              className={cn(
+                "border-slate-200 text-xs capitalize",
+                tournament.status === "active"
+                  ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                  : tournament.status === "upcoming"
+                    ? "bg-blue-50 text-blue-700 border-blue-200"
+                    : "bg-slate-50 text-slate-600 border-slate-200",
+              )}
+              variant="outline"
+            >
+              {tournament.status}
+            </Badge>
           </div>
 
-          <div className="grid gap-8 lg:grid-cols-[2fr,1fr] lg:items-center">
-            <div className="space-y-4">
-              <h1 className="text-3xl font-bold text-slate-900 dark:text-white">{tournament.name}</h1>
-              <p className="max-w-2xl text-base text-slate-600">
-                Complete the steps below to secure your spot. You can review the event details, fill out player information,
-                and confirm your entry.
-              </p>
-              <div className="grid gap-3 text-sm text-slate-600 sm:grid-cols-2">
-                <div className="flex items-center gap-2">
-                  <Calendar className="h-4 w-4 text-indigo-500" />
-                  <span>
-                    {startDateText}
-                    {endDateText && endDateText !== "TBD" && ` · ${endDateText}`}
-                  </span>
+          {/* tournament title + meta */}
+          <div className="mt-5 grid gap-6 lg:grid-cols-[1fr,auto] lg:items-end">
+            <div className="space-y-3">
+              <div className="flex items-center gap-2">
+                <div className="flex h-6 w-6 items-center justify-center rounded-md bg-blue-500/10">
+                  <Trophy className="h-3.5 w-3.5 text-blue-600" />
                 </div>
-                <div className="flex items-center gap-2">
-                  <MapPin className="h-4 w-4 text-indigo-500" />
-                  <span>{config.basic.city || tournament.location || "Venue TBA"}</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Clock className="h-4 w-4 text-indigo-500" />
-                  <span>{config.details.timeControl?.toUpperCase()} · {config.details.rounds} rounds</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <User className="h-4 w-4 text-indigo-500" />
-                  <span>
-                    {playerCount} registered players
-                    {playerLimit ? ` / ${playerLimit} limit` : ""}
-                  </span>
-                </div>
+                <span className="text-xs font-bold uppercase tracking-widest text-blue-700/80">Tournament Registration</span>
+              </div>
+              <h1 className="text-3xl font-extrabold leading-tight text-slate-900 sm:text-4xl">{tournament.name}</h1>
+              <div className="flex flex-wrap gap-x-5 gap-y-2 text-sm text-slate-500">
+                <span className="flex items-center gap-1.5">
+                  <Calendar className="h-3.5 w-3.5 text-blue-600/70" />
+                  {startDateText}{endDateText && endDateText !== "TBD" && ` – ${endDateText}`}
+                </span>
+                <span className="flex items-center gap-1.5">
+                  <MapPin className="h-3.5 w-3.5 text-blue-600/70" />
+                  {config.basic.city || tournament.location || "Venue TBA"}
+                </span>
+                <span className="flex items-center gap-1.5">
+                  <Clock className="h-3.5 w-3.5 text-blue-600/70" />
+                  {config.details.timeControl?.toUpperCase()} · {config.details.rounds} rounds
+                </span>
+                <span className="flex items-center gap-1.5">
+                  <Users className="h-3.5 w-3.5 text-blue-600/70" />
+                  {playerCount}{playerLimit ? ` / ${playerLimit}` : ""} players
+                </span>
               </div>
             </div>
 
-            <Card className="overflow-hidden border-0 bg-white/80 shadow-xl ring-1 ring-indigo-100/70 backdrop-blur">
-              <CardHeader className="border-b border-indigo-100/70 bg-gradient-to-r from-indigo-50/80 to-white pb-4">
-                <CardTitle className="text-lg font-semibold">Registration progress</CardTitle>
-                <CardDescription>Follow the steps below to complete your entry.</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-5 bg-white/70 p-6">
-                <div className="relative h-2 rounded-full bg-slate-200">
-                  <div
-                    className="absolute left-0 top-0 h-2 rounded-full bg-gradient-to-r from-indigo-500 via-indigo-500 to-emerald-500 transition-all duration-300"
-                    style={{ width: `${Math.max(0, Math.min(100, progressPercentage))}%` }}
-                  />
-                  {[1, 2, 3].map((step) => {
-                    const position = ((step - 1) / (totalSteps - 1)) * 100;
-                    const stateClass =
-                      currentStep === step
-                        ? "bg-indigo-500"
-                        : currentStep > step
-                        ? "bg-emerald-500"
-                        : "bg-slate-300";
-                    return (
-                      <div
-                        key={step}
-                        className={cn(
-                          "absolute top-1/2 h-4 w-4 -translate-y-1/2 transform rounded-full border-2 border-white shadow-sm transition-colors",
-                          stateClass,
-                        )}
-                        style={{ left: `${position}%`, transform: "translate(-50%, -50%)" }}
-                      />
-                    );
-                  })}
-                </div>
-                <div className="grid grid-cols-3 gap-2 text-center text-xs font-medium text-slate-600">
-                  {stepMeta.map((meta, index) => {
-                    const step = index + 1;
-                    const colorClass =
-                      currentStep === step
-                        ? "text-indigo-600"
-                        : currentStep > step
-                        ? "text-emerald-600"
-                        : "text-slate-500";
-                    return (
-                      <div key={meta.title} className={cn("space-y-1", colorClass)}>
-                        <p className="text-[11px] uppercase tracking-wide">Step {step}</p>
-                        <p className="text-sm font-semibold">{meta.title}</p>
-                        <p className="text-[11px] leading-4 text-slate-500">{meta.description}</p>
+            {/* Step progress indicator */}
+            <div className="shrink-0">
+              <div className="flex items-center gap-2">
+                {stepMeta.map((meta, index) => {
+                  const step = index + 1;
+                  const isDone = currentStep > step;
+                  const isActive = currentStep === step;
+                  return (
+                    <div key={meta.title} className="flex items-center gap-2">
+                      <div className="flex flex-col items-center gap-1">
+                        <div
+                          className={cn(
+                            "flex h-9 w-9 items-center justify-center rounded-full text-xs font-bold ring-2 transition-all duration-300",
+                            isDone
+                              ? "bg-emerald-500 ring-emerald-100 text-white shadow-sm"
+                              : isActive
+                                ? "bg-blue-500 ring-blue-100 text-white shadow-md shadow-blue-200"
+                                : "bg-slate-100 ring-slate-200 text-slate-400",
+                          )}
+                        >
+                          {isDone ? <Check className="h-4 w-4" /> : step}
+                        </div>
+                        <span className={cn(
+                          "hidden text-[10px] font-bold sm:block uppercase tracking-wider",
+                          isActive ? "text-blue-700" : isDone ? "text-emerald-600" : "text-slate-400"
+                        )}>{meta.title}</span>
                       </div>
-                    );
-                  })}
-                </div>
-              </CardContent>
-            </Card>
+                      {index < stepMeta.length - 1 && (
+                        <div
+                          className={cn(
+                            "mb-4 h-px w-10 transition-all duration-500",
+                            currentStep > step ? "bg-emerald-200" : "bg-slate-200",
+                          )}
+                        />
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
           </div>
         </div>
       </div>
 
-      <div className="mx-auto max-w-6xl space-y-12 px-4 py-12 sm:px-6 lg:px-8">
+      {/* ===== Main Content ===== */}
+      <div className="mx-auto max-w-4xl px-4 py-8 sm:px-6 lg:px-8">
         <FormProvider {...form}>
-          <form onSubmit={(event) => event.preventDefault()} className="space-y-10">
-            {multiPlayerAllowed && !requiresPayment && (allDraftValues.length > 0 || currentStep > 1) && (
-              <Card className="border-0 bg-white/90 shadow-xl ring-1 ring-indigo-100/70 backdrop-blur">
-                <CardHeader className="border-b border-indigo-100/70 bg-gradient-to-r from-indigo-50/80 to-white">
-                  <CardTitle>Players in this registration</CardTitle>
-                  <CardDescription>
-                    Review players you&apos;ve added so far. You can edit or remove them before finalizing.
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4 bg-white/60 p-6">
-                  <div className="space-y-3 text-sm text-slate-700">
-                    {playerDrafts.map((entry) => {
-                      const values = entry.values;
-                      const name = `${values.firstName} ${values.lastName}`.trim() || "Unnamed player";
-                      const entryFee =
-                        entryFees.find((fee) => fee.id === values.entryFeeId) ?? null;
-                      const contribution = parseContribution(values.processingContribution);
-                      const totals = computePaymentTotals(entryFee, contribution, paymentSettings);
+          <form onSubmit={(event) => event.preventDefault()} className="space-y-6">
 
-                      const isEditing = editingDraftId === entry.id;
-
-                      return (
-                        <div
-                          key={entry.id}
-                          className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white/80 px-3 py-2"
-                        >
-                          <div className="space-y-1">
-                            <p className="font-medium text-slate-900">
-                              {name}
-                              {isEditing && (
-                                <span className="ml-2 text-xs font-semibold text-indigo-600">
-                                  Editing
-                                </span>
-                              )}
-                            </p>
-                            <p className="text-xs text-slate-500">
-                              Section: {values.sectionChoice || "Not selected"}
-                              {entryFee && ` · ${entryFee.section}`}
-                            </p>
-                          </div>
-                          <div className="flex items-center gap-3">
-                            <span className="text-sm font-semibold text-indigo-700">
-                              {entryFee
-                                ? formatCurrency(entryFee.amount + contribution, entryFee.currency)
-                                : `Approx. ${formatCurrency(totals.total, totals.currency)}`}
-                            </span>
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="sm"
-                              onClick={() => handleEditDraft(entry.id)}
-                              disabled={isEditing}
-                            >
-                              Edit
-                            </Button>
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="sm"
-                              onClick={() => handleRemoveDraft(entry.id)}
-                            >
-                              Remove
-                            </Button>
-                          </div>
-                        </div>
-                      );
-                    })}
-
-                    <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-dashed border-slate-200 bg-white/70 px-3 py-2">
-                      <div className="space-y-1">
-                        <p className="font-medium text-slate-900">
-                          {currentPlayerLabel}
-                          <span className="ml-2 text-xs font-semibold text-slate-500">In progress</span>
-                        </p>
-                        <p className="text-xs text-slate-500">Section: {currentPlayerSection}</p>
-                      </div>
-                      <span className="text-sm font-semibold text-indigo-700">
-                        {formatCurrency(paymentTotals.total, paymentTotals.currency)}
-                      </span>
-                    </div>
+            {/* ===== Multi-player roster panel ===== */}
+            {multiPlayerAllowed && (allDraftValues.length > 0 || currentStep > 1) && (
+              <div className="overflow-hidden rounded-2xl border border-blue-200/60 bg-white shadow-md ring-1 ring-black/5">
+                <div className="flex items-center gap-4 border-b border-blue-100/80 bg-gradient-to-r from-blue-50/90 via-indigo-50/40 to-white px-6 py-4">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-500 shadow-lg shadow-blue-200">
+                    <Users className="h-5 w-5 text-white" />
                   </div>
-                </CardContent>
-              </Card>
-            )}
-            {currentStep === 1 && <StepOne players={players} sections={sections} entryFees={entryFees} />}
+                  <div>
+                    <h3 className="text-lg font-bold leading-tight text-slate-900">Group Registration</h3>
+                    <p className="text-xs font-medium text-blue-700/80">
+                      {playerDrafts.length} player{playerDrafts.length !== 1 ? "s" : ""} saved · 1 in progress
+                    </p>
+                  </div>
+                </div>
+                <div className="divide-y divide-slate-100">
+                  {playerDrafts.map((entry, idx) => {
+                    const values = entry.values;
+                    const name = `${values.firstName} ${values.lastName}`.trim() || "Unnamed player";
+                    const initials = getInitials(values.firstName ?? "", values.lastName ?? "");
+                    const entryFee = entryFees.find((fee) => fee.id === values.entryFeeId) ?? null;
+                    const contribution = parseContribution(values.processingContribution);
+                    const totals = computePaymentTotals(entryFee, contribution, paymentSettings);
+                    const isEditing = editingDraftId === entry.id;
 
-            {currentStep === 2 && (
-              <StepTwo
-                config={config}
-                entryFees={entryFees}
-                paymentSettings={paymentSettings ?? null}
-                sections={sections}
-              />
+                    return (
+                      <div
+                        key={entry.id}
+                        className={cn(
+                          "flex items-center gap-3 px-5 py-3.5 transition",
+                          isEditing && "bg-blue-50/60",
+                        )}
+                      >
+                        <div className={cn(
+                          "flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-xs font-bold",
+                          isEditing
+                            ? "bg-blue-200 text-blue-800"
+                            : "bg-slate-100 text-slate-600",
+                        )}>
+                          {initials || (idx + 1)}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2">
+                            <p className="truncate text-sm font-semibold text-slate-900">{name}</p>
+                            {isEditing && (
+                              <span className="rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-blue-700">Editing</span>
+                            )}
+                          </div>
+                          <p className="truncate text-xs text-slate-500">
+                            {values.sectionChoice || "Section TBD"}
+                            {entryFee && ` · ${entryFee.section}`}
+                          </p>
+                        </div>
+                        <p className="shrink-0 text-sm font-bold text-blue-700">
+                          {entryFee
+                            ? formatCurrency(entryFee.amount + contribution, entryFee.currency)
+                            : formatCurrency(totals.total, totals.currency)}
+                        </p>
+                        <div className="flex shrink-0 items-center gap-1">
+                          <button
+                            type="button"
+                            onClick={() => handleEditDraft(entry.id)}
+                            disabled={isEditing}
+                            className="flex h-7 w-7 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 transition hover:border-blue-300 hover:text-blue-600 disabled:opacity-40"
+                          >
+                            <Pencil className="h-3.5 w-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveDraft(entry.id)}
+                            className="flex h-7 w-7 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-400 transition hover:border-red-200 hover:text-red-500"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+
+                  {/* Current in-progress player */}
+                  <div className="flex items-center gap-3 bg-blue-50/40 px-5 py-3">
+                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border-2 border-dashed border-blue-300 bg-blue-50 text-xs font-bold text-blue-600">
+                      {playerDrafts.length + 1}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <p className="truncate text-sm font-medium text-slate-700">{currentPlayerLabel}</p>
+                        <span className="rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-blue-700">In progress</span>
+                      </div>
+                      <p className="text-xs text-slate-500">Section: {currentPlayerSection}</p>
+                    </div>
+                    <p className="shrink-0 text-sm font-bold text-blue-700">
+                      {formatCurrency(paymentTotals.total, paymentTotals.currency)}
+                    </p>
+                  </div>
+                </div>
+              </div>
             )}
 
-            {currentStep === 3 && (
-              <>
-                {multiPlayerAllowed && !requiresPayment && allDraftValues.length > 0 && (
-                  <Card className="border-0 bg-white/90 shadow-xl ring-1 ring-indigo-100/70 backdrop-blur">
-                    <CardHeader className="border-b border-indigo-100/70 bg-gradient-to-r from-indigo-50/80 to-white">
-                      <CardTitle>Group payment summary</CardTitle>
-                      <CardDescription>
-                        Overview of all players you&apos;re registering in this session.
-                      </CardDescription>
-                    </CardHeader>
-                    <CardContent className="space-y-4 bg-white/60 p-6 text-sm text-slate-700">
-                      <div className="space-y-2">
+            {/* ===== Step Content ===== */}
+            <div className="animate-in fade-in slide-in-from-bottom-2 duration-300">
+              {currentStep === 1 && <StepOne players={players} sections={sections} entryFees={entryFees} />}
+              {currentStep === 2 && (
+                <StepTwo
+                  config={config}
+                  entryFees={entryFees}
+                  paymentSettings={paymentSettings ?? null}
+                  sections={sections}
+                />
+              )}
+              {currentStep === 3 && (
+                <>
+                  {multiPlayerAllowed && allDraftValues.length > 0 && (
+                    <div className="mb-6 overflow-hidden rounded-2xl border border-blue-200/60 bg-white shadow-md ring-1 ring-black/5">
+                      <div className="flex items-center gap-4 border-b border-blue-100/80 bg-gradient-to-r from-blue-50/90 via-indigo-50/40 to-white px-6 py-4">
+                        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-500 shadow-lg shadow-blue-200">
+                          <CreditCard className="h-5 w-5 text-white" />
+                        </div>
+                        <div>
+                          <h3 className="text-lg font-bold leading-tight text-slate-900">Group Enrollment</h3>
+                          <p className="text-xs font-medium text-blue-700/80">Reviewing payment for all registration entries</p>
+                        </div>
+                      </div>
+                      <div className="divide-y divide-slate-100">
                         {allDraftValues.map((values, index) => {
                           const name = `${values.firstName} ${values.lastName}`.trim() || `Player ${index + 1}`;
                           const entryFee = entryFees.find((fee) => fee.id === values.entryFeeId) ?? null;
                           const contribution = parseContribution(values.processingContribution);
                           const totals = computePaymentTotals(entryFee, contribution, paymentSettings);
                           return (
-                            <div
-                              key={`${name}-${index}`}
-                              className="flex items-center justify-between rounded-lg border border-slate-200 bg-white/80 px-3 py-2"
-                            >
-                              <div className="space-y-1">
-                                <p className="font-medium text-slate-900">{name}</p>
-                                <p className="text-xs text-slate-500">
-                                  Section: {values.sectionChoice || "Not selected"}
-                                </p>
+                            <div key={`${name}-${index}`} className="flex items-center justify-between px-5 py-3">
+                              <div>
+                                <p className="text-sm font-medium text-slate-900">{name}</p>
+                                <p className="text-xs text-slate-500">{values.sectionChoice || "Section TBD"}</p>
                               </div>
-                              <span className="text-sm font-semibold text-indigo-700">
+                              <span className="text-sm font-bold text-blue-700">
                                 {formatCurrency(totals.total, totals.currency)}
                               </span>
                             </div>
                           );
                         })}
-                        {/* Include the active form player as part of the summary */}
-                        <div className="flex items-center justify-between rounded-lg border border-slate-200 bg-white/80 px-3 py-2">
-                          <div className="space-y-1">
-                            <p className="font-medium text-slate-900">
-                              {`${form.getValues("firstName") ?? ""} ${form.getValues("lastName") ?? ""}`.trim() ||
-                                "Current player"}
+                        <div className="flex items-center justify-between px-5 py-3">
+                          <div>
+                            <p className="text-sm font-medium text-slate-900">
+                              {`${form.getValues("firstName") ?? ""} ${form.getValues("lastName") ?? ""}`.trim() || "Current player"}
                             </p>
-                            <p className="text-xs text-slate-500">
-                              Section: {form.getValues("sectionChoice") || "Not selected"}
-                            </p>
+                            <p className="text-xs text-slate-500">{form.getValues("sectionChoice") || "Section TBD"}</p>
                           </div>
-                          <span className="text-sm font-semibold text-indigo-700">
+                          <span className="text-sm font-bold text-blue-700">
                             {formatCurrency(paymentTotals.total, paymentTotals.currency)}
                           </span>
                         </div>
+                        <div className="flex items-center justify-between bg-blue-50/60 px-5 py-3">
+                          <span className="text-sm font-bold text-slate-900">Combined total</span>
+                          <span className="text-sm font-bold text-blue-700">
+                            {formatCurrency(
+                              allDraftValues.reduce((sum, values) => {
+                                const entryFee = entryFees.find((fee) => fee.id === values.entryFeeId) ?? null;
+                                const contribution = parseContribution(values.processingContribution);
+                                const totals = computePaymentTotals(entryFee, contribution, paymentSettings);
+                                return sum + totals.total;
+                              }, paymentTotals.total),
+                              paymentTotals.currency,
+                            )}
+                          </span>
+                        </div>
                       </div>
-                      <div className="flex items-center justify-between border-t border-slate-200 pt-3 text-sm font-semibold text-indigo-700">
-                        <span>Combined total (all players)</span>
-                        <span>
-                          {formatCurrency(
-                            allDraftValues.reduce((sum, values) => {
-                              const entryFee =
-                                entryFees.find((fee) => fee.id === values.entryFeeId) ?? null;
-                              const contribution = parseContribution(values.processingContribution);
-                              const totals = computePaymentTotals(entryFee, contribution, paymentSettings);
-                              return sum + totals.total;
-                            }, paymentTotals.total),
-                            paymentTotals.currency,
-                          )}
-                        </span>
-                      </div>
-                    </CardContent>
-                  </Card>
-                )}
+                    </div>
+                  )}
 
-                {canProcessOnline && clientSecret && stripePromise ? (
-                  <Elements key={clientSecret} stripe={stripePromise} options={{ clientSecret }}>
+                  {canProcessOnline && clientSecret && stripePromise ? (
+                    <Elements key={clientSecret} stripe={stripePromise} options={{ clientSecret }}>
+                      <StepThree
+                        paymentDetails={config?.registers?.paymentDetails}
+                        paymentSettings={paymentSettings ?? null}
+                        paymentTotals={paymentTotals}
+                        selectedEntryFee={selectedEntryFee}
+                        sections={sections}
+                        requiresPayment={requiresPayment}
+                        onlineConfigured={Boolean(canProcessOnline)}
+                        clientSecret={clientSecret}
+                        registerPaymentHandler={setPaymentSubmitHandler}
+                        setPaymentBusy={setIsPaymentBusy}
+                        onPaymentElementReady={setIsPaymentElementReady}
+                        paymentIntentLoading={createPaymentIntent.isPending}
+                        paymentIntentError={paymentIntentErrorMessage}
+                        canAcceptOnlinePayment={true}
+                        tournamentId={tournamentId}
+                        retryPaymentIntent={ensurePaymentIntent}
+                      />
+                    </Elements>
+                  ) : (
                     <StepThree
                       paymentDetails={config?.registers?.paymentDetails}
                       paymentSettings={paymentSettings ?? null}
@@ -1128,62 +1277,80 @@ export default function TournamentRegistrationFormPage({ tournamentId }: Tournam
                       onPaymentElementReady={setIsPaymentElementReady}
                       paymentIntentLoading={createPaymentIntent.isPending}
                       paymentIntentError={paymentIntentErrorMessage}
-                      canAcceptOnlinePayment={true}
+                      canAcceptOnlinePayment={false}
                       tournamentId={tournamentId}
                       retryPaymentIntent={ensurePaymentIntent}
                     />
-                  </Elements>
-                ) : (
-                  <StepThree
-                    paymentDetails={config?.registers?.paymentDetails}
-                    paymentSettings={paymentSettings ?? null}
-                    paymentTotals={paymentTotals}
-                    selectedEntryFee={selectedEntryFee}
-                    sections={sections}
-                    requiresPayment={requiresPayment}
-                    onlineConfigured={Boolean(canProcessOnline)}
-                    clientSecret={clientSecret}
-                    registerPaymentHandler={setPaymentSubmitHandler}
-                    setPaymentBusy={setIsPaymentBusy}
-                    onPaymentElementReady={setIsPaymentElementReady}
-                    paymentIntentLoading={createPaymentIntent.isPending}
-                    paymentIntentError={paymentIntentErrorMessage}
-                    canAcceptOnlinePayment={false}
-                    tournamentId={tournamentId}
-                    retryPaymentIntent={ensurePaymentIntent}
-                  />
-                )}
-              </>
-            )}
+                  )}
+                </>
+              )}
+            </div>
 
-            <div className="flex flex-col gap-3 border-t border-slate-200 pt-6 sm:flex-row sm:items-center sm:justify-between">
-              <div className="text-xs text-slate-500">
-                Registration powered by Chess Tournament Manager. Confirmation is sent once the director approves your entry.
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <Button type="button" variant="outline" onClick={handlePrevStep} disabled={currentStep === 1}>
-                  Previous
-                </Button>
-                {currentStep < 3 ? (
-                  <>
-                    {currentStep === 2 && multiPlayerAllowed && !requiresPayment && (
-                      <Button type="button" variant="outline" onClick={handleAddAnotherPlayer}>
-                        Add Another Player
-                      </Button>
-                    )}
-                    <Button type="button" onClick={handleNextStep}>
-                      Continue
-                    </Button>
-                  </>
-                ) : (
-                  <Button
+            {/* ===== Navigation Footer ===== */}
+            <div className="mt-2 overflow-hidden rounded-2xl border border-slate-200/70 bg-white shadow-md ring-1 ring-black/5">
+              <div className="flex items-center justify-between gap-4 px-5 py-4">
+                <div className="hidden text-xs text-slate-400 sm:block">
+                  <span className="font-medium text-slate-600">Step {currentStep}</span> of {totalSteps} · {stepMeta[currentStep - 1]?.title}
+                </div>
+                <div className="flex flex-1 items-center justify-end gap-2.5 sm:flex-initial">
+                  <button
                     type="button"
-                    disabled={disableSubmitButton || !paymentAcknowledged}
-                    onClick={handleFinalSubmit}
+                    onClick={handlePrevStep}
+                    disabled={currentStep === 1}
+                    className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-4 text-sm font-medium text-slate-600 shadow-sm transition hover:bg-slate-50 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-40"
                   >
-                    {submitButtonLabel}
-                  </Button>
-                )}
+                    <ArrowLeft className="h-3.5 w-3.5" />
+                    Back
+                  </button>
+
+                  {currentStep < 3 ? (
+                    <div className="flex items-center gap-2">
+                      {currentStep === 2 && multiPlayerAllowed && (
+                        <button
+                          type="button"
+                          onClick={handleAddAnotherPlayer}
+                          className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-blue-200 bg-blue-50 px-4 text-sm font-semibold text-blue-700 shadow-sm transition hover:border-blue-300 hover:bg-blue-100"
+                        >
+                          <Plus className="h-3.5 w-3.5" />
+                          Add another player
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={handleNextStep}
+                        className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-blue-500 px-5 text-sm font-semibold text-white shadow-md shadow-blue-200 transition hover:bg-blue-600 active:scale-[0.98]"
+                      >
+                        Continue
+                        <ChevronRight className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      disabled={disableSubmitButton || !paymentAcknowledged}
+                      onClick={handleFinalSubmit}
+                      className={cn(
+                        "inline-flex h-9 items-center gap-1.5 rounded-lg px-5 text-sm font-semibold text-white shadow-md transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50",
+                        requiresPayment
+                          ? "bg-emerald-600 shadow-emerald-200 hover:bg-emerald-700"
+                          : "bg-blue-500 shadow-blue-200 hover:bg-blue-600",
+                      )}
+                    >
+                      {registerMutation.isPending || groupRegisterMutation.isPending ? (
+                        <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Submitting...</>
+                      ) : isPaymentBusy ? (
+                        <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Processing...</>
+                      ) : requiresPayment ? (
+                        <><Shield className="h-3.5 w-3.5" /> Pay & Submit</>
+                      ) : (
+                        <><Check className="h-3.5 w-3.5" /> Submit Registration</>
+                      )}
+                    </button>
+                  )}
+                </div>
+              </div>
+              <div className="border-t border-slate-100 bg-slate-50/50 px-5 py-2 text-center text-[11px] text-slate-400">
+                Registration powered by Chess Tournament Manager · Confirmation sent after director review
               </div>
             </div>
           </form>
@@ -1315,8 +1482,8 @@ function StepOne({
         setRemoteResults(combined);
         const mergedErrors = response.errors
           ? Object.values(response.errors)
-              .filter((value): value is string => Boolean(value && value.trim()))
-              .join(" ")
+            .filter((value): value is string => Boolean(value && value.trim()))
+            .join(" ")
           : "";
         setSearchError(mergedErrors && combined.length === 0 ? mergedErrors : null);
       } catch (error) {
@@ -1379,12 +1546,18 @@ function StepOne({
   };
 
   return (
-    <Card className="border-0 bg-white/90 shadow-xl ring-1 ring-indigo-100/70 backdrop-blur">
-      <CardHeader className="border-b border-indigo-100/70 bg-gradient-to-r from-indigo-50/80 to-white">
-        <CardTitle>Step 1: Player Lookup</CardTitle>
-        <CardDescription>Search national databases or enter your information manually.</CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-6 bg-white/60 p-6">
+    <div className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-md ring-1 ring-black/5">
+      <div className="flex items-center gap-4 border-b border-blue-100/70 bg-gradient-to-r from-blue-50/90 via-indigo-50/40 to-white px-6 py-5">
+        <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-blue-500 shadow-lg shadow-blue-200">
+          <Search className="h-6 w-6 text-white" />
+        </div>
+        <div>
+          <h2 className="text-xl font-bold leading-tight text-slate-900 tracking-tight">Player Lookup</h2>
+          <p className="text-xs font-semibold text-blue-700/80 uppercase">Step 1 of 3: Identity & Verification</p>
+        </div>
+      </div>
+
+      <div className="space-y-6 p-6">
         <RadioGroup
           value={lookupMode}
           onValueChange={(value) =>
@@ -1414,13 +1587,13 @@ function StepOne({
               <Input
                 value={searchTerm}
                 onChange={(event) => setSearchTerm(event.target.value)}
-                placeholder="Type at least 3 characters to search USCF and FIDE"
+                placeholder="Type name or ID (Min 3 chars)..."
                 autoComplete="off"
-                className="pl-9 pr-9"
+                className="h-11 pl-10 pr-10 focus-visible:ring-blue-500/30"
               />
-              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+              <Search className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
               {isSearching && (
-                <Loader2 className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-indigo-500" />
+                <Loader2 className="absolute right-3.5 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-blue-600" />
               )}
             </div>
             {searchTerm.trim().length < 3 ? (
@@ -1443,21 +1616,24 @@ function StepOne({
                           key={`${result.source}-${result.id}`}
                           type="button"
                           onClick={() => handleSelectLookupResult(result)}
-                          className="w-full rounded-lg border border-indigo-100/80 bg-indigo-50/70 p-3 text-left shadow-sm transition hover:border-indigo-300 hover:bg-indigo-100/80"
+                          className="group w-full rounded-xl border border-blue-100/80 bg-white p-4 text-left shadow-sm transition-all hover:border-blue-400 hover:bg-blue-50 hover:shadow-md"
                         >
-                          <div className="flex items-center justify-between gap-3">
-                            <div className="space-y-1">
-                              <p className="text-sm font-semibold text-slate-900">{result.name}</p>
-                              <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate-500">
-                                <Badge variant="outline" className="border-slate-200 text-[11px] uppercase">
-                                  {result.source.toUpperCase()}
-                                </Badge>
-                                {result.location && <span>{result.location}</span>}
-                                {result.extra && <span>{result.extra}</span>}
+                          <div className="flex items-center justify-between gap-4">
+                            <div className="flex items-center gap-3">
+                              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-slate-100 font-bold text-slate-400 group-hover:bg-blue-100 group-hover:text-blue-600 transition">
+                                {result.source === 'uscf' ? 'US' : 'FI'}
+                              </div>
+                              <div className="space-y-0.5">
+                                <p className="text-sm font-bold text-slate-900">{result.name}</p>
+                                <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate-500">
+                                  <span className="font-semibold text-blue-700">{result.source.toUpperCase()} · #{result.id}</span>
+                                  {result.location && <span className="text-slate-300">|</span>}
+                                  {result.location && <span>{result.location}</span>}
+                                </div>
                               </div>
                             </div>
-                            <div className="text-right text-sm font-medium text-slate-700">
-                              {result.ratingDisplay ?? result.rating ?? "Unrated"}
+                            <div className="bg-slate-900 text-white rounded-lg px-2.5 py-1.5 text-xs font-bold shadow-lg shadow-black/10">
+                              {result.ratingDisplay ?? result.rating ?? "No Rating"}
                             </div>
                           </div>
                         </button>
@@ -1475,7 +1651,7 @@ function StepOne({
                           key={player.id}
                           type="button"
                           onClick={() => handleSelectRosterPlayer(player)}
-                          className="w-full rounded-lg border border-indigo-100/80 bg-emerald-50/70 p-3 text-left shadow-sm transition hover:border-emerald-300 hover:bg-emerald-100/80"
+                          className="w-full rounded-lg border border-blue-100/80 bg-emerald-50/70 p-3 text-left shadow-sm transition hover:border-emerald-300 hover:bg-emerald-100/80"
                         >
                           <div className="flex items-center justify-between gap-3">
                             <div>
@@ -1498,92 +1674,101 @@ function StepOne({
           </div>
         )}
 
-        <div className="grid gap-4 sm:grid-cols-2">
-          <Field label="First name" name="firstName" required />
-          <Field label="Last name" name="lastName" required />
-          <Field label="USCF ID" name="uscfId" />
-          <Field label="FIDE ID" name="fideId" />
-          <Field label="USCF rating" name="uscfRating" />
-          <Field label="FIDE rating" name="fideRating" />
-        </div>
-
-        <div className="grid gap-4 sm:grid-cols-2">
-          <Field label="Email" name="email" required valueAs="email" />
-          <Field label="Phone number" name="phoneNumber" />
-        </div>
-
-        <div className="grid gap-4 sm:grid-cols-2">
-          <div>
-            <Label className="text-sm font-medium text-slate-700">Preferred section</Label>
-            <Select
-              onValueChange={(value) => form.setValue("sectionChoice", value, { shouldDirty: true })}
-              value={form.watch("sectionChoice") ?? ""}
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="Choose a section" />
-              </SelectTrigger>
-              <SelectContent>
-                {sectionDetails.length === 0 ? (
-                  <SelectItem value="" disabled>
-                    Sections will be announced soon
-                  </SelectItem>
-                ) : (
-                  sectionDetails.map((section) => {
-                    const eligible = ratingWithinSectionRange(numericRating, section);
-                    const showEligibilityWarning = numericRating !== null && !eligible;
-                    return (
-                      <SelectItem
-                        key={section.id}
-                        value={section.name}
-                        disabled={showEligibilityWarning}
-                        className={cn(
-                          "flex flex-col items-start gap-1",
-                          showEligibilityWarning && "opacity-45 text-slate-400",
-                        )}
-                      >
-                        <span className="font-medium text-slate-900">{section.label}</span>
-                        {(section.ratingMin !== null || section.ratingMax !== null) && (
-                          <span className="text-xs text-slate-500">
-                            Rating {section.ratingMin ?? "Unrated"} – {section.ratingMax ?? "Open"}
-                          </span>
-                        )}
-                        {showEligibilityWarning && numericRating !== null && (
-                          <span className="text-[11px] text-amber-600">
-                            Not eligible with rating {numericRating}.
-                          </span>
-                        )}
-                      </SelectItem>
-                    );
-                  })
-                )}
-              </SelectContent>
-            </Select>
-            {form.formState.errors.sectionChoice && (
-              <p className="mt-1 text-xs text-red-500">{form.formState.errors.sectionChoice.message}</p>
-            )}
-          </div>
-          <div>
-            <Label className="text-sm font-medium text-slate-700">Rating provider</Label>
-            <Select
-              onValueChange={(value) =>
-                form.setValue("ratingProvider", value as RegistrationFormValues["ratingProvider"], { shouldDirty: true })
-              }
-              value={form.watch("ratingProvider") ?? "none"}
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="Select rating provider" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="none">No rating</SelectItem>
-                <SelectItem value="uscf">USCF</SelectItem>
-                <SelectItem value="fide">FIDE</SelectItem>
-                <SelectItem value="manual">Manual</SelectItem>
-              </SelectContent>
-            </Select>
+        <div className="space-y-1">
+          <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">Player identity</p>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field label="First name" name="firstName" required />
+            <Field label="Last name" name="lastName" required />
+            <Field label="USCF ID" name="uscfId" />
+            <Field label="FIDE ID" name="fideId" />
+            <Field label="USCF rating" name="uscfRating" />
+            <Field label="FIDE rating" name="fideRating" />
           </div>
         </div>
-      </CardContent>
-    </Card>
+
+        <div className="space-y-1">
+          <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">Contact information</p>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field label="Email" name="email" required valueAs="email" />
+            <Field label="Phone number" name="phoneNumber" />
+          </div>
+        </div>
+
+        <div className="space-y-1">
+          <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">Section &amp; rating</p>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div>
+              <Label className="text-sm font-medium text-slate-700">Preferred section</Label>
+              <Select
+                onValueChange={(value) => form.setValue("sectionChoice", value, { shouldDirty: true })}
+                value={form.watch("sectionChoice") ?? ""}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Choose a section" />
+                </SelectTrigger>
+                <SelectContent>
+                  {sectionDetails.length === 0 ? (
+                    <SelectItem value="" disabled>
+                      Sections will be announced soon
+                    </SelectItem>
+                  ) : (
+                    sectionDetails.map((section) => {
+                      const eligible = ratingWithinSectionRange(numericRating, section);
+                      const showEligibilityWarning = numericRating !== null && !eligible;
+                      return (
+                        <SelectItem
+                          key={section.id}
+                          value={section.name}
+                          disabled={showEligibilityWarning}
+                          className={cn(
+                            "flex flex-col items-start gap-1",
+                            showEligibilityWarning && "opacity-45 text-slate-400",
+                          )}
+                        >
+                          <span className="font-medium text-slate-900">{section.label}</span>
+                          {(section.ratingMin !== null || section.ratingMax !== null) && (
+                            <span className="text-xs text-slate-500">
+                              Rating {section.ratingMin ?? "Unrated"} – {section.ratingMax ?? "Open"}
+                            </span>
+                          )}
+                          {showEligibilityWarning && numericRating !== null && (
+                            <span className="text-[11px] text-blue-600">
+                              Not eligible with rating {numericRating}.
+                            </span>
+                          )}
+                        </SelectItem>
+                      );
+                    })
+                  )}
+                </SelectContent>
+              </Select>
+              {form.formState.errors.sectionChoice && (
+                <p className="mt-1 text-xs text-red-500">{form.formState.errors.sectionChoice.message}</p>
+              )}
+            </div>
+            <div>
+              <Label className="text-sm font-medium text-slate-700">Rating provider</Label>
+              <Select
+                onValueChange={(value) =>
+                  form.setValue("ratingProvider", value as RegistrationFormValues["ratingProvider"], { shouldDirty: true })
+                }
+                value={form.watch("ratingProvider") ?? "none"}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select rating provider" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">No rating</SelectItem>
+                  <SelectItem value="uscf">USCF</SelectItem>
+                  <SelectItem value="fide">FIDE</SelectItem>
+                  <SelectItem value="manual">Manual</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -1720,28 +1905,34 @@ function StepTwo({
   }, [config?.details.rounds]);
 
   return (
-    <Card className="border-0 bg-white/90 shadow-xl ring-1 ring-indigo-100/70 backdrop-blur">
-      <CardHeader className="border-b border-indigo-100/70 bg-gradient-to-r from-indigo-50/80 to-white">
-        <CardTitle>Step 2: Details & Preferences</CardTitle>
-        <CardDescription>Provide contact information, arrival plans, and bye selections.</CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-8 bg-white/60 p-6">
+    <div className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-md ring-1 ring-black/5">
+      <div className="flex items-center gap-4 border-b border-blue-100/70 bg-gradient-to-r from-blue-50/90 via-indigo-50/40 to-white px-6 py-5">
+        <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-blue-500 shadow-lg shadow-blue-200">
+          <Trophy className="h-6 w-6 text-white" />
+        </div>
+        <div>
+          <h2 className="text-xl font-bold leading-tight text-slate-900 tracking-tight">Tournament Options</h2>
+          <p className="text-xs font-semibold text-blue-700/80 uppercase">Step 2 of 3: Section & Preferences</p>
+        </div>
+      </div>
+
+      <div className="space-y-8 p-6">
         <div className="space-y-4">
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <Label className="text-sm font-medium text-slate-700">Entry fee</Label>
-              <p className="text-xs text-slate-500">Choose the option that matches your section and rating.</p>
+              <Label className="text-sm font-bold text-slate-900 tracking-tight">Entry fee type</Label>
+              <p className="text-xs font-medium text-slate-500">Pick the pricing tier for your section.</p>
             </div>
-            <Badge variant="outline" className="w-fit border-indigo-200 bg-indigo-50/70 text-indigo-700">
-              {numericRating !== null ? `Rating: ${numericRating}` : "Rating: Unrated"}
+            <Badge variant="outline" className="w-fit border-blue-200 bg-blue-50/70 text-blue-800 font-bold px-3 py-1">
+              {numericRating !== null ? `Live Rating: ${numericRating}` : "Status: Unrated"}
             </Badge>
           </div>
           {entryFees.length === 0 ? (
-            <div className="rounded-lg border border-dashed border-indigo-200 bg-indigo-50/70 p-4 text-sm text-indigo-700">
+            <div className="rounded-lg border border-dashed border-blue-200 bg-blue-50/70 p-4 text-sm text-blue-700">
               Entry fees will be confirmed by the tournament director. Continue to acknowledge payment on the next step.
             </div>
           ) : entryFeeOptions.length === 0 ? (
-            <div className="flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-700">
+            <div className="flex items-start gap-3 rounded-lg border border-blue-200 bg-blue-50 p-4 text-sm text-blue-700">
               <AlertCircle className="h-4 w-4 shrink-0" />
               <p>No pricing has been configured for the selected section. Please contact the director for assistance.</p>
             </div>
@@ -1764,10 +1955,10 @@ function StepTwo({
                       key={fee.id}
                       htmlFor={`entry-fee-${fee.id}`}
                       className={cn(
-                        "relative flex cursor-pointer flex-col gap-2 rounded-lg border p-4 transition",
+                        "relative flex cursor-pointer flex-col gap-2 rounded-xl border p-5 transition-all shadow-sm ring-1 ring-inset ring-transparent",
                         isSelected
-                          ? "border-indigo-500 bg-indigo-100/80 shadow-md"
-                          : "border-indigo-100/70 bg-white/80 hover:border-indigo-300 hover:bg-indigo-50/60",
+                          ? "border-blue-400 bg-blue-50/80 ring-blue-400/20 shadow-md"
+                          : "border-slate-200 bg-white hover:border-blue-300 hover:bg-blue-50/30",
                       )}
                     >
                       <RadioGroupItem id={`entry-fee-${fee.id}`} value={fee.id} className="sr-only" />
@@ -1790,7 +1981,7 @@ function StepTwo({
                             "border text-xs",
                             eligible
                               ? "border-emerald-200 bg-emerald-50/70 text-emerald-700"
-                              : "border-amber-200 bg-amber-50/70 text-amber-700",
+                              : "border-blue-200 bg-blue-50/70 text-blue-700",
                           )}
                         >
                           {eligible ? "Matches rating" : "Director review required"}
@@ -1857,19 +2048,21 @@ function StepTwo({
               </SelectContent>
             </Select>
           </div>
-          <div className="flex items-center gap-3 rounded-lg border border-slate-200 p-4">
+          <div className="flex items-start gap-4 rounded-xl border border-slate-200 bg-slate-50/50 p-5 transition-all group hover:bg-white hover:shadow-md hover:border-blue-200">
             <input
               id="newsletter"
               type="checkbox"
-              className="h-4 w-4 border-slate-300 text-indigo-600"
+              className="mt-1 h-4 w-4 rounded-md border-slate-300 text-blue-600 focus:ring-blue-500"
               checked={form.watch("newsletter") ?? false}
               onChange={(event) => form.setValue("newsletter", event.target.checked)}
             />
-            <div>
-              <Label htmlFor="newsletter" className="text-sm font-medium text-slate-700">
-                Receive tournament updates
+            <div className="space-y-1">
+              <Label htmlFor="newsletter" className="text-sm font-bold text-slate-900 cursor-pointer">
+                Receive Tournament Bulletins
               </Label>
-              <p className="text-xs text-slate-500">Opt-in to organizer newsletters and bulletins.</p>
+              <p className="text-xs leading-relaxed text-slate-500">
+                Register for the official newsletter to receive pairing alerts, result updates, and future event invitations.
+              </p>
             </div>
           </div>
         </div>
@@ -1905,10 +2098,10 @@ function StepTwo({
                       type="button"
                       onClick={() => toggleArrayValue(form, "byeRounds", label)}
                       className={cn(
-                        "flex items-center justify-between rounded-lg border px-3 py-2 text-sm transition",
+                        "flex items-center justify-between rounded-xl border px-4 py-3 text-sm font-medium transition-all shadow-sm",
                         checked
-                          ? "border-indigo-500 bg-indigo-100/80 text-indigo-700 shadow-sm"
-                          : "border-slate-200 bg-white/70 text-slate-600 hover:border-indigo-200 hover:bg-indigo-50/60",
+                          ? "border-blue-400 bg-blue-500 text-white shadow-blue-200"
+                          : "border-slate-200 bg-white text-slate-600 hover:border-blue-200 hover:bg-blue-50",
                       )}
                     >
                       <span>{label}</span>
@@ -1930,8 +2123,8 @@ function StepTwo({
             {...form.register("notes")}
           />
         </div>
-      </CardContent>
-    </Card>
+      </div>
+    </div>
   );
 }
 
@@ -2039,10 +2232,10 @@ function StepThreeContent({
 
   const statusStyles: Record<PaymentStatusKey, string> = {
     unpaid: "bg-slate-100 text-slate-700",
-    processing: "bg-amber-100 text-amber-700",
+    processing: "bg-blue-100 text-blue-700",
     paid: "bg-emerald-100 text-emerald-700",
     failed: "bg-red-100 text-red-700",
-    refunded: "bg-blue-100 text-blue-700",
+    refunded: "bg-slate-100 text-slate-600 border border-slate-200",
   };
 
   const statusLabels: Record<PaymentStatusKey, string> = {
@@ -2065,8 +2258,8 @@ function StepThreeContent({
       value: selectedEntryFee
         ? `${formatCurrency(selectedEntryFee.amount, selectedEntryFee.currency)} · ${selectedEntryFee.section} (${formatEntryFeeRange(selectedEntryFee, sections, sectionChoiceOption)})`
         : isOfflineEntry
-        ? "To be confirmed offline"
-        : undefined,
+          ? "To be confirmed offline"
+          : undefined,
     },
     {
       label: "Contribution",
@@ -2159,14 +2352,14 @@ function StepThreeContent({
         typeof (intent as any).amount_received === "number"
           ? (intent as any).amount_received
           : typeof (intent as any).amountReceived === "number"
-          ? (intent as any).amountReceived
-          : 0;
+            ? (intent as any).amountReceived
+            : 0;
       const amountCents =
         typeof intent.amount === "number"
           ? intent.amount
           : typeof (intent as any).amount === "number"
-          ? (intent as any).amount
-          : Math.round(paymentTotals.total * 100);
+            ? (intent as any).amount
+            : Math.round(paymentTotals.total * 100);
       form.setValue("amountPaid", Number((amountReceivedCents / 100).toFixed(2)), { shouldDirty: false });
       form.setValue("amountDue", Number((amountCents / 100).toFixed(2)), { shouldDirty: false });
       form.setValue(
@@ -2245,17 +2438,21 @@ function StepThreeContent({
   ]);
 
   return (
-    <Card className="border-0 bg-white/90 shadow-xl ring-1 ring-indigo-100/70 backdrop-blur">
-      <CardHeader className="border-b border-indigo-100/70 bg-gradient-to-r from-indigo-50/80 to-white">
-        <CardTitle>Step 3: Payment & Review</CardTitle>
-        <CardDescription>
-          {requiresPayment
-            ? "Secure checkout is required to complete your registration."
-            : "Review your details and confirm how you will complete payment."}
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-6 bg-white/60 p-6">
-        <div className="rounded-xl border border-indigo-100/70 bg-white/80 p-4 shadow-sm">
+    <div className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm">
+      <div className="flex items-center gap-4 border-b border-blue-100/70 bg-gradient-to-r from-blue-50/80 to-white px-6 py-4">
+        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-600 shadow-lg shadow-blue-200">
+          <Wallet className="h-5 w-5 text-white" />
+        </div>
+        <div>
+          <h2 className="text-lg font-bold leading-tight text-slate-900">Payment &amp; Review</h2>
+          <p className="text-xs font-medium text-blue-600/80">
+            Step 3 of 3: {requiresPayment ? "Complete registration with secure checkout" : "Confirm and submit your registration"}
+          </p>
+        </div>
+      </div>
+
+      <div className="space-y-6 p-6">
+        <div className="rounded-xl border border-blue-100/70 bg-white/80 p-4 shadow-sm">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <h3 className="text-sm font-semibold text-slate-900">Payment summary</h3>
             <span className={cn("rounded-full px-3 py-1 text-xs font-semibold", statusStyles[paymentStatus])}>
@@ -2265,12 +2462,12 @@ function StepThreeContent({
           <div className="mt-3 space-y-3 text-sm text-slate-600">
             <div className="flex items-center justify-between">
               <span>Entry fee</span>
-              <span className="font-medium text-indigo-700">
+              <span className="font-medium text-blue-700">
                 {selectedEntryFee
                   ? formatCurrency(selectedEntryFee.amount, selectedEntryFee.currency)
                   : isOfflineEntry
-                  ? "To be confirmed"
-                  : "Select an entry fee"}
+                    ? "To be confirmed"
+                    : "Select an entry fee"}
               </span>
             </div>
             {selectedEntryFee && (
@@ -2315,7 +2512,7 @@ function StepThreeContent({
                 <span>{formatCurrency(paymentTotals.feeAmount, paymentTotals.currency)}</span>
               </div>
             )}
-            <div className="flex items-center justify-between border-t border-slate-200 pt-3 text-sm font-semibold text-indigo-700">
+            <div className="flex items-center justify-between border-t border-slate-200 pt-3 text-sm font-semibold text-blue-700">
               <span>Total due</span>
               <span>{formatCurrency(paymentTotals.total, paymentTotals.currency)}</span>
             </div>
@@ -2323,7 +2520,7 @@ function StepThreeContent({
           </div>
         </div>
 
-        <div className="space-y-3 rounded-xl border border-indigo-100/70 bg-white/80 p-4 shadow-sm">
+        <div className="space-y-3 rounded-xl border border-blue-100/70 bg-white/80 p-4 shadow-sm">
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-semibold text-slate-900">Payment method</h3>
             {requiresPayment && <Badge variant="outline">Required</Badge>}
@@ -2331,12 +2528,12 @@ function StepThreeContent({
           {canAcceptOnlinePayment ? (
             <div className="space-y-3">
               {paymentIntentLoading ? (
-                <div className="flex items-center justify-center gap-2 rounded-lg border border-dashed border-indigo-200 bg-indigo-50/60 p-4 text-sm text-indigo-600">
+                <div className="flex items-center justify-center gap-2 rounded-lg border border-dashed border-blue-200 bg-blue-50/60 p-4 text-sm text-blue-600">
                   <Loader2 className="h-4 w-4 animate-spin" />
                   Preparing secure checkout...
                 </div>
               ) : (
-                <div className="rounded-lg border border-indigo-200 bg-white p-4">
+                <div className="rounded-lg border border-blue-200 bg-white p-4">
                   <PaymentElement
                     options={{ layout: "tabs" }}
                     onReady={() => onPaymentElementReady(!requiresPayment)}
@@ -2383,12 +2580,12 @@ function StepThreeContent({
           )}
         </div>
 
-        <div className="space-y-3 rounded-xl border border-indigo-100/70 bg-white/80 p-4 shadow-sm">
+        <div className="space-y-3 rounded-xl border border-blue-100/70 bg-white/80 p-4 shadow-sm">
           <h3 className="text-sm font-semibold text-slate-900">Offline payment options</h3>
           {offlineAllowed ? (
             <div className="flex flex-wrap gap-2">
               {offlineMethods.map((method) => (
-                <span key={method} className="rounded-full bg-indigo-100 px-3 py-1 text-xs font-semibold text-indigo-700">
+                <span key={method} className="rounded-full bg-blue-100 px-3 py-1 text-xs font-semibold text-blue-700">
                   {OFFLINE_METHOD_LABELS[method] ?? method}
                 </span>
               ))}
@@ -2403,14 +2600,14 @@ function StepThreeContent({
             .map((block, index) => (
               <div
                 key={`${index}-${block.slice(0, 12)}`}
-                className="rounded-lg border border-indigo-200 bg-indigo-50/70 p-3 text-xs leading-5 text-indigo-700"
+                className="rounded-lg border border-blue-200 bg-blue-50/70 p-3 text-xs leading-5 text-blue-700"
               >
                 {block}
               </div>
             ))}
         </div>
 
-        <div className="space-y-2 rounded-lg border border-indigo-100/70 bg-indigo-50/60 p-4">
+        <div className="space-y-2 rounded-lg border border-blue-100/70 bg-blue-50/60 p-4">
           <label className="flex items-start gap-3 text-sm text-slate-700">
             <input
               type="checkbox"
@@ -2421,7 +2618,7 @@ function StepThreeContent({
                   shouldValidate: true,
                 })
               }
-              className="mt-1 h-4 w-4 rounded border-slate-300 text-indigo-500 focus:ring-indigo-500"
+              className="mt-1 h-4 w-4 rounded border-slate-300 text-blue-500 focus:ring-blue-500"
             />
             <span>{acknowledgementLabel}</span>
           </label>
@@ -2447,8 +2644,8 @@ function StepThreeContent({
             </div>
           )}
         </div>
-      </CardContent>
-    </Card>
+      </div>
+    </div>
   );
 }
 
@@ -2468,8 +2665,8 @@ function RadioOption({
   return (
     <label
       className={cn(
-        "flex flex-1 cursor-pointer items-start gap-3 rounded-lg border border-slate-200 p-4 transition hover:border-indigo-300",
-        current === value && "border-indigo-500 bg-indigo-50",
+        "flex flex-1 cursor-pointer items-start gap-3 rounded-lg border border-slate-200 p-4 transition hover:border-blue-300",
+        current === value && "border-blue-500 bg-blue-50",
       )}
     >
       <RadioGroupItem value={value} />
@@ -2497,8 +2694,8 @@ function Field({
   const form = useFormContext<RegistrationFormValues>();
   const error = form.formState.errors[name];
   return (
-    <div className="space-y-2">
-      <Label className="text-sm font-medium text-slate-700">
+    <div className="group space-y-2">
+      <Label className="text-sm font-medium text-slate-700 transition-colors group-focus-within:text-blue-700">
         {label}
         {required && <span className="ml-1 text-red-500">*</span>}
       </Label>
@@ -2506,6 +2703,7 @@ function Field({
         placeholder={placeholder}
         type={valueAs === "email" ? "email" : "text"}
         {...form.register(name)}
+        className="focus:border-blue-400 focus:ring-blue-200"
       />
       {error && <p className="text-xs text-red-500">{error.message as string}</p>}
     </div>

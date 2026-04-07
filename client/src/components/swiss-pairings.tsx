@@ -681,7 +681,7 @@ export default function SwissPairings({ tournamentId, activeSection, showExportC
       case 'completed':
         return <Badge variant="default" className="bg-green-100 text-green-800">Completed</Badge>;
       case 'in_progress':
-        return <Badge variant="default" className="bg-yellow-100 text-yellow-800">In Progress</Badge>;
+        return <Badge variant="default" className="bg-slate-100 text-slate-800">In Progress</Badge>;
       default:
         return <Badge variant="secondary">Pending</Badge>;
     }
@@ -760,7 +760,7 @@ export default function SwissPairings({ tournamentId, activeSection, showExportC
                     const isCompleted = round < currentRound;
                     const buttonClasses = `h-9 w-9 rounded-md border ${
                       isCurrent
-                        ? "bg-amber-50 text-amber-800 border-amber-200 hover:bg-amber-100"
+                        ? "bg-blue-50 text-blue-800 border-blue-200 hover:bg-blue-100"
                         : isCompleted
                           ? "bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100"
                           : "border-slate-200 text-slate-600 hover:bg-slate-50"
@@ -796,7 +796,7 @@ export default function SwissPairings({ tournamentId, activeSection, showExportC
                     matchesForStatus.every((m) => m.result && m.result !== 'Pending')
                       ? 'bg-green-500'
                       : matchesForStatus.some((m) => m.result && m.result !== 'Pending')
-                        ? 'bg-yellow-500'
+                        ? 'bg-slate-500'
                         : 'bg-red-500'
                   }`}
                 />
@@ -1002,7 +1002,7 @@ export default function SwissPairings({ tournamentId, activeSection, showExportC
                     disabled={undoSwapMutation.isPending}
                     onClick={() => undoSwapMutation.mutate()}
                     size="sm"
-                    className="border-orange-600 text-orange-600 hover:bg-orange-50"
+                    className="border-blue-600 text-blue-600 hover:bg-blue-50"
                   >
                     <RotateCcw className="mr-1 h-4 w-4" />
                     {undoSwapMutation.isPending ? "Undoing..." : "Undo Swap"}
@@ -1081,7 +1081,7 @@ export default function SwissPairings({ tournamentId, activeSection, showExportC
                           const isCurrent = round === currentRound;
                           const isCompleted = round < currentRound;
                           const badgeClass = isCurrent
-                            ? "bg-amber-50 text-amber-800 border border-amber-200"
+                            ? "bg-blue-50 text-blue-800 border border-blue-200"
                             : isCompleted
                               ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
                               : "bg-slate-100 text-slate-600 border border-transparent";
@@ -1262,16 +1262,16 @@ export default function SwissPairings({ tournamentId, activeSection, showExportC
 
                 {/* Byes Section */}
                 {filteredByes.length > 0 && (
-                  <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
-                    <h4 className="text-sm font-medium text-yellow-800 mb-2">Byes This Round</h4>
+                  <div className="bg-slate-50 border border-slate-200 rounded-lg p-4">
+                    <h4 className="text-sm font-medium text-slate-800 mb-2">Byes This Round</h4>
                     <div className="space-y-1">
                       {filteredByes.map((byePairing: any) => (
                         <div key={byePairing.id} className="flex items-center justify-between text-sm">
-                          <span className="text-yellow-700">
+                          <span className="text-slate-700">
                             {getPlayerName(byePairing.playerId)} [{getPlayerPoints(byePairing.playerId, currentRound)}] ({getPlayerRating(byePairing.playerId)})
                           </span>
                           <div className="flex items-center gap-2">
-                            <Badge variant="outline" className="text-yellow-700 border-yellow-300">
+                            <Badge variant="outline" className="text-slate-700 border-slate-300">
                               {byePairing.byeType === 'half_point' ? '½ Point Bye' : 
                                byePairing.byeType === 'zero_point' ? '0 Point Bye' : '1 Point Bye'}
                             </Badge>
@@ -1310,7 +1310,7 @@ export default function SwissPairings({ tournamentId, activeSection, showExportC
               </AlertDialogCancel>
               <AlertDialogAction
                 onClick={confirmResultChange}
-                className="bg-orange-600 hover:bg-orange-700"
+                className="bg-blue-600 hover:bg-blue-700"
               >
                 Yes, Edit Previous Round
               </AlertDialogAction>

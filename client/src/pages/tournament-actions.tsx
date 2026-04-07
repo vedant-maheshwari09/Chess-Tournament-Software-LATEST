@@ -27,6 +27,7 @@ import {
 } from "@/lib/tournament-templates";
 import type { Tournament } from "@shared/schema";
 import { BoardNumberingCard } from "@/components/tournament-settings/BoardNumberingCard";
+import { Breadcrumbs } from "@/components/breadcrumbs";
 
 interface TournamentActionsPageProps {
   tournamentId: number;
@@ -241,12 +242,10 @@ export default function TournamentActionsPage({ tournamentId }: TournamentAction
   return (
     <div className="min-h-screen bg-slate-50">
       <div className="mx-auto max-w-4xl space-y-6 p-6">
+        <Breadcrumbs steps={[{ label: tournament.name, href: `/tournaments/${tournamentId}` }, { label: "Actions" }]} />
         <div className="flex flex-wrap items-center justify-between gap-4 border-b pb-4">
           <div>
-            <Button variant="outline" onClick={() => setLocation(`/tournaments/${tournamentId}/manage`)}>
-              Back to tournament
-            </Button>
-            <h1 className="mt-4 text-2xl font-semibold text-slate-900">Tournament actions</h1>
+            <h1 className="text-2xl font-semibold text-slate-900">Tournament actions</h1>
             <p className="text-sm text-muted-foreground">
               Manage advanced settings for {tournament.name}.
             </p>

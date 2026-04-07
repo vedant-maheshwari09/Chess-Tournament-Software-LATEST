@@ -135,7 +135,7 @@ export default function TournamentByes({ tournamentId }: TournamentByesProps) {
                         {formatByeType(byeType)}
                       </Badge>
                       {entry.isRequested ? (
-                        <Badge variant="outline" className="border-amber-200 text-amber-600">
+                        <Badge variant="outline" className="border-blue-200 text-blue-600">
                           Requested
                         </Badge>
                       ) : null}

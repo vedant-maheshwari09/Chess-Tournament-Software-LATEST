@@ -7,6 +7,7 @@ import { Link } from "wouter";
 import { useAuth } from "@/hooks/useAuth";
 import TournamentBuilder from "@/components/tournament-builder";
 import type { Tournament } from "@shared/schema";
+import { Breadcrumbs } from "@/components/breadcrumbs";
 
 export default function TournamentCreation() {
   const [, setLocation] = useLocation();
@@ -79,7 +80,8 @@ export default function TournamentCreation() {
         </div>
       </header>
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
+        <Breadcrumbs steps={[{ label: "New Tournament" }]} />
         <TournamentBuilder
           mode="create"
           format="swiss"

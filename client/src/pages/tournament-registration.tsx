@@ -18,6 +18,7 @@ import { Separator } from "@/components/ui/separator";
 import { parseTournamentConfig } from "@/lib/tournament-config";
 import type { Tournament, Player, PlayerRegistration as PlayerRegistrationType } from "@shared/schema";
 import { useAuth } from "@/hooks/useAuth";
+import { Breadcrumbs } from "@/components/breadcrumbs";
 
 interface TournamentRegistrationPageProps {
   tournamentId: number;
@@ -126,11 +127,8 @@ export default function TournamentRegistrationPage({ tournamentId }: TournamentR
     <div className="min-h-screen bg-slate-50">
       <div className="border-b bg-white">
         <div className="mx-auto flex max-w-6xl flex-col gap-6 px-4 py-8 sm:px-6 lg:px-8">
+          <Breadcrumbs steps={[{ label: tournament.name, href: `/tournaments/${tournamentId}` }, { label: "Registration Info" }]} />
           <div className="flex flex-wrap items-center justify-between gap-3 text-sm text-slate-500">
-            <Button variant="ghost" className="px-0 text-slate-600" onClick={() => setLocation("/dashboard")}> 
-              <ArrowLeft className="mr-2 h-4 w-4" />
-              Back to Dashboard
-            </Button>
             <div className="flex items-center gap-2">
               <Badge className={statusBadge}>
                 {tournament.status.charAt(0).toUpperCase() + tournament.status.slice(1)}
@@ -185,7 +183,11 @@ export default function TournamentRegistrationPage({ tournamentId }: TournamentR
                       Reserve your place in the tournament roster. You can update arrival info or withdraw later from your dashboard.
                     </p>
                   ) : (
-                    <p>Your registration is on file. Need to adjust details? Submit a new form and contact the director.</p>
+                    <p>
+                      {registerPolicy?.allowEditRegistration 
+                        ? "Your registration is on file. You can modify your details below if needed."
+                        : "Your registration is on file. Need to adjust details? Contact the director for manual updates."}
+                    </p>
                   )}
                 </div>
                 <Button
@@ -193,7 +195,9 @@ export default function TournamentRegistrationPage({ tournamentId }: TournamentR
                   className="w-full"
                   size="lg"
                 >
-                  {existingRegistration ? "View Registration" : "Register Now"}
+                  {!existingRegistration 
+                    ? "Register Now" 
+                    : (registerPolicy?.allowEditRegistration ? "Edit Registration" : "View Registration")}
                 </Button>
                 <div className="text-xs text-slate-500">
                   Registration powered by Chess Tournament Manager. Confirmation arrives via email once the director approves your entry.

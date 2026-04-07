@@ -19,6 +19,7 @@ import {
   type Player,
   type Pairing,
   type Match,
+  type PlayerRegistration,
 } from "@shared/schema";
 import { 
   hashPassword, 
@@ -364,6 +365,11 @@ const createPaymentIntentSchema = z.object({
   currency: z.string().trim().optional(),
   receiptEmail: z.string().trim().email().optional(),
   playerName: z.string().trim().optional(),
+  items: z.array(z.object({
+    entryFeeId: z.string().trim().optional(),
+    contribution: z.coerce.number().min(0).max(500).default(0),
+    playerName: z.string().trim().optional(),
+  })).optional(),
 });
 
 const playerRegistrationSchema = z.object({
@@ -2356,16 +2362,45 @@ ${(config as any).organizerInfo}` : ""}
       }
 
       const payload = createPaymentIntentSchema.parse(req.body ?? {});
-      const contribution = Number.isFinite(payload.contribution) ? Number(payload.contribution) : 0;
-      const entryFee = payload.entryFeeId
-        ? config.entryFees.find((fee) => fee.id === payload.entryFeeId) ?? null
-        : null;
-
-      if (!entryFee && payments.requirePaymentOnRegistration) {
-        return res.status(400).json({ message: "Select an entry fee before paying" });
+      
+      let baseAmount = 0;
+      let targetCurrency = payments.defaultCurrency ?? "USD";
+      let summaryNames: string[] = [];
+      let entryFeeIds: string[] = [];
+      
+      if (payload.items && payload.items.length > 0) {
+        for (const item of payload.items) {
+          const entryFee = item.entryFeeId ? config.entryFees.find((fee) => fee.id === item.entryFeeId) ?? null : null;
+          if (!entryFee && payments.requirePaymentOnRegistration) {
+             return res.status(400).json({ message: "Select an entry fee before paying for all items" });
+          }
+          const itemContribution = Number.isFinite(item.contribution) ? Number(item.contribution) : 0;
+          baseAmount += (entryFee?.amount ?? 0) + itemContribution;
+          if (entryFee?.currency) targetCurrency = normalizeCurrency(entryFee.currency, targetCurrency);
+          if (item.entryFeeId) entryFeeIds.push(item.entryFeeId);
+          if (item.playerName) summaryNames.push(item.playerName);
+        }
+      } else {
+        const contribution = Number.isFinite(payload.contribution) ? Number(payload.contribution) : 0;
+        const entryFee = payload.entryFeeId
+          ? config.entryFees.find((fee) => fee.id === payload.entryFeeId) ?? null
+          : null;
+        if (!entryFee && payments.requirePaymentOnRegistration) {
+          return res.status(400).json({ message: "Select an entry fee before paying" });
+        }
+        baseAmount = (entryFee?.amount ?? 0) + contribution;
+        if (entryFee?.currency) targetCurrency = normalizeCurrency(entryFee.currency, targetCurrency);
+        if (payload.entryFeeId) entryFeeIds.push(payload.entryFeeId);
+        if (payload.playerName) summaryNames.push(payload.playerName);
       }
+      
+      const percent = Number(payments.processingFeePercent ?? 0);
+      const feeAmount = percent > 0 ? Number((baseAmount * (percent / 100)).toFixed(2)) : 0;
+      const total = Number((baseAmount + feeAmount).toFixed(2));
+      const subtotal = Number(baseAmount.toFixed(2));
+      const currency = targetCurrency;
 
-      const totals = computePaymentTotals(entryFee, contribution, payments);
+      const totals = { subtotal, feeAmount, total, currency };
 
       if (totals.total <= 0) {
         return res.status(400).json({ message: "Payment amount must be greater than zero" });
@@ -2379,6 +2414,13 @@ ${(config as any).organizerInfo}` : ""}
         ? payments.payoutStatementDescriptor.trim().slice(0, 22)
         : undefined;
 
+      let paymentDescription = description;
+      if (summaryNames.length > 1) {
+        paymentDescription = `${description} for ${summaryNames.length} players`;
+      } else if (summaryNames.length === 1) {
+        paymentDescription = `${description} for ${summaryNames[0]}`;
+      }
+
       const paymentIntent = await stripe.paymentIntents.create({
         amount: amountInMinorUnits,
         currency: totals.currency.toLowerCase(),
@@ -2387,11 +2429,11 @@ ${(config as any).organizerInfo}` : ""}
           tournamentId: `${tournamentId}`,
           tournamentName: tournament.name ?? "",
           userId: `${req.user?.id ?? ""}`,
-          entryFeeId: payload.entryFeeId ?? "",
-          contribution: contribution.toFixed(2),
+          entryFeeIds: entryFeeIds.join(","),
+          isBatch: payload.items && payload.items.length > 0 ? "true" : "false",
         },
         receipt_email: receiptEmail,
-        description: payload.playerName ? `${description} for ${payload.playerName}` : description,
+        description: paymentDescription,
         ...(descriptorSuffix ? { statement_descriptor_suffix: descriptorSuffix } : {}),
       });
 
@@ -2515,10 +2557,19 @@ ${(config as any).organizerInfo}` : ""}
       }
 
       // Check if user already registered for this tournament
-      const existingRegistration = await storage.getPlayerRegistrationsByTournament(tournamentId);
+      const registrations = await storage.getPlayerRegistrationsByTournament(tournamentId);
+      const userRegistrations = registrations.filter((r) => r.userId === user.id);
       const multiPlayerAllowed = Boolean(config.registers.allowMultiPlayerSignup);
-      if (!multiPlayerAllowed && existingRegistration.some((registration) => registration.userId === user.id)) {
-        return res.status(400).json({ error: "You are already registered for this tournament" });
+      const allowEdit = Boolean(config.registers.allowEditRegistration);
+
+      let existingToUpdate: PlayerRegistration | undefined;
+
+      if (userRegistrations.length > 0 && !multiPlayerAllowed) {
+        if (!allowEdit) {
+          return res.status(400).json({ error: "You are already registered for this tournament" });
+        }
+        // In single-player mode, we update the existing one
+        existingToUpdate = userRegistrations[0];
       }
       
       const payments = config.payments;
@@ -2602,7 +2653,7 @@ ${(config as any).organizerInfo}` : ""}
         return res.status(400).json({ error: "Online payment is required for this tournament" });
       }
 
-      const registration = await storage.createPlayerRegistration({
+      const registrationData = {
         tournamentId,
         userId: user.id,
         playerName: payload.playerName,
@@ -2610,7 +2661,6 @@ ${(config as any).organizerInfo}` : ""}
         phoneNumber: payload.phoneNumber ?? null,
         email: payload.email ?? user.email ?? null,
         arrivalTime: payload.arrivalTime ?? "",
-        status: "pending",
         paymentStatus,
         paymentIntentId: payload.paymentIntentId ?? null,
         paymentMethod,
@@ -2620,14 +2670,96 @@ ${(config as any).organizerInfo}` : ""}
         amountPaid,
         currency,
         paidAt,
-      } as any);
+      };
 
-      res.json(registration);
+      let result;
+      if (existingToUpdate) {
+        result = await storage.updatePlayerRegistration(existingToUpdate.id, registrationData as any);
+      } else {
+        result = await storage.createPlayerRegistration({
+          ...registrationData,
+          status: "pending",
+        } as any);
+      }
+
+      res.json(result);
     } catch (error) {
       console.error("Error creating player registration:", error);
       res.status(500).json({ error: "Failed to register for tournament" });
     }
   });
+
+  // Player editing their own registration
+  app.patch("/api/tournaments/:id/registrations/my", requireAuth, async (req, res) => {
+    try {
+      const tournamentId = Number.parseInt(req.params.id, 10);
+      if (!Number.isFinite(tournamentId)) {
+        return res.status(400).json({ error: "Invalid tournament id" });
+      }
+      const user = req.user!;
+      
+      const tournament = await storage.getTournament(tournamentId);
+      if (!tournament) {
+        return res.status(404).json({ error: "Tournament not found" });
+      }
+
+      const config = parseTournamentConfig(tournament);
+      if (!config.registers.allowEditRegistration) {
+        return res.status(403).json({ error: "Registration editing is not allowed for this tournament" });
+      }
+
+      const registrations = await storage.getPlayerRegistrationsByTournament(tournamentId);
+      const registration = registrations.find(r => r.userId === user.id);
+      if (!registration) {
+        return res.status(404).json({ error: "Registration not found" });
+      }
+
+      // Validate updates
+      const payload = playerRegistrationSchema.partial().parse(req.body ?? {});
+      
+      // Update only specific fields for player-initiated edit
+      const updateData: any = {
+        updatedAt: new Date()
+      };
+      const editableFields = [
+        'playerName', 'uscfRating', 'phoneNumber', 'email', 'arrivalTime', 'paymentNotes'
+      ];
+      
+      for (const field of editableFields) {
+        if ((payload as any)[field] !== undefined) {
+          updateData[field] = (payload as any)[field];
+        }
+      }
+
+      const updated = await storage.updatePlayerRegistration(registration.id, updateData);
+      if (!updated) {
+        return res.status(500).json({ error: "Failed to update registration" });
+      }
+
+      // Notify Director
+      try {
+        const director = await storage.getUserById(tournament.createdBy);
+        if (director && director.email && notificationService.isEnabled()) {
+          await notificationService.sendEmail({
+            to: director.email,
+            subject: `Registration Updated: ${tournament.name}`,
+            text: `Player ${updated.playerName || user.username} has updated their registration for ${tournament.name}.\n\nView details in your dashboard.`
+          });
+        }
+      } catch (notifyError) {
+        console.error("Failed to notify director about registration update:", notifyError);
+      }
+
+      res.json(updated);
+    } catch (error) {
+      console.error("Error updating registration:", error);
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: "Invalid registration data", issues: error.flatten() });
+      }
+      res.status(500).json({ error: "Failed to update registration" });
+    }
+  });
+
 
   // Get player registrations for a tournament (for tournament directors)
   app.get("/api/tournaments/:id/registrations", requireAuth, requireTournamentAccess, async (req, res) => {

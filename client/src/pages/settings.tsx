@@ -29,6 +29,7 @@ import { LogOut, Trash2, ArrowLeft, SlidersHorizontal, User2 } from "lucide-reac
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
+import { Breadcrumbs } from "@/components/breadcrumbs";
 
 export default function SettingsPage() {
   const { user, logout } = useAuth();
@@ -174,10 +175,7 @@ export default function SettingsPage() {
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900 py-10">
       <div className="max-w-4xl mx-auto px-4 space-y-6">
-        <Button variant="ghost" className="flex items-center gap-2" onClick={() => window.history.back()}>
-          <ArrowLeft className="h-4 w-4" />
-          Back
-        </Button>
+        <Breadcrumbs steps={[{ label: "Settings" }]} />
 
         <div className="space-y-2">
           <h1 className="text-3xl font-semibold text-gray-900 dark:text-white">Settings</h1>

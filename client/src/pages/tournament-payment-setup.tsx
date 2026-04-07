@@ -14,6 +14,7 @@ import { parseTournamentConfig, type PaymentProvider, type AccountPaymentSetting
 import type { Tournament } from "@shared/schema";
 import { apiRequest } from "@/lib/queryClient";
 import clsx from "clsx";
+import { Breadcrumbs } from "@/components/breadcrumbs";
 
 interface TournamentPaymentSetupPageProps {
   tournamentId: number;
@@ -263,10 +264,8 @@ export default function TournamentPaymentSetupPage({ tournamentId }: TournamentP
       <div className="border-b bg-white/80 backdrop-blur">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-6 sm:px-6 lg:px-8">
           <div className="space-y-1">
-            <Button variant="ghost" className="px-0 text-slate-600" onClick={() => setLocation(`/tournaments/${tournamentId}/manage`)}>
-              ← Back to tournament
-            </Button>
-            <h1 className="text-2xl font-semibold text-slate-900">Collect entry fees</h1>
+            <Breadcrumbs steps={[{ label: tournament.name, href: `/tournaments/${tournamentId}` }, { label: "Payments" }]} />
+            <h1 className="text-2xl font-semibold text-slate-900 mt-2">Collect entry fees</h1>
             <p className="text-sm text-slate-600">
               Connect a payment provider to start accepting online entry fees for this tournament.
             </p>

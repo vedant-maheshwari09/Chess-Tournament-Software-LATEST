@@ -177,11 +177,11 @@ export default function RoundRobinCrosstable({ tournamentId }: RoundRobinCrossta
   const getRankIcon = (position: number) => {
     switch (position) {
       case 1:
-        return <Trophy className="h-5 w-5 text-yellow-500" />;
+        return <Trophy className="h-5 w-5 text-slate-500" />;
       case 2:
         return <Medal className="h-5 w-5 text-gray-400" />;
       case 3:
-        return <Award className="h-5 w-5 text-amber-600" />;
+        return <Award className="h-5 w-5 text-blue-600" />;
       default:
         return <span className="w-5 text-center font-medium text-gray-600">{position}</span>;
     }
@@ -192,7 +192,7 @@ export default function RoundRobinCrosstable({ tournamentId }: RoundRobinCrossta
     
     // Same player - show crown (king) symbol
     if (playerStanding.player.id === opponent.player.id) {
-      return <Crown className="h-4 w-4 text-amber-500" />;
+      return <Crown className="h-4 w-4 text-blue-500" />;
     }
 
     const result = playerStanding.results[opponent.player.id];
@@ -208,7 +208,7 @@ export default function RoundRobinCrosstable({ tournamentId }: RoundRobinCrossta
         case '0':
           return 'bg-red-100 text-red-800 font-semibold';
         case '½':
-          return 'bg-yellow-100 text-yellow-800 font-semibold';
+          return 'bg-slate-100 text-slate-800 font-semibold';
         case 'X':
           return 'bg-green-200 text-green-900 font-bold';  // Win by forfeit
         case 'F':
@@ -312,7 +312,7 @@ export default function RoundRobinCrosstable({ tournamentId }: RoundRobinCrossta
         {/* Legend */}
         <div className="mt-4 flex items-center gap-6 text-sm text-gray-600">
           <div className="flex items-center gap-2">
-            <Crown className="h-4 w-4 text-amber-500" />
+            <Crown className="h-4 w-4 text-blue-500" />
             <span>Own position</span>
           </div>
           <div className="flex items-center gap-2">
@@ -320,7 +320,7 @@ export default function RoundRobinCrosstable({ tournamentId }: RoundRobinCrossta
             <span>Win</span>
           </div>
           <div className="flex items-center gap-2">
-            <span className="bg-yellow-100 text-yellow-800 px-1 py-0.5 rounded font-semibold">½</span>
+            <span className="bg-slate-100 text-slate-800 px-1 py-0.5 rounded font-semibold">½</span>
             <span>Draw</span>
           </div>
           <div className="flex items-center gap-2">

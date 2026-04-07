@@ -47,6 +47,7 @@ function AuthenticatedApp() {
           <>
             <Route path="/" component={TournamentDirectorDashboard} />
             <Route path="/dashboard" component={TournamentDirectorDashboard} />
+            <Route path="/dashboard/:tab" component={TournamentDirectorDashboard} />
             <Route path="/tournaments/new" component={TournamentCreation} />
             <Route path="/tournaments/:id/manage">
               {(params) => <TournamentManagement tournamentId={parseInt(params.id)} />}
@@ -85,6 +86,9 @@ function AuthenticatedApp() {
             <Route path="/tournaments/:id/payments/setup">
               {(params) => <TournamentPaymentSetupPage tournamentId={parseInt(params.id)} />}
             </Route>
+            <Route path="/tournaments/:id/:tab">
+              {(params) => <TournamentView tournamentId={parseInt(params.id)} />}
+            </Route>
             <Route path="/tournaments/:id">
               {(params) => <TournamentView tournamentId={parseInt(params.id)} />}
             </Route>
@@ -93,11 +97,15 @@ function AuthenticatedApp() {
           <>
             <Route path="/" component={PlayerDashboard} />
             <Route path="/dashboard" component={PlayerDashboard} />
+            <Route path="/dashboard/:tab" component={PlayerDashboard} />
             <Route path="/tournaments/:id/register">
               {(params) => <TournamentRegistrationPage tournamentId={parseInt(params.id)} />}
             </Route>
             <Route path="/tournaments/:id/register/form">
               {(params) => <TournamentRegistrationFormPage tournamentId={parseInt(params.id)} />}
+            </Route>
+            <Route path="/tournaments/:id/:tab">
+              {(params) => <TournamentView tournamentId={parseInt(params.id)} />}
             </Route>
             <Route path="/tournaments/:id">
               {(params) => <TournamentView tournamentId={parseInt(params.id)} />}

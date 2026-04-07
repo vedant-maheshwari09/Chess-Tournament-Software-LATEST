@@ -151,9 +151,9 @@ export default function PlayerRegistration({ tournament, existingRegistration }:
             </div>
             
             {existingRegistration.status === "pending" && (
-              <div className="flex items-center gap-2 p-3 bg-yellow-50 dark:bg-yellow-900/20 rounded-lg">
-                <AlertCircle className="h-4 w-4 text-yellow-600 dark:text-yellow-400" />
-                <div className="text-sm text-yellow-800 dark:text-yellow-200">
+              <div className="flex items-center gap-2 p-3 bg-slate-50 dark:bg-slate-900/20 rounded-lg">
+                <AlertCircle className="h-4 w-4 text-slate-600 dark:text-slate-400" />
+                <div className="text-sm text-slate-800 dark:text-slate-200">
                   Your registration is waiting for tournament director approval.
                 </div>
               </div>

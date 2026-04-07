@@ -7,6 +7,7 @@ interface GeneralSettingsCardProps {
     showOnCalendar: boolean;
     allowSignup: boolean;
     allowMultiPlayerSignup: boolean;
+    allowEditRegistration: boolean;
     enablePairingPredictor: boolean;
   };
   onChange: (update: Partial<GeneralSettingsCardProps['value']>) => void;
@@ -41,6 +42,19 @@ export function GeneralSettingsCard({ value, onChange }: GeneralSettingsCardProp
             id="allowMultiPlayerSignup"
             checked={value.allowMultiPlayerSignup}
             onCheckedChange={(checked) => onChange({ allowMultiPlayerSignup: checked })}
+          />
+        </div>
+        <div className="flex items-center justify-between">
+          <div className="space-y-0.5">
+            <Label htmlFor="allowEditRegistration">Allow Registration Editing</Label>
+            <p className="text-sm text-muted-foreground">
+              Players can modify their confirmed registrations
+            </p>
+          </div>
+          <Switch
+            id="allowEditRegistration"
+            checked={value.allowEditRegistration}
+            onCheckedChange={(checked) => onChange({ allowEditRegistration: checked })}
           />
         </div>
         <div className="flex items-center justify-between">

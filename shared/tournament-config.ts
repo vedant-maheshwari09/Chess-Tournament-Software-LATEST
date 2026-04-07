@@ -35,6 +35,7 @@ export interface RegistersConfig {
   byeLimit?: number | null;
   earlyBirdDetails?: string;
   paymentDetails?: string;
+  allowEditRegistration: boolean;
   enablePairingPredictor: boolean;
 }
 
@@ -352,6 +353,7 @@ export function createDefaultConfig(format: Tournament["format"], mode: Tourname
       byeLimit: null,
       earlyBirdDetails: "",
       paymentDetails: "",
+      allowEditRegistration: false,
       enablePairingPredictor: false,
     },
     fide: {
@@ -535,6 +537,7 @@ export function parseTournamentConfig(tournament: Tournament): TournamentConfig 
             : null,
         earlyBirdDetails: parsed.registers?.earlyBirdDetails ?? "",
         paymentDetails: parsed.registers?.paymentDetails ?? "",
+        allowEditRegistration: parsed.registers?.allowEditRegistration ?? false,
       },
       fide: {
         ...defaults.fide,

@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { useLocation } from "wouter";
+import { useLocation, useRoute } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
-import { ArrowLeft, Trophy, Users, Settings as SettingsIcon } from "lucide-react";
+import { ArrowLeft, Trophy, Users, Settings as SettingsIcon, Pencil } from "lucide-react";
 import SwissStandings from "@/components/swiss-standings";
 import SwissPairings from "@/components/swiss-pairings";
 import RoundRobinCrosstable from "@/components/round-robin-crosstable";
@@ -15,6 +15,8 @@ import { createDefaultConfig, parseTournamentConfig } from "@/lib/tournament-con
 import { renderTournamentPageContent } from "@/lib/tournament-page";
 import type { Tournament } from "@shared/schema";
 import { useAuth } from "@/hooks/useAuth";
+import type { PlayerRegistration } from "@shared/schema";
+import { Breadcrumbs } from "@/components/breadcrumbs";
 
 type TabKey = "pairings" | "standings" | "byes" | "predictor" | "info";
 
@@ -32,12 +34,23 @@ interface TournamentViewProps {
 
 export default function TournamentView({ tournamentId }: TournamentViewProps) {
   const [, setLocation] = useLocation();
-  const [activeTab, setActiveTab] = useState<TabKey>("pairings");
+  const [match, params] = useRoute("/tournaments/:id/:tab");
+  const tabParam = match && params?.tab ? (params.tab as TabKey) : "pairings";
   const { user, isLoading: authLoading } = useAuth();
 
   const { data: tournament, isLoading: tournamentLoading } = useQuery<Tournament>({
     queryKey: [`/api/tournaments/${tournamentId}`],
   });
+
+  const { data: registrations } = useQuery<PlayerRegistration[]>({
+    queryKey: ["/api/my-registrations"],
+    enabled: !!user,
+  });
+
+  const myRegistration = useMemo(() =>
+    registrations?.find(r => r.tournamentId === tournamentId),
+    [registrations, tournamentId]
+  );
 
   const config = useMemo(
     () => (tournament ? parseTournamentConfig(tournament) : createDefaultConfig("swiss")),
@@ -47,7 +60,7 @@ export default function TournamentView({ tournamentId }: TournamentViewProps) {
   const predictorEnabled = Boolean(config.registers?.enablePairingPredictor);
   const tournamentHasStarted = Boolean(
     tournament &&
-      ((tournament.currentRound ?? 0) > 0 || tournament.status === "active" || tournament.status === "completed"),
+    ((tournament.currentRound ?? 0) > 0 || tournament.status === "active" || tournament.status === "completed"),
   );
   const showPredictor =
     predictorEnabled && (tournament?.format ?? config.format) === "swiss" && tournamentHasStarted;
@@ -57,11 +70,9 @@ export default function TournamentView({ tournamentId }: TournamentViewProps) {
     [showPredictor],
   );
 
-  useEffect(() => {
-    if (!availableTabs.includes(activeTab)) {
-      setActiveTab(availableTabs[0]);
-    }
-  }, [availableTabs, activeTab]);
+  const activeTab = useMemo(() => {
+    return availableTabs.includes(tabParam) ? tabParam : availableTabs[0];
+  }, [availableTabs, tabParam]);
 
   const infoHtml = useMemo(
     () => (tournamentPageContent ? renderTournamentPageContent(tournamentPageContent) : ""),
@@ -98,23 +109,71 @@ export default function TournamentView({ tournamentId }: TournamentViewProps) {
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
+      <div className="mx-auto max-w-7xl px-4 pt-6 sm:px-6 lg:px-8">
+        <Breadcrumbs steps={[{ label: tournament.name }]} />
+      </div>
       <div className="bg-white shadow dark:bg-gray-800">
         <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-4">
               <Button variant="ghost" onClick={() => setLocation("/")} className="flex items-center gap-2">
                 <ArrowLeft className="h-4 w-4" />
-                Back to Dashboard
+                Back to Tournaments
               </Button>
               <div>
                 <h1 className="text-2xl font-bold text-gray-900 dark:text-white">{tournament.name}</h1>
                 <p className="text-gray-600 dark:text-gray-300">
-                  {tournament.format.toUpperCase()} • {tournament.rounds} rounds
+                  {tournament.format === "swiss" ? "Swiss System" : tournament.format.toUpperCase()} • {tournament.rounds} rounds
                 </p>
               </div>
             </div>
             <div className="flex items-center gap-4">
-              {canManageTournament ? (
+              <Badge variant={tournament.status === "active" ? "default" : tournament.status === "completed" ? "secondary" : "outline"} className={
+                tournament.status === "upcoming" ? "bg-blue-100 text-blue-800 border-none hover:bg-blue-100" : ""
+              }>
+                {tournament.status.charAt(0).toUpperCase() + tournament.status.slice(1)}
+              </Badge>
+
+              {myRegistration && (
+                <Badge variant="outline" className={
+                  myRegistration.status === "approved" 
+                    ? "border-emerald-400 text-emerald-600 bg-emerald-50" 
+                    : myRegistration.status === "declined"
+                    ? "border-red-400 text-red-600 bg-red-50"
+                    : "border-amber-400 text-amber-600 bg-amber-50"
+                }>
+                  {myRegistration.status === "approved" 
+                    ? "Registered" 
+                    : myRegistration.status === "declined"
+                    ? "Registration Declined"
+                    : "Pending Approval"}
+                </Badge>
+              )}
+
+              {(tournament.status === "upcoming" || tournament.status === "registration" || tournament.status === "active") && (
+                myRegistration ? (
+                  config.registers.allowEditRegistration && (
+                    <Button
+                      onClick={() => setLocation(`/tournaments/${tournamentId}/register/form`)}
+                      variant="outline"
+                      className="border-blue-500 text-blue-600 hover:bg-blue-50 font-bold"
+                    >
+                      <Pencil className="mr-2 h-4 w-4" />
+                      Edit Registration
+                    </Button>
+                  )
+                ) : (
+                  <Button
+                    onClick={() => setLocation(`/tournaments/${tournamentId}/register/form`)}
+                    className="bg-blue-500 hover:bg-blue-600 text-white font-bold shadow-sm shadow-blue-200"
+                  >
+                    <Trophy className="mr-2 h-4 w-4" />
+                    Register
+                  </Button>
+                )
+              )}
+
+              {canManageTournament && (
                 <Button
                   variant="outline"
                   onClick={() => setLocation(`/tournaments/${tournamentId}/actions`)}
@@ -123,17 +182,14 @@ export default function TournamentView({ tournamentId }: TournamentViewProps) {
                   <SettingsIcon className="h-4 w-4" />
                   Settings
                 </Button>
-              ) : null}
-              <Badge variant={tournament.status === "active" ? "default" : tournament.status === "completed" ? "secondary" : "outline"}>
-                {tournament.status.charAt(0).toUpperCase() + tournament.status.slice(1)}
-              </Badge>
+              )}
             </div>
           </div>
         </div>
       </div>
 
       <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
-        <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as TabKey)}>
+        <Tabs value={activeTab} onValueChange={(value) => setLocation(`/tournaments/${tournamentId}/${value}`)}>
           <TabsList className="flex w-full flex-wrap gap-2">
             <TabsTrigger value="pairings" className="flex-1 min-w-[140px] text-sm font-semibold">
               {TAB_LABELS.pairings}

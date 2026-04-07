@@ -15,6 +15,7 @@ import { parseTournamentConfig } from "@/lib/tournament-config";
 import type { Player, Tournament } from "@shared/schema";
 import type { SectionDefinition } from "@shared/tournament-config";
 import { useAuth } from "@/hooks/useAuth";
+import { Breadcrumbs } from "@/components/breadcrumbs";
 
 type SourceKey = "uscf" | "fide";
 type TabKey = "basic" | "payments" | "notes";
@@ -630,13 +631,7 @@ export default function AddPlayerPage({ tournamentId, playerId }: AddPlayerPageP
   return (
     <div className="min-h-screen bg-slate-50 py-10">
       <div className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-4">
-        <Button
-          variant="ghost"
-          className="w-fit text-indigo-600 hover:text-indigo-700"
-          onClick={() => setLocation(`/tournaments/${tournamentId}/manage`)}
-        >
-          <ArrowLeft className="mr-2 h-4 w-4" /> Back to tournament
-        </Button>
+        <Breadcrumbs steps={[{ label: tournament.name, href: `/tournaments/${tournamentId}` }, { label: "Management", href: `/tournaments/${tournamentId}/manage` }, { label: isEditing ? "Edit Player" : "Add Player" }]} />
 
         <Card className="overflow-hidden border-0 shadow-lg">
           <CardContent className="flex flex-col p-0">

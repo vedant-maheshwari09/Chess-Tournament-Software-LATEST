@@ -33,6 +33,7 @@ import PlayerManager from "@/components/player-manager";
 import RegistrationManagement from "@/components/registration-management";
 import TournamentPagePanel from "@/components/tournament-page-panel";
 import { parseTournamentConfig } from "@/lib/tournament-config";
+import { Breadcrumbs } from "@/components/breadcrumbs";
 
 interface TournamentManagementProps {
   tournamentId: number;
@@ -210,6 +211,7 @@ export default function TournamentManagement({ tournamentId }: TournamentManagem
   return (
     <div className="min-h-screen bg-slate-50">
       <div className="mx-auto max-w-7xl space-y-6 p-6">
+        <Breadcrumbs steps={[{ label: tournament.name, href: `/tournaments/${tournamentId}` }, { label: "Management" }]} />
       {/* Tournament Header */}
       <Card className="overflow-hidden shadow-sm">
         <CardContent className="space-y-4 p-6">
@@ -229,7 +231,7 @@ export default function TournamentManagement({ tournamentId }: TournamentManagem
               {tournament.status === 'active' && (
                 <Button
                   variant="outline"
-                  className="text-orange-600 border-orange-200 hover:bg-orange-50"
+                  className="text-blue-600 border-blue-200 hover:bg-blue-50"
                 >
                   <Undo className="h-4 w-4 mr-2" />
                   Undo Last Action
