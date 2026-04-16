@@ -189,7 +189,10 @@ export default function Standings({ tournamentId, showExportControls = true }: S
     // Sort by points (descending), then by rating (descending)
     standings.sort((a, b) => {
       if (b.points !== a.points) return b.points - a.points;
-      return (b.player.rating || 0) - (a.player.rating || 0);
+      const isFide = tournamentConfig?.details.primaryRatingSystem === 'fide';
+      const ratingA = (isFide ? (a.player.fideRating ?? a.player.rating) : (a.player.uscfRating ?? a.player.rating)) || 0;
+      const ratingB = (isFide ? (b.player.fideRating ?? b.player.rating) : (b.player.uscfRating ?? b.player.rating)) || 0;
+      return ratingB - ratingA;
     });
 
     // Assign positions
@@ -216,10 +219,10 @@ export default function Standings({ tournamentId, showExportControls = true }: S
     printWindow.document.write(`<h1>${title}</h1>`);
     printWindow.document.write(`<table><thead><tr><th>Rank</th><th>Player</th><th>Points</th><th>Games</th><th>W-D-L</th><th>Rating</th></tr></thead><tbody>`);
     standings.forEach((standing) => {
-      const playerName = `${standing.player.firstName} ${standing.player.lastName}`.trim();
-      const record = `${standing.wins}-${standing.draws}-${standing.losses}`;
+      const isFide = tournamentConfig?.details.primaryRatingSystem === 'fide';
+      const playerRating = (isFide ? (standing.player.fideRating ?? standing.player.rating) : (standing.player.uscfRating ?? standing.player.rating)) ?? '';
       printWindow.document.write(
-        `<tr><td>${standing.position}</td><td>${playerName}</td><td>${standing.points}</td><td>${standing.gamesPlayed}</td><td>${record}</td><td>${standing.player.rating ?? ''}</td></tr>`,
+        `<tr><td>${standing.position}</td><td>${playerName}</td><td>${standing.points}</td><td>${standing.gamesPlayed}</td><td>${record}</td><td>${playerRating}</td></tr>`,
       );
     });
     printWindow.document.write(`</tbody></table></body></html>`);
@@ -234,13 +237,15 @@ export default function Standings({ tournamentId, showExportControls = true }: S
     standings.forEach((standing) => {
       const playerName = `${standing.player.firstName} ${standing.player.lastName}`.trim();
       const record = `${standing.wins}-${standing.draws}-${standing.losses}`;
+      const isFide = tournamentConfig?.details.primaryRatingSystem === 'fide';
+      const playerRating = (isFide ? (standing.player.fideRating ?? standing.player.rating) : (standing.player.uscfRating ?? standing.player.rating));
       rows.push([
         String(standing.position),
         playerName,
         String(standing.points),
         String(standing.gamesPlayed),
         record,
-        standing.player.rating != null ? String(standing.player.rating) : "",
+        playerRating != null ? String(playerRating) : "",
       ]);
     });
 
@@ -411,7 +416,11 @@ export default function Standings({ tournamentId, showExportControls = true }: S
                       </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-center">
-                      <div className="text-sm text-gray-900">{standing.player.rating}</div>
+                      <div className="text-sm text-gray-900">
+                        {tournamentConfig?.details.primaryRatingSystem === 'fide' 
+                          ? (standing.player.fideRating ?? standing.player.rating) 
+                          : (standing.player.uscfRating ?? standing.player.rating)}
+                      </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-center">
                       {getPositionBadge(standing.position)}

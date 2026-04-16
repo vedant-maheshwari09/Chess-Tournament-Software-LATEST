@@ -317,7 +317,10 @@ export default function SwissStandings({ tournamentId, showExportControls = true
         }
 
         // Final tiebreaker: rating
-        return (b.player.rating || 0) - (a.player.rating || 0);
+        const isFide = tournamentConfig?.details.primaryRatingSystem === 'fide';
+        const ratingA = (isFide ? (a.player.fideRating ?? a.player.rating) : (a.player.uscfRating ?? a.player.rating)) || 0;
+        const ratingB = (isFide ? (b.player.fideRating ?? b.player.rating) : (b.player.uscfRating ?? b.player.rating)) || 0;
+        return ratingB - ratingA;
       });
 
       // Assign positions
@@ -457,7 +460,9 @@ export default function SwissStandings({ tournamentId, showExportControls = true
       const baseData = [
         standing.position,
         `${standing.player.firstName} ${standing.player.lastName}`,
-        standing.player.rating || 'Unrated',
+        (tournamentConfig?.details.primaryRatingSystem === 'fide' 
+          ? (standing.player.fideRating ?? standing.player.rating) 
+          : (standing.player.uscfRating ?? standing.player.rating)) || 'Unrated',
         formatPoints(standing),
       ];
 
@@ -511,8 +516,9 @@ export default function SwissStandings({ tournamentId, showExportControls = true
     printWindow.document.write('</tr></thead><tbody>');
 
     standings.forEach((standing) => {
-      const playerName = `${standing.player.firstName} ${standing.player.lastName}`.trim();
-      const ratingDisplay = standing.player.rating != null ? ` (${standing.player.rating})` : '';
+      const isFide = tournamentConfig?.details.primaryRatingSystem === 'fide';
+      const playerRating = isFide ? (standing.player.fideRating ?? standing.player.rating) : (standing.player.uscfRating ?? standing.player.rating);
+      const ratingDisplay = playerRating != null ? ` (${playerRating})` : '';
       printWindow.document.write(`<tr><td>${standing.position}</td><td style="text-align:left;">${playerName}${ratingDisplay}</td>`);
 
       standing.roundResults.forEach((result, index) => {
@@ -749,7 +755,10 @@ export default function SwissStandings({ tournamentId, showExportControls = true
                         )}
                       </div>
                       <div className="text-xs text-gray-500">
-                        {standing.player.rating} {standing.player.federation}
+                        {tournamentConfig?.details.primaryRatingSystem === 'fide' 
+                          ? (standing.player.fideRating ?? standing.player.rating) 
+                          : (standing.player.uscfRating ?? standing.player.rating)}{" "}
+                        {standing.player.federation}
                       </div>
                       {tournament?.tiebreakOrder === 'uscf' && (standing as any).modifiedMedian !== undefined && (
                         <div className="text-xs text-gray-400 mt-1">

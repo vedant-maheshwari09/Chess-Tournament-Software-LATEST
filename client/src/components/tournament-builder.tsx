@@ -2701,6 +2701,27 @@ function StepTwo({ format, mode, config, onConfigChange, onBack: _onBack, onCanc
                     </SelectContent>
                   </Select>
                 </div>
+
+                {(config.registers.fideRated && config.registers.uscfRated) && (
+                  <div className="space-y-2">
+                    <Label>Primary Rating System (Display & Pairings)</Label>
+                    <Select
+                      value={config.details.primaryRatingSystem || "uscf"}
+                      onValueChange={(value) => updateDetails({ primaryRatingSystem: value as "uscf" | "fide" })}
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="uscf">USCF Ratings</SelectItem>
+                        <SelectItem value="fide">FIDE Ratings</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <p className="text-[11px] text-slate-500">
+                      Choose which rating system to use for player display, pairing calculations, and standings.
+                    </p>
+                  </div>
+                )}
                 <div className="space-y-4 rounded-lg border border-slate-200 bg-slate-50/70 p-4">
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div>

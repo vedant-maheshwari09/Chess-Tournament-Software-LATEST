@@ -374,20 +374,36 @@ const createPaymentIntentSchema = z.object({
 
 const playerRegistrationSchema = z.object({
   playerName: z.string().min(1, "Player name is required"),
-  uscfRating: z.coerce.number().optional(),
-  phoneNumber: z.string().trim().optional(),
-  email: z.string().email().optional(),
-  arrivalTime: z.string().trim().optional(),
-  entryFeeId: z.string().optional(),
-  currency: z.string().optional(),
-  amountDue: z.coerce.number().optional(),
-  amountPaid: z.coerce.number().optional(),
-  contribution: z.coerce.number().optional(),
-  paymentStatus: z.enum(PAYMENT_STATUSES).optional(),
-  paymentIntentId: z.string().trim().optional(),
-  paymentMethod: z.string().trim().optional(),
-  paymentReceiptUrl: z.string().url().optional(),
-  paymentNotes: z.string().trim().optional(),
+  uscfRating: z.coerce.number().optional().nullable(),
+  fideRating: z.coerce.number().optional().nullable(),
+  ratingProvider: z.string().trim().optional().nullable(),
+  uscfId: z.string().trim().optional().nullable(),
+  fideId: z.string().trim().optional().nullable(),
+  phoneNumber: z.string().trim().optional().nullable(),
+  email: z.string().email().optional().nullable(),
+  address1: z.string().trim().optional().nullable(),
+  address2: z.string().trim().optional().nullable(),
+  city: z.string().trim().optional().nullable(),
+  state: z.string().trim().optional().nullable(),
+  postalCode: z.string().trim().optional().nullable(),
+  country: z.string().trim().optional().nullable(),
+  pairingNotifications: z.string().trim().optional().nullable(),
+  newsletter: z.boolean().optional().default(false),
+  sectionChoice: z.string().trim().optional().nullable(),
+  entryFeeId: z.string().trim().optional().nullable(),
+  processingContribution: z.coerce.number().optional().default(0),
+  byePreference: z.string().trim().optional().nullable(),
+  byeRounds: z.array(z.string()).optional().default([]),
+  arrivalTime: z.string().trim().optional().nullable(),
+  notes: z.string().trim().optional().nullable(),
+  currency: z.string().optional().default("USD"),
+  amountDue: z.coerce.number().optional().default(0),
+  amountPaid: z.coerce.number().optional().default(0),
+  paymentStatus: z.enum(PAYMENT_STATUSES).optional().default("unpaid"),
+  paymentIntentId: z.string().trim().optional().nullable(),
+  paymentMethod: z.string().trim().optional().nullable(),
+  paymentReceiptUrl: z.string().url().optional().nullable(),
+  paymentNotes: z.string().trim().optional().nullable(),
 });
 
 export async function registerRoutes(app: Express): Promise<Server> {
@@ -2576,6 +2592,7 @@ ${(config as any).organizerInfo}` : ""}
 
       // Check payment intent for the whole batch based on the first item since the cart shares it
       const sampleItem = payloadArray[0];
+      const results = [];
       let amountDue = Number.isFinite(sampleItem.amountDue) ? Number(sampleItem.amountDue) : 0;
       let amountPaid = Number.isFinite(sampleItem.amountPaid) ? Number(sampleItem.amountPaid) : 0;
       let currency = normalizeCurrency(sampleItem.currency, payments.defaultCurrency ?? "USD");
@@ -2634,13 +2651,40 @@ ${(config as any).organizerInfo}` : ""}
         }
 
         if (mustCompletePayment && paymentIntent.status !== "succeeded") {
+          console.warn(`[BATCH_REG] Payment verification failed: Required but status is ${paymentIntent.status}`);
           return res.status(400).json({ error: "Payment must be completed before submitting registration" });
         }
+        console.log(`[BATCH_REG] Payment intent ${sampleItem.paymentIntentId} verified: ${paymentIntent.status}`);
       }
 
       // Process insertions and logging sequentially
-      const results: PlayerRegistration[] = [];
+      console.log(`[BATCH_REG] Processing batch registration for tournament ${tournamentId} by user ${user.id}`);
+      console.log(`[BATCH_REG] Payload count: ${payloadArray.length}`);
+      console.log(`[BATCH_REG] Full Payload Input:`, JSON.stringify(payloadArray, null, 2));
+
+      // Before inserting new batch, remove all prior registrations for this user in this tournament
+      // and if they were approved, remove their associated active players.
+      console.log(`[BATCH_REG] Deleting prior registrations for user ${user.id} in tournament ${tournamentId}`);
+      const userRegistrationsBatch = await storage.getPlayerRegistrationsByTournament(tournamentId);
+      const existingForUserBatch = userRegistrationsBatch.filter(r => r.userId === user.id);
+      
+      for (const reg of existingForUserBatch) {
+        if (reg.status === "approved" && reg.playerName) {
+          const nameParts = reg.playerName.trim().split(/\s+/);
+          const firstName = nameParts[0] || "";
+          const lastName = nameParts.length > 1 ? nameParts.slice(1).join(" ") : "";
+          const players = await storage.getPlayersByTournament(tournamentId);
+          const playerToRemove = players.find(p => p.firstName === firstName && p.lastName === lastName);
+          if (playerToRemove) {
+            console.log(`[BATCH_REG] Removing associated player record: ${firstName} ${lastName} (ID: ${playerToRemove.id})`);
+            await storage.deletePlayer(playerToRemove.id);
+          }
+        }
+        await storage.deletePlayerRegistration(reg.id);
+      }
+
       for (const payload of payloadArray) {
+        console.log(`[BATCH_REG] Processing player entry: ${payload.playerName}`);
         let localNotes = payload.paymentNotes ?? null;
         if (notes && !localNotes) {
           localNotes = notes;
@@ -2651,9 +2695,27 @@ ${(config as any).organizerInfo}` : ""}
           userId: user.id,
           playerName: payload.playerName,
           uscfRating: payload.uscfRating,
+          fideRating: payload.fideRating,
+          ratingProvider: payload.ratingProvider,
+          uscfId: payload.uscfId,
+          fideId: payload.fideId,
           phoneNumber: payload.phoneNumber,
           email: payload.email,
+          address1: payload.address1,
+          address2: payload.address2,
+          city: payload.city,
+          state: payload.state,
+          postalCode: payload.postalCode,
+          country: payload.country,
+          pairingNotifications: payload.pairingNotifications,
+          newsletter: payload.newsletter,
+          sectionChoice: payload.sectionChoice,
+          entryFeeId: payload.entryFeeId,
+          processingContribution: payload.processingContribution?.toString() || "0",
+          byePreference: payload.byePreference,
+          byeRounds: payload.byeRounds,
           arrivalTime: payload.arrivalTime,
+          notes: payload.notes,
           paymentIntentId: sampleItem.paymentIntentId ?? null,
           paymentStatus: paymentStatus,
           paymentMethod: paymentMethod,
@@ -2667,6 +2729,7 @@ ${(config as any).organizerInfo}` : ""}
         });
 
         results.push(newRegistration);
+        console.log(`[BATCH_REG] Successfully created registration for ${payload.playerName} (ID: ${newRegistration.id}) with provider: ${(payload as any).ratingProvider}`);
 
         await storage.createHistoryEntry({
           tournamentId,
@@ -2705,7 +2768,10 @@ ${(config as any).organizerInfo}` : ""}
       }
 
       const config = parseTournamentConfig(tournament);
+      console.log(`[REG_FLOW] Processing single registration for tournament ${tournamentId} (User: ${user.id})`);
+
       if (!config.registers.allowPlayerToJoin) {
+        console.warn(`[REG_FLOW] Registration blocked: Joined disabled in config for tournament ${tournamentId}`);
         return res.status(403).json({ error: "Player registration is not allowed for this tournament" });
       }
 
@@ -2733,7 +2799,7 @@ ${(config as any).organizerInfo}` : ""}
       const entryFee = payload.entryFeeId
         ? config.entryFees.find((fee) => fee.id === payload.entryFeeId) ?? null
         : null;
-      const contribution = Number.isFinite(payload.contribution) ? Number(payload.contribution) : 0;
+      const contribution = Number.isFinite(payload.processingContribution) ? Number(payload.processingContribution) : 0;
       const totals = computePaymentTotals(entryFee, contribution, payments);
 
       let amountDue = Number.isFinite(payload.amountDue) ? Number(payload.amountDue) : totals.total;
@@ -2811,9 +2877,27 @@ ${(config as any).organizerInfo}` : ""}
         userId: user.id,
         playerName: payload.playerName,
         uscfRating: payload.uscfRating ?? null,
+        fideRating: payload.fideRating ?? null,
+        ratingProvider: payload.ratingProvider ?? null,
+        uscfId: payload.uscfId ?? null,
+        fideId: payload.fideId ?? null,
         phoneNumber: payload.phoneNumber ?? null,
         email: payload.email ?? user.email ?? null,
+        address1: payload.address1 ?? null,
+        address2: payload.address2 ?? null,
+        city: payload.city ?? null,
+        state: payload.state ?? null,
+        postalCode: payload.postalCode ?? null,
+        country: payload.country ?? null,
+        pairingNotifications: payload.pairingNotifications ?? null,
+        newsletter: payload.newsletter ?? false,
+        sectionChoice: payload.sectionChoice ?? null,
+        entryFeeId: payload.entryFeeId ?? null,
+        processingContribution: payload.processingContribution?.toString() || "0",
+        byePreference: payload.byePreference ?? null,
+        byeRounds: payload.byeRounds ?? [],
         arrivalTime: payload.arrivalTime ?? "",
+        notes: payload.notes ?? null,
         paymentStatus,
         paymentIntentId: payload.paymentIntentId ?? null,
         paymentMethod,
@@ -2825,9 +2909,25 @@ ${(config as any).organizerInfo}` : ""}
         paidAt,
       };
 
+      console.log(`[REG_SERVER] Final registration data for user ${user.id}:`, JSON.stringify(registrationData, null, 2));
+
       let result;
       if (existingToUpdate) {
-        result = await storage.updatePlayerRegistration(existingToUpdate.id, registrationData as any);
+        if (existingToUpdate.status === "approved" && existingToUpdate.playerName) {
+          const nameParts = existingToUpdate.playerName.trim().split(/\s+/);
+          const firstName = nameParts[0] || "";
+          const lastName = nameParts.length > 1 ? nameParts.slice(1).join(" ") : "";
+          const players = await storage.getPlayersByTournament(tournamentId);
+          const playerToRemove = players.find(p => p.firstName === firstName && p.lastName === lastName);
+          if (playerToRemove) {
+            await storage.deletePlayer(playerToRemove.id);
+          }
+        }
+        
+        result = await storage.updatePlayerRegistration(existingToUpdate.id, {
+          ...registrationData,
+          status: "pending",
+        } as any);
       } else {
         result = await storage.createPlayerRegistration({
           ...registrationData,
@@ -2872,10 +2972,15 @@ ${(config as any).organizerInfo}` : ""}
 
       // Update only specific fields for player-initiated edit
       const updateData: any = {
+        status: "pending",
         updatedAt: new Date()
       };
       const editableFields = [
-        'playerName', 'uscfRating', 'phoneNumber', 'email', 'arrivalTime', 'paymentNotes'
+        'playerName', 'uscfRating', 'fideRating', 'uscfId', 'fideId', 
+        'phoneNumber', 'email', 'address1', 'address2', 'city', 'state', 
+        'postalCode', 'country', 'pairingNotifications', 'newsletter',
+        'sectionChoice', 'entryFeeId', 'processingContribution',
+        'byePreference', 'byeRounds', 'arrivalTime', 'notes', 'paymentNotes'
       ];
 
       for (const field of editableFields) {
@@ -2910,6 +3015,53 @@ ${(config as any).organizerInfo}` : ""}
         return res.status(400).json({ error: "Invalid registration data", issues: error.flatten() });
       }
       res.status(500).json({ error: "Failed to update registration" });
+    }
+  });
+ 
+  // Delete individual registration (for players to cancel entries in a group)
+  app.delete("/api/registrations/:id", requireAuth, async (req, res) => {
+    try {
+      const registrationId = parseInt(req.params.id);
+      const user = req.user!;
+ 
+      const registration = await storage.getPlayerRegistration(registrationId);
+      if (!registration) {
+        return res.status(404).json({ error: "Registration not found" });
+      }
+ 
+      // Security: Only the owner or a TD with access to the tournament can delete
+      const tournament = await storage.getTournament(registration.tournamentId);
+      const isOwner = registration.userId === user.id;
+      const isTD = user.role === 'tournament_director' && tournament?.createdBy === user.id;
+ 
+      if (!isOwner && !isTD) {
+        return res.status(403).json({ error: "You don't have permission to remove this registration" });
+      }
+ 
+      // If the registration was already approved, clean up the player record too
+      if (registration.status === 'approved' && registration.playerName) {
+        const nameParts = registration.playerName.trim().split(/\s+/);
+        const firstName = nameParts[0] || "";
+        const lastName = nameParts.length > 1 ? nameParts.slice(1).join(" ") : "";
+        
+        const players = await storage.getPlayersByTournament(registration.tournamentId);
+        const playerToRemove = players.find(p => p.firstName === firstName && p.lastName === lastName);
+        
+        if (playerToRemove) {
+          console.log(`[REG_DEL] Removing associated player record for approved registration: ${playerToRemove.id}`);
+          await storage.deletePlayer(playerToRemove.id);
+        }
+      }
+ 
+      const deleted = await storage.deletePlayerRegistration(registrationId);
+      if (!deleted) {
+        return res.status(500).json({ error: "Failed to delete registration" });
+      }
+ 
+      res.status(200).json({ message: "Registration removed successfully" });
+    } catch (error) {
+      console.error("Error deleting registration:", error);
+      res.status(500).json({ error: "Failed to remove registration" });
     }
   });
 
@@ -2949,16 +3101,69 @@ ${(config as any).organizerInfo}` : ""}
         const user = await storage.getUserById(updatedRegistration.userId);
         if (user) {
           const fullName = updatedRegistration.playerName || `${user.firstName} ${user.lastName}`;
-          const [firstName, ...rest] = fullName.trim().split(/\\s+/);
-          const lastName = rest.length > 0 ? rest.join(" ") : firstName;
+          const nameParts = fullName.trim().split(/\s+/);
+          const firstName = nameParts[0] || "";
+          const lastName = nameParts.length > 1 ? nameParts.slice(1).join(" ") : "";
 
-          await storage.createPlayer({
-            tournamentId,
-            firstName,
-            lastName,
-            rating: updatedRegistration.uscfRating || undefined,
-            federation: undefined,
-          });
+          const tournament = await storage.getTournament(tournamentId);
+          if (!tournament) {
+            return res.status(404).json({ error: "Tournament not found" });
+          }
+          const regConfig = parseTournamentConfig(tournament);
+          const primarySystem = regConfig.details.primaryRatingSystem || 'uscf';
+          
+          // Determine which rating to use. 
+          // 1. If the registration has a specific provider, use it.
+          // 2. Fall back to tournament default config.
+          let rating: number | null = null;
+          const provider = (updatedRegistration as any).ratingProvider;
+          
+          console.log(`[APPROVAL_LOG] Processing approval for ${updatedRegistration.playerName}`);
+          console.log(`[APPROVAL_LOG] User selected provider: ${provider}, Primary System: ${primarySystem}`);
+          console.log(`[APPROVAL_LOG] USCF Rating in registration: ${updatedRegistration.uscfRating}`);
+          console.log(`[APPROVAL_LOG] FIDE Rating in registration: ${updatedRegistration.fideRating}`);
+
+          if (provider === "fide") {
+            rating = updatedRegistration.fideRating ?? updatedRegistration.uscfRating ?? null;
+          } else if (provider === "uscf") {
+            rating = updatedRegistration.uscfRating ?? updatedRegistration.fideRating ?? null;
+          } else if (provider === "manual") {
+            rating = updatedRegistration.uscfRating ?? updatedRegistration.fideRating ?? null;
+          } else {
+            // Standard fallback logic using Primary System
+            rating = primarySystem === 'fide' 
+              ? (updatedRegistration.fideRating ?? updatedRegistration.uscfRating ?? null)
+              : (updatedRegistration.uscfRating ?? updatedRegistration.fideRating ?? null);
+            console.log(`[APPROVAL_LOG] Falling back to Primary System (${primarySystem}), Selected rating: ${rating}`);
+          }
+
+          const federation = provider === 'fide' ? 'FIDE' : (provider === 'uscf' ? 'USCF' : (primarySystem === 'fide' ? 'FIDE' : 'USCF'));
+          console.log(`[APPROVAL_LOG] Creating/Updating player with rating: ${rating}, federation: ${federation}`);
+
+          const players = await storage.getPlayersByTournament(tournamentId);
+          const existingPlayer = players.find(p => 
+            p.firstName.trim().toLowerCase() === firstName.toLowerCase() && 
+            p.lastName.trim().toLowerCase() === lastName.toLowerCase()
+          );
+
+          const playerUpdatePayload = {
+            rating: rating,
+            uscfRating: updatedRegistration.uscfRating,
+            fideRating: updatedRegistration.fideRating,
+            federation: federation,
+          };
+
+          if (existingPlayer) {
+            console.log(`[APPROVAL_LOG] Existing player found (ID: ${existingPlayer.id}), updating instead of creating duplicate.`);
+            await storage.updatePlayer(existingPlayer.id, playerUpdatePayload);
+          } else {
+            await storage.createPlayer({
+              ...playerUpdatePayload,
+              tournamentId,
+              firstName,
+              lastName,
+            });
+          }
         }
       }
 
@@ -3087,6 +3292,18 @@ ${(config as any).organizerInfo}` : ""}
           const numericRating = Number(req.body.rating);
           if (Number.isFinite(numericRating)) {
             updates.rating = Math.max(0, Math.round(numericRating));
+          }
+        }
+        if (req.body?.uscfRating !== undefined && req.body?.uscfRating !== null) {
+          const numeric = Number(req.body.uscfRating);
+          if (Number.isFinite(numeric)) {
+            updates.uscfRating = Math.max(0, Math.round(numeric));
+          }
+        }
+        if (req.body?.fideRating !== undefined && req.body?.fideRating !== null) {
+          const numeric = Number(req.body.fideRating);
+          if (Number.isFinite(numeric)) {
+            updates.fideRating = Math.max(0, Math.round(numeric));
           }
         }
         if (typeof req.body?.federation === "string" && req.body.federation.trim()) {
@@ -4040,7 +4257,7 @@ async function generatePairings(tournament: any, players: any[], matches: any[],
 }
 
 // Helper functions for proper Swiss pairing
-function groupPlayersByScore(playerStats: any[]): any[][] {
+function groupPlayersByScore(playerStats: any[], tournament: any): any[][] {
   const groups: { [score: string]: any[] } = {};
 
   for (const player of playerStats) {
@@ -4056,7 +4273,11 @@ function groupPlayersByScore(playerStats: any[]): any[][] {
     .sort((a, b) => parseFloat(b) - parseFloat(a))
     .map(score => groups[score].sort((a, b) => {
       // Sort by rating first, then alphabetically for consistent seeding
-      const ratingDiff = (b.player.rating || 0) - (a.player.rating || 0);
+      const tournamentConfig = parseTournamentConfig(tournament);
+      const isFide = tournamentConfig.details.primaryRatingSystem === 'fide';
+      const ratingA = (isFide ? (a.player.fideRating ?? a.player.rating) : (a.player.uscfRating ?? a.player.rating)) || 0;
+      const ratingB = (isFide ? (b.player.fideRating ?? b.player.rating) : (b.player.uscfRating ?? b.player.rating)) || 0;
+      const ratingDiff = ratingB - ratingA;
       if (ratingDiff !== 0) return ratingDiff;
 
       // If ratings are equal, sort alphabetically by first name, then last name
@@ -4071,7 +4292,7 @@ function groupPlayersByScore(playerStats: any[]): any[][] {
     }));
 }
 
-function pairUpperVsLowerHalf(scoreGroup: any[], matches: any[], round: number): { paired: any[][], unpaired: any[] } {
+function pairUpperVsLowerHalf(scoreGroup: any[], matches: any[], round: number, tournament: any): { paired: any[][], unpaired: any[] } {
   const paired: any[][] = [];
   const unpaired: any[] = [];
 
@@ -4080,7 +4301,13 @@ function pairUpperVsLowerHalf(scoreGroup: any[], matches: any[], round: number):
   }
 
   // Sort by rating (highest first for proper upper/lower half)
-  const sortedGroup = [...scoreGroup].sort((a, b) => (b.player.rating || 0) - (a.player.rating || 0));
+  const tournamentConfig = parseTournamentConfig(tournament);
+  const isFide = tournamentConfig.details.primaryRatingSystem === 'fide';
+  const sortedGroup = [...scoreGroup].sort((a, b) => {
+    const ratingA = (isFide ? (a.player.fideRating ?? a.player.rating) : (a.player.uscfRating ?? a.player.rating)) || 0;
+    const ratingB = (isFide ? (b.player.fideRating ?? b.player.rating) : (b.player.uscfRating ?? b.player.rating)) || 0;
+    return ratingB - ratingA;
+  });
   const midPoint = Math.floor(sortedGroup.length / 2);
 
   const upperHalf = sortedGroup.slice(0, midPoint);
@@ -4125,7 +4352,7 @@ function pairUpperVsLowerHalf(scoreGroup: any[], matches: any[], round: number):
 
 
 
-function determineSwissColors(player1: any, player2: any): { whitePlayer: any, blackPlayer: any } {
+function determineSwissColors(player1: any, player2: any, tournament: any): { whitePlayer: any, blackPlayer: any } {
   // Calculate player stats for color balancing
   const p1Stats = player1.player ? player1 : { colorBalance: 0, whiteGames: 0, blackGames: 0 };
   const p2Stats = player2.player ? player2 : { colorBalance: 0, whiteGames: 0, blackGames: 0 };
@@ -4174,8 +4401,10 @@ function determineSwissColors(player1: any, player2: any): { whitePlayer: any, b
     return { whitePlayer: p2Stats.player, blackPlayer: p1Stats.player };
   } else {
     // Equal balance - higher rated player gets white (or random if equal ratings)
-    const p1Rating = p1Stats.player?.rating || 0;
-    const p2Rating = p2Stats.player?.rating || 0;
+    const tournamentConfig = parseTournamentConfig(tournament);
+    const isFide = tournamentConfig.details.primaryRatingSystem === 'fide';
+    const p1Rating = (isFide ? (p1Stats.player?.fideRating ?? p1Stats.player?.rating) : (p1Stats.player?.uscfRating ?? p1Stats.player?.rating)) || 0;
+    const p2Rating = (isFide ? (p2Stats.player?.fideRating ?? p2Stats.player?.rating) : (p2Stats.player?.uscfRating ?? p2Stats.player?.rating)) || 0;
 
     if (p1Rating > p2Rating) {
       console.log(`  ${p1Stats.player?.firstName || 'Player1'} gets white (higher rated: ${p1Rating} vs ${p2Rating})`);
@@ -4224,7 +4453,13 @@ async function generateSwissPairings(tournament: any, players: any[], matches: a
 
   if (round === 1) {
     // Round 1: Sort by rating, pair upper half vs lower half
-    const sortedPlayers = [...activePlayers].sort((a, b) => (b.rating || 0) - (a.rating || 0));
+    const tournamentConfig = parseTournamentConfig(tournament);
+    const isFide = tournamentConfig.details.primaryRatingSystem === 'fide';
+    const sortedPlayers = [...activePlayers].sort((a, b) => {
+      const ratingA = (isFide ? (a.fideRating ?? a.rating) : (a.uscfRating ?? a.rating)) || 0;
+      const ratingB = (isFide ? (b.fideRating ?? b.rating) : (b.uscfRating ?? b.rating)) || 0;
+      return ratingB - ratingA;
+    });
     const isOdd = sortedPlayers.length % 2 === 1;
     const numPairs = Math.floor(sortedPlayers.length / 2);
     const resolvedBoardNumbers = boardNumbers ?? generateBoardNumberSequence(tournament.boardNumberingSettings, numPairs + (isOdd ? 1 : 0));
@@ -4305,9 +4540,13 @@ async function generateSwissPairings(tournament: any, players: any[], matches: a
     });
 
     // Sort by points (highest first), then by rating
+    const tournamentConfig = parseTournamentConfig(tournament);
+    const isFide = tournamentConfig.details.primaryRatingSystem === 'fide';
     const sortedPlayers = [...playerStatsWithColors].sort((a, b) => {
       if (b.points !== a.points) return b.points - a.points;
-      return (b.player.rating || 0) - (a.player.rating || 0);
+      const ratingA = (isFide ? (a.player.fideRating ?? a.player.rating) : (a.player.uscfRating ?? a.player.rating)) || 0;
+      const ratingB = (isFide ? (b.player.fideRating ?? b.player.rating) : (b.player.uscfRating ?? b.player.rating)) || 0;
+      return ratingB - ratingA;
     });
 
     console.log('Current standings:');
@@ -4355,8 +4594,8 @@ async function generateSwissPairings(tournament: any, players: any[], matches: a
         return { whitePlayer: p2.player, blackPlayer: p1.player };
       } else {
         // Equal balance - higher rated gets white
-        const p1Rating = p1.player.rating || 0;
-        const p2Rating = p2.player.rating || 0;
+        const p1Rating = (isFide ? (p1.player.fideRating ?? p1.player.rating) : (p1.player.uscfRating ?? p1.player.rating)) || 0;
+        const p2Rating = (isFide ? (p2.player.fideRating ?? p2.player.rating) : (p2.player.uscfRating ?? p2.player.rating)) || 0;
         return p1Rating > p2Rating
           ? { whitePlayer: p1.player, blackPlayer: p2.player }
           : { whitePlayer: p2.player, blackPlayer: p1.player };

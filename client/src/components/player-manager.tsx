@@ -107,8 +107,9 @@ export default function PlayerManager({ tournament, tournamentId }: PlayerManage
         return sortDirection === 'asc' ? nameA.localeCompare(nameB) : nameB.localeCompare(nameA);
       }
       if (sortKey === 'rating') {
-        const ratingA = a.rating ?? 0;
-        const ratingB = b.rating ?? 0;
+        const isFide = tournamentConfig.details.primaryRatingSystem === 'fide';
+        const ratingA = isFide ? (a.fideRating ?? a.rating ?? 0) : (a.uscfRating ?? a.rating ?? 0);
+        const ratingB = isFide ? (b.fideRating ?? b.rating ?? 0) : (b.uscfRating ?? b.rating ?? 0);
         return sortDirection === 'asc' ? ratingA - ratingB : ratingB - ratingA;
       }
       return 0;
@@ -509,7 +510,7 @@ export default function PlayerManager({ tournament, tournamentId }: PlayerManage
                           </TableHead>
                           <TableHead>
                             <Button variant="ghost" onClick={() => handleSort('rating')}>
-                              Rating
+                              {tournamentConfig.details.primaryRatingSystem === 'fide' ? 'FIDE' : 'USCF'} Rating
                               {sortKey === 'rating' && <ArrowUpDown className="ml-2 h-4 w-4 inline" />}
                             </Button>
                           </TableHead>
@@ -556,7 +557,11 @@ export default function PlayerManager({ tournament, tournamentId }: PlayerManage
                                   </span>
                                 </div>
                               </TableCell>
-                              <TableCell>{player.rating ?? "-"}</TableCell>
+                              <TableCell>
+                                {tournamentConfig.details.primaryRatingSystem === 'fide' 
+                                  ? (player.fideRating ?? player.rating ?? "-")
+                                  : (player.uscfRating ?? player.rating ?? "-")}
+                              </TableCell>
                               <TableCell>
                                 {pairingsLoading ? (
                                   <Loader2 className="h-4 w-4 animate-spin text-slate-400" />

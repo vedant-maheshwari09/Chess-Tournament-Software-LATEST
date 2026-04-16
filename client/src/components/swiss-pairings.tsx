@@ -465,9 +465,13 @@ export default function SwissPairings({ tournamentId, activeSection, showExportC
     (playerId: number | null) => {
       if (!playerId || !players) return 0;
       const player = players.find((p) => p.id === playerId);
-      return player?.rating || 0;
+      if (!player) return 0;
+      
+      const isFide = tournamentConfig?.details.primaryRatingSystem === 'fide';
+      const rating = isFide ? (player.fideRating ?? player.rating ?? 0) : (player.uscfRating ?? player.rating ?? 0);
+      return typeof rating === 'number' ? rating : Number(rating) || 0;
     },
-    [players],
+    [players, tournamentConfig],
   );
 
   const getPlayerPoints = useCallback(

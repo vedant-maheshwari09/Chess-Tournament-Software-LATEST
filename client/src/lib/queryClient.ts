@@ -22,24 +22,34 @@ export async function apiRequest(
     headers.Authorization = `Bearer ${token}`;
   }
 
-  const res = await fetch(url, {
-    ...options,
-    headers,
-    credentials: "include",
-  });
+  try {
+    const res = await fetch(url, {
+      ...options,
+      headers,
+      credentials: "include",
+    });
 
-  if (res.status === 401) {
-    localStorage.removeItem("auth_token");
-    window.location.href = '/login';
-    throw new Error("Session expired. Please log in again.");
-  }
+    if (res.status === 401) {
+      localStorage.removeItem("auth_token");
+      window.location.href = '/login';
+      throw new Error("Session expired. Please log in again.");
+    }
 
-  await throwIfResNotOk(res);
-  
-  if (res.headers.get("content-type")?.includes("application/json")) {
-    return res.json();
+    await throwIfResNotOk(res);
+    
+    const contentType = res.headers.get("content-type");
+    if (contentType?.includes("application/json")) {
+      if (typeof res.json !== 'function') {
+        console.error("[API_ERROR] res.json is not a function! res object:", res);
+        throw new Error("INTERNAL_FETCH_ERROR: res.json is not a function");
+      }
+      return await res.json();
+    }
+    return res;
+  } catch (err) {
+    console.error(`[API_ERROR] Failed during apiRequest to ${url}:`, err);
+    throw err;
   }
-  return res;
 }
 
 type UnauthorizedBehavior = "returnNull" | "throw";

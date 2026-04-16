@@ -251,6 +251,8 @@ export default function AddPlayerPage({ tournamentId, playerId }: AddPlayerPageP
       paymentAmount: "",
       sectionId: initialSection?.id ?? "",
       sectionName: initialSection?.name ?? "",
+      uscfRating: "",
+      fideRating: "",
     }),
     [defaultFederation],
   );
@@ -347,6 +349,8 @@ export default function AddPlayerPage({ tournamentId, playerId }: AddPlayerPageP
         federation: formState.federation || "United States",
         sectionId: formState.sectionId || selectedSectionDetails?.id || null,
         sectionName: (selectedSectionDetails?.name ?? formState.sectionName)?.trim() || null,
+        uscfRating: parseInt(formState.uscfRating, 10) || null,
+        fideRating: parseInt(formState.fideRating, 10) || null,
       };
       if (isEditing && resolvedPlayerId) {
         return apiRequest(`/api/tournaments/${tournamentId}/players/${resolvedPlayerId}`, {
@@ -456,6 +460,8 @@ export default function AddPlayerPage({ tournamentId, playerId }: AddPlayerPageP
       federation: editingPlayer.federation ?? prev.federation,
       sectionId: matchedSection?.id ?? editingPlayer.sectionId ?? prev.sectionId,
       sectionName: matchedSection?.name ?? editingPlayer.sectionName ?? prev.sectionName,
+      uscfRating: editingPlayer.uscfRating != null ? String(editingPlayer.uscfRating) : prev.uscfRating,
+      fideRating: editingPlayer.fideRating != null ? String(editingPlayer.fideRating) : prev.fideRating,
     }));
     setCombinedNameInput([editingPlayer.lastName, editingPlayer.firstName].filter(Boolean).join(", "));
     setEditInitialized(true);
@@ -592,9 +598,11 @@ export default function AddPlayerPage({ tournamentId, playerId }: AddPlayerPageP
         if (source === "uscf") {
           next.uscfId = idValue;
           next.localId = "";
+          next.uscfRating = mainRating;
         } else if (source === "fide") {
           next.localId = idValue;
           next.uscfId = "";
+          next.fideRating = mainRating;
         } else {
           next.uscfId = "";
           next.localId = idValue;
@@ -602,6 +610,10 @@ export default function AddPlayerPage({ tournamentId, playerId }: AddPlayerPageP
       } else {
         if (source === "uscf") {
           next.uscfId = "";
+          next.uscfRating = mainRating;
+        } else if (source === "fide") {
+          next.localId = "";
+          next.fideRating = mainRating;
         } else {
           next.localId = "";
         }
@@ -993,6 +1005,40 @@ export default function AddPlayerPage({ tournamentId, playerId }: AddPlayerPageP
                             className="mt-1"
                             value={formState.ratingBlitz}
                             onChange={(event) => setFormState((prev) => ({ ...prev, ratingBlitz: event.target.value }))}
+                          />
+                        </div>
+                        <div className="md:col-span-4">
+                          <Label className="text-sm font-semibold text-slate-700">USCF Rating</Label>
+                          <Input
+                            className="mt-1"
+                            value={formState.uscfRating}
+                            onChange={(event) => setFormState((prev) => {
+                              const val = event.target.value;
+                              const regConfig = parseTournamentConfig(tournament!);
+                              const primary = regConfig.details.primaryRatingSystem || 'uscf';
+                              return {
+                                ...prev,
+                                uscfRating: val,
+                                rating: primary === 'uscf' ? val : prev.rating
+                              };
+                            })}
+                          />
+                        </div>
+                        <div className="md:col-span-4">
+                          <Label className="text-sm font-semibold text-slate-700">FIDE Rating</Label>
+                          <Input
+                            className="mt-1"
+                            value={formState.fideRating}
+                            onChange={(event) => setFormState((prev) => {
+                              const val = event.target.value;
+                              const regConfig = parseTournamentConfig(tournament!);
+                              const primary = regConfig.details.primaryRatingSystem || 'uscf';
+                              return {
+                                ...prev,
+                                fideRating: val,
+                                rating: primary === 'fide' ? val : prev.rating
+                              };
+                            })}
                           />
                         </div>
                         <div className="md:col-span-4">

@@ -141,10 +141,10 @@ export default function TournamentView({ tournamentId }: TournamentViewProps) {
                     : "border-amber-400 text-amber-600 bg-amber-50"
                 }>
                   {myRegistration.status === "approved" 
-                    ? "Registered" 
+                    ? "Registration Accepted" 
                     : myRegistration.status === "declined"
                     ? "Registration Declined"
-                    : "Pending Approval"}
+                    : "Pending"}
                 </Badge>
               )}
 
@@ -152,7 +152,7 @@ export default function TournamentView({ tournamentId }: TournamentViewProps) {
                 myRegistration ? (
                   config.registers.allowEditRegistration && (
                     <Button
-                      onClick={() => setLocation(`/tournaments/${tournamentId}/register/form`)}
+                      onClick={() => setLocation(`/tournaments/${tournamentId}/register?edit=true`)}
                       variant="outline"
                       className="border-blue-500 text-blue-600 hover:bg-blue-50 font-bold"
                     >
@@ -162,7 +162,7 @@ export default function TournamentView({ tournamentId }: TournamentViewProps) {
                   )
                 ) : (
                   <Button
-                    onClick={() => setLocation(`/tournaments/${tournamentId}/register/form`)}
+                    onClick={() => setLocation(`/tournaments/${tournamentId}/register`)}
                     className="bg-blue-500 hover:bg-blue-600 text-white font-bold shadow-sm shadow-blue-200"
                   >
                     <Trophy className="mr-2 h-4 w-4" />

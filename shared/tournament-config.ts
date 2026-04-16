@@ -203,6 +203,7 @@ export interface TournamentConfig {
     rounds: number;
     tiebreakSystem: string;
     ratingType: string;
+    primaryRatingSystem?: "uscf" | "fide";
     scoring: ScoringRules;
     tiebreaksEnabled: boolean;
     tiebreaks: string[];
@@ -308,6 +309,7 @@ export function createDefaultConfig(format: Tournament["format"], mode: Tourname
       rounds: defaultRounds,
       tiebreakSystem: "rating",
       ratingType: "standard",
+      primaryRatingSystem: "uscf",
       scoring: {
         win: 1,
         draw: 0.5,
@@ -509,6 +511,7 @@ export function parseTournamentConfig(tournament: Tournament): TournamentConfig 
         scoring,
         tiebreaksEnabled,
         tiebreaks,
+        primaryRatingSystem: parsed.details?.primaryRatingSystem ?? defaults.details.primaryRatingSystem ?? "uscf",
       },
       boardNumbering: {
         ...defaults.boardNumbering,

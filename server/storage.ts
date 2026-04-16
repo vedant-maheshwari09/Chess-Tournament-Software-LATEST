@@ -402,7 +402,7 @@ class SupabaseStorage implements IStorage {
   async createPlayer(player: InsertPlayer): Promise<Player> {
     const payload: InsertPlayer = {
       ...player,
-      rating: player.rating ?? 1000,
+      rating: player.rating ?? null,
       federation: player.federation ?? "USCF",
     };
     return insertOne<Player>("players", payload as AnyRecord);
