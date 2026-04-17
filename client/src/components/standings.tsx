@@ -221,6 +221,8 @@ export default function Standings({ tournamentId, showExportControls = true }: S
     standings.forEach((standing) => {
       const isFide = tournamentConfig?.details.primaryRatingSystem === 'fide';
       const playerRating = (isFide ? (standing.player.fideRating ?? standing.player.rating) : (standing.player.uscfRating ?? standing.player.rating)) ?? '';
+      const playerName = `${standing.player.firstName} ${standing.player.lastName}`.trim();
+      const record = `${standing.wins}-${standing.draws}-${standing.losses}`;
       printWindow.document.write(
         `<tr><td>${standing.position}</td><td>${playerName}</td><td>${standing.points}</td><td>${standing.gamesPlayed}</td><td>${record}</td><td>${playerRating}</td></tr>`,
       );

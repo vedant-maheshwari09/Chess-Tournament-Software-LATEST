@@ -24,6 +24,9 @@ import TournamentByes from "@/components/tournament-byes";
 import { parseTournamentConfig } from "@/lib/tournament-config";
 import { renderTournamentPageContent } from "@/lib/tournament-page";
 import { apiRequest } from "@/lib/queryClient";
+import { requestFirebaseToken } from "@/lib/firebase";
+import { RegistrationStatusCard } from "@/components/registration-status-card";
+import NotificationBell from "@/components/notification-bell";
 
 type SortKey = "players" | "date" | "state";
 
@@ -65,6 +68,20 @@ export default function PlayerDashboard() {
   const queryClient = useQueryClient();
   const isPlayer = user?.role === "player";
   const [pendingStarId, setPendingStarId] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (isPlayer) {
+      // Request FCM token and register it
+      requestFirebaseToken().then((token) => {
+        if (token) {
+          apiRequest('/api/users/fcm-token', {
+            method: 'POST',
+            body: JSON.stringify({ token })
+          }).catch(console.error);
+        }
+      });
+    }
+  }, [isPlayer]);
 
   const { data: tournaments = [], isLoading } = useQuery<Tournament[]>({
     queryKey: ["/api/tournaments"],
@@ -448,6 +465,7 @@ export default function PlayerDashboard() {
               </p>
             </div>
             <div className="flex items-center gap-4">
+              <NotificationBell />
               <div className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-300">
                 <Users className="h-4 w-4" />
                 Player Account
@@ -459,6 +477,8 @@ export default function PlayerDashboard() {
       </div>
 
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 pt-6 pb-10">
+        
+        {/* My Registrations Status section removed - now in Notification Bell */}
 
         {tournaments.length > 0 ? (
           <div className="mb-6 flex flex-wrap items-center justify-end gap-3">

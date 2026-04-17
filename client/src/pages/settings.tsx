@@ -25,10 +25,11 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { Separator } from "@/components/ui/separator";
-import { LogOut, Trash2, ArrowLeft, SlidersHorizontal, User2 } from "lucide-react";
+import { LogOut, Trash2, ArrowLeft, SlidersHorizontal, User2, Mail, Smartphone, Bell, Trophy, Users } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
+import { requestFirebaseToken } from "@/lib/firebase";
 
 
 export default function SettingsPage() {
@@ -38,32 +39,22 @@ export default function SettingsPage() {
   const queryClient = useQueryClient();
 
   const [phoneNumber, setPhoneNumber] = useState(user?.phoneNumber ?? "");
-  const [carrier, setCarrier] = useState(user?.carrier ?? "");
   const [notifyEmail, setNotifyEmail] = useState<boolean>(user?.notifyEmail ?? true);
-  const [notifySms, setNotifySms] = useState<boolean>(user?.notifySms ?? false);
+  const [notifyPairings, setNotifyPairings] = useState<boolean>(user?.notifyPairings ?? true);
+  const [notifyRegistration, setNotifyRegistration] = useState<boolean>(user?.notifyRegistration ?? true);
+  const [notifyTournamentStatus, setNotifyTournamentStatus] = useState<boolean>(user?.notifyTournamentStatus ?? true);
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
 
   useEffect(() => {
     setPhoneNumber(user?.phoneNumber ?? "");
-    setCarrier(user?.carrier ?? "");
     setNotifyEmail(user?.notifyEmail ?? true);
-    setNotifySms(user?.notifySms ?? false);
+    setNotifyPairings(user?.notifyPairings ?? true);
+    setNotifyRegistration(user?.notifyRegistration ?? true);
+    setNotifyTournamentStatus(user?.notifyTournamentStatus ?? true);
   }, [user]);
 
-  const carrierOptions = useMemo(
-    () => [
-      { value: "att", label: "AT&T" },
-      { value: "verizon", label: "Verizon" },
-      { value: "tmobile", label: "T-Mobile" },
-      { value: "sprint", label: "Sprint" },
-      { value: "googlefi", label: "Google Fi" },
-      { value: "uscellular", label: "US Cellular" },
-      { value: "other", label: "Other" },
-    ],
-    [],
-  );
 
   const logoutMutation = useMutation({
     mutationFn: async () => {
@@ -104,9 +95,10 @@ export default function SettingsPage() {
     mutationFn: async () => {
       const body = {
         phoneNumber: phoneNumber || null,
-        carrier: carrier || null,
         notifyEmail,
-        notifySms,
+        notifyPairings,
+        notifyRegistration,
+        notifyTournamentStatus,
       };
       return apiRequest("/api/auth/preferences", {
         method: "PATCH",
@@ -147,6 +139,64 @@ export default function SettingsPage() {
       });
     },
   });
+
+  const registerPushTokenMutation = useMutation({
+    mutationFn: async (fcmToken: string) => {
+      return apiRequest("/api/users/fcm-token", {
+        method: "POST",
+        body: JSON.stringify({ fcmToken }),
+      });
+    },
+    onSuccess: () => {
+      toast({ 
+        title: "Push notifications enabled",
+        description: "You will now receive real-time alerts on this device."
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Failed to enable push",
+        description: error?.message ?? "Please try again later.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const handleEnablePush = async () => {
+    if (registerPushTokenMutation.isPending) return;
+
+    try {
+      const token = await requestFirebaseToken();
+      if (token) {
+        registerPushTokenMutation.mutate(token);
+      } else {
+        toast({
+          title: "Setup incomplete",
+          description: "Your browser reported that notifications are not supported or setup failed. Please check if you are in an Incognito window.",
+          variant: "destructive",
+        });
+      }
+    } catch (err: any) {
+      console.error("Error requesting push token:", err);
+      
+      let errorMessage = "An unexpected error occurred while setting up push notifications.";
+      
+      if (err?.message?.includes('messaging/permission-blocked')) {
+        errorMessage = "Notifications are blocked. Please click the lock icon in your address bar and set Notifications to 'Allow'.";
+      } else if (err?.message?.includes('messaging/invalid-vapid-key')) {
+        errorMessage = "A configuration error occurred (Invalid VAPID Key). Please contact the administrator.";
+      } else if (err?.message) {
+        errorMessage = err.message;
+      }
+
+      toast({
+        title: "Push Setup Failed",
+        description: errorMessage,
+        variant: "destructive",
+      });
+    }
+  };
 
   const handleChangePassword = () => {
     if (changePasswordMutation.isPending) return;
@@ -216,62 +266,119 @@ export default function SettingsPage() {
           <CardHeader className="flex flex-row items-center gap-3">
             <SlidersHorizontal className="h-5 w-5 text-primary" />
             <div>
-              <CardTitle>Preferences</CardTitle>
+              <CardTitle>Notifications</CardTitle>
               <p className="text-sm text-muted-foreground">
-                Choose how you want to receive tournament announcements.
+                Control how and when you want to be notified.
               </p>
             </div>
           </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid gap-4 md:grid-cols-2">
-              <div className="space-y-2">
-                <Label>Mobile number</Label>
-                <Input
-                  value={phoneNumber}
-                  onChange={(event) => setPhoneNumber(event.target.value)}
-                  placeholder="5551234567"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>Carrier</Label>
-                <Select value={carrier || undefined} onValueChange={setCarrier}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select carrier" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {carrierOptions.map((option) => (
-                      <SelectItem key={option.value} value={option.value}>
-                        {option.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+          <CardContent className="space-y-6">
+            <div className="space-y-4">
+              <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">How should we reach you?</h3>
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="flex items-center justify-between rounded-lg border bg-card p-4 transition-colors hover:bg-accent/5">
+                  <div className="flex flex-row items-center gap-3">
+                    <div className="p-2 bg-primary/10 rounded-full">
+                      <Mail className="h-4 w-4 text-primary" />
+                    </div>
+                    <div>
+                      <Label className="text-sm font-bold">Email Alerts</Label>
+                      <p className="text-xs text-muted-foreground">Pairings, official receipts, and results.</p>
+                    </div>
+                  </div>
+                  <Switch checked={notifyEmail} onCheckedChange={setNotifyEmail} />
+                </div>
+                
+                <div className="flex items-center justify-between rounded-lg border bg-card p-4 transition-colors hover:bg-accent/5">
+                  <div className="flex flex-row items-center gap-3">
+                    <div className="p-2 bg-primary/10 rounded-full">
+                      <Smartphone className="h-4 w-4 text-primary" />
+                    </div>
+                    <div>
+                      <Label className="text-sm font-bold">Push Notifications</Label>
+                      <p className="text-xs text-muted-foreground">Real-time alerts on this device.</p>
+                    </div>
+                  </div>
+                  <Button 
+                    variant="outline" 
+                    size="sm" 
+                    className="h-8 text-xs"
+                    onClick={handleEnablePush}
+                    disabled={registerPushTokenMutation.isPending || !!user?.fcmToken}
+                  >
+                    {registerPushTokenMutation.isPending ? "Connecting..." : user?.fcmToken ? "Enabled" : "Enable"}
+                  </Button>
+                </div>
               </div>
             </div>
+
             <Separator />
-            <div className="grid gap-4 md:grid-cols-2">
-              <div className="flex items-center justify-between rounded-md border p-3">
-                <div>
-                  <Label className="text-sm font-medium">Email updates</Label>
-                  <p className="text-xs text-muted-foreground">Round pairings, standings, and announcements.</p>
+
+            <div className="space-y-4">
+              <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">What do you want to hear about?</h3>
+              <div className="grid gap-4 md:grid-cols-1">
+                <div className="flex items-center justify-between p-2">
+                  <div className="flex flex-row items-center gap-3">
+                    <div className="p-2 bg-blue-500/10 rounded-lg">
+                      <Users className="h-4 w-4 text-blue-500" />
+                    </div>
+                    <div>
+                      <Label className="text-sm font-medium">Registrations & Status</Label>
+                      <p className="text-xs text-muted-foreground">Get notified when you register or when a director approves your entry.</p>
+                    </div>
+                  </div>
+                  <Switch checked={notifyRegistration} onCheckedChange={setNotifyRegistration} />
                 </div>
-                <Switch checked={notifyEmail} onCheckedChange={setNotifyEmail} />
-              </div>
-              <div className="flex items-center justify-between rounded-md border p-3">
-                <div>
-                  <Label className="text-sm font-medium">SMS updates</Label>
-                  <p className="text-xs text-muted-foreground">Sent via carrier email gateways.</p>
+
+                <div className="flex items-center justify-between p-2">
+                  <div className="flex flex-row items-center gap-3">
+                    <div className="p-2 bg-orange-500/10 rounded-lg">
+                      <Trophy className="h-4 w-4 text-orange-500" />
+                    </div>
+                    <div>
+                      <Label className="text-sm font-medium">Match Pairings & Round Results</Label>
+                      <p className="text-xs text-muted-foreground">Get notified immediately when your next match is ready.</p>
+                    </div>
+                  </div>
+                  <Switch checked={notifyPairings} onCheckedChange={setNotifyPairings} />
                 </div>
-                <Switch checked={notifySms} onCheckedChange={setNotifySms} />
+
+                <div className="flex items-center justify-between p-2">
+                  <div className="flex flex-row items-center gap-3">
+                    <div className="p-2 bg-purple-500/10 rounded-lg">
+                      <Bell className="h-4 w-4 text-purple-500" />
+                    </div>
+                    <div>
+                      <Label className="text-sm font-medium">Tournament Announcements</Label>
+                      <p className="text-xs text-muted-foreground">General updates, start times, and important organizer messages.</p>
+                    </div>
+                  </div>
+                  <Switch checked={notifyTournamentStatus} onCheckedChange={setNotifyTournamentStatus} />
+                </div>
               </div>
             </div>
-            <Button
-              onClick={() => updatePreferencesMutation.mutate()}
-              className="w-full md:w-auto"
-              disabled={updatePreferencesMutation.isPending}
-            >
-              {updatePreferencesMutation.isPending ? "Saving..." : "Save preferences"}
-            </Button>
+
+            <div className="pt-4 space-y-4">
+              <Separator />
+              <div className="space-y-2">
+                <Label className="text-sm font-medium">Mobile number (Internal)</Label>
+                <div className="flex gap-2">
+                  <Input
+                    value={phoneNumber}
+                    onChange={(event) => setPhoneNumber(event.target.value)}
+                    placeholder="Enter your mobile number for director contact"
+                    className="max-w-md"
+                  />
+                  <Button
+                    onClick={() => updatePreferencesMutation.mutate()}
+                    disabled={updatePreferencesMutation.isPending}
+                  >
+                    {updatePreferencesMutation.isPending ? "Saving..." : "Save Preferences"}
+                  </Button>
+                </div>
+                <p className="text-xs text-muted-foreground">Only visible to tournament directors for urgent contact.</p>
+              </div>
+            </div>
           </CardContent>
         </Card>
 

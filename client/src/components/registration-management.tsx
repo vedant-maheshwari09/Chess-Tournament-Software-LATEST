@@ -189,7 +189,7 @@ export default function RegistrationManagement({ tournamentId }: RegistrationMan
                             </div>
                           )}
                           <div className="text-xs text-muted-foreground">
-                            Registered: {registration.createdAt ? new Date(registration.createdAt).toLocaleDateString("en-US") : 'N/A'}
+                            Registered: {registration.updatedAt ? new Date(registration.updatedAt).toLocaleDateString("en-US") : 'N/A'}
                           </div>
                         </div>
                       </TableCell>

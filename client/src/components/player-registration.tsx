@@ -58,6 +58,7 @@ export default function PlayerRegistration({ tournament, existingRegistration }:
       setIsDialogOpen(false);
       form.reset();
       queryClient.invalidateQueries({ queryKey: ["/api/my-registrations"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/notifications"] });
     },
     onError: (error: Error) => {
       toast({
@@ -147,7 +148,7 @@ export default function PlayerRegistration({ tournament, existingRegistration }:
             ) : null}
 
             <div className="text-xs text-muted-foreground">
-              Registered on {existingRegistration.createdAt ? new Date(existingRegistration.createdAt).toLocaleDateString("en-US") : "Unknown"}
+              Registered on {existingRegistration.updatedAt ? new Date(existingRegistration.updatedAt).toLocaleDateString("en-US") : "Unknown"}
             </div>
             
             {existingRegistration.status === "pending" && (

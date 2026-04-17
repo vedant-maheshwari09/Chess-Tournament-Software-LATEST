@@ -350,6 +350,9 @@ const updateNotificationPreferencesSchema = z.object({
   carrier: z.string().trim().nullable().optional(),
   notifyEmail: z.boolean().optional(),
   notifySms: z.boolean().optional(),
+  notifyPairings: z.boolean().optional(),
+  notifyRegistration: z.boolean().optional(),
+  notifyTournamentStatus: z.boolean().optional(),
 });
 
 const tournamentNotificationSchema = z.object({
@@ -543,7 +546,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Hash password and create user (email not verified initially)
       const passwordHash = await hashPassword(userData.password);
-      const normalizedCarrier = userData.carrier && userData.carrier.trim().length > 0 ? userData.carrier.trim() : null;
       const newUser = await storage.createUser({
         username: userData.username,
         email: userData.email,
@@ -552,9 +554,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         role: userData.role,
         passwordHash,
         phoneNumber: sanitizedPhone ?? undefined,
-        carrier: normalizedCarrier ?? undefined,
         notifyEmail: userData.notifyEmail ?? true,
-        notifySms: userData.notifySms ?? false,
+        notifyPairings: userData.notifyPairings ?? true,
+        notifyRegistration: userData.notifyRegistration ?? true,
+        notifyTournamentStatus: userData.notifyTournamentStatus ?? true,
         emailVerified: false,
       });
 
@@ -908,6 +911,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         carrier,
         notifyEmail: payload.notifyEmail ?? (user.notifyEmail ?? true),
         notifySms: payload.notifySms ?? (user.notifySms ?? false),
+        notifyPairings: payload.notifyPairings ?? (user.notifyPairings ?? true),
+        notifyRegistration: payload.notifyRegistration ?? (user.notifyRegistration ?? true),
+        notifyTournamentStatus: payload.notifyTournamentStatus ?? (user.notifyTournamentStatus ?? true),
       });
 
       if (!updated) {
@@ -1634,27 +1640,9 @@ ${(config as any).organizerInfo}` : ""}
           emailCount = emailRecipients.size;
         }
 
-        if (sendSms && smsTargets.length > 0) {
-          await Promise.allSettled(
-            smsTargets.map(async (target) => {
-              try {
-                await notificationService.sendSms({
-                  phoneNumber: target.phone,
-                  carrier: target.carrier,
-                  message: payload.message,
-                });
-                smsCount += 1;
-              } catch (error) {
-                log(`SMS notification failed for ${target.phone}: ${(error as Error).message}`, "notifications");
-              }
-            }),
-          );
-        }
-
         res.json({
           message: "Notifications dispatched",
           emails: emailCount,
-          sms: smsCount,
           totalRegistrations: approvedRegistrations.length,
         });
       } catch (error) {
@@ -2592,7 +2580,7 @@ ${(config as any).organizerInfo}` : ""}
 
       // Check payment intent for the whole batch based on the first item since the cart shares it
       const sampleItem = payloadArray[0];
-      const results = [];
+      const results: any[] = [];
       let amountDue = Number.isFinite(sampleItem.amountDue) ? Number(sampleItem.amountDue) : 0;
       let amountPaid = Number.isFinite(sampleItem.amountPaid) ? Number(sampleItem.amountPaid) : 0;
       let currency = normalizeCurrency(sampleItem.currency, payments.defaultCurrency ?? "USD");
@@ -2729,15 +2717,33 @@ ${(config as any).organizerInfo}` : ""}
         });
 
         results.push(newRegistration);
-        console.log(`[BATCH_REG] Successfully created registration for ${payload.playerName} (ID: ${newRegistration.id}) with provider: ${(payload as any).ratingProvider}`);
+      }
+      
+      // Send Registration Received notification to the user
+      try {
+        const relatedTournament = await storage.getTournament(tournamentId);
+        if (user && relatedTournament && (user.notifyRegistration ?? true)) {
+          const subject = `Registration Confirmation: ${relatedTournament.name}`;
+          const message = `Thank you for registering for ${relatedTournament.name}. We have received your ${results.length > 1 ? 'batch registration for ' + results.length + ' players' : 'registration'}. Your entry is currently pending review.`;
+          
+          await storage.createNotification({
+            userId: user.id,
+            title: subject,
+            message,
+            type: 'registration_status',
+            read: false,
+            meta: { tournamentId },
+          });
 
-        await storage.createHistoryEntry({
-          tournamentId,
-          action: "player_added",
-          description: `Registration for ${payload.playerName} submitted via batch.`,
-          changedBy: user.id,
-          newState: JSON.stringify(newRegistration)
-        });
+          if ((user.notifyEmail ?? true) && user.email) {
+            await notificationService.sendEmail({ to: user.email, subject, text: message });
+          }
+          if ((user as any).fcmToken) {
+            await notificationService.sendPushNotification((user as any).fcmToken, subject, message);
+          }
+        }
+      } catch (confirmErr) {
+        console.error("Error sending registration confirmation:", confirmErr);
       }
 
       res.status(201).json(results);
@@ -2911,7 +2917,7 @@ ${(config as any).organizerInfo}` : ""}
 
       console.log(`[REG_SERVER] Final registration data for user ${user.id}:`, JSON.stringify(registrationData, null, 2));
 
-      let result;
+      let result: any = null;
       if (existingToUpdate) {
         if (existingToUpdate.status === "approved" && existingToUpdate.playerName) {
           const nameParts = existingToUpdate.playerName.trim().split(/\s+/);
@@ -2935,7 +2941,39 @@ ${(config as any).organizerInfo}` : ""}
         } as any);
       }
 
-      res.json(result);
+      // Send Registration Received notification
+      try {
+        const user = req.user!;
+        const tournament = await storage.getTournament(tournamentId);
+        if (user && tournament && (user.notifyRegistration ?? true)) {
+          const subject = `Registration Received: ${tournament.name}`;
+          const message = `Thank you for registering for ${tournament.name}. Your registration is currently pending review by the tournament director.`;
+          
+          await storage.createNotification({
+            userId: user.id,
+            title: subject,
+            message,
+            type: 'registration_status',
+            read: false,
+            meta: { tournamentId, registrationId: result.id },
+          });
+
+          if ((user.notifyEmail ?? true) && user.email) {
+            await notificationService.sendEmail({ to: user.email, subject, text: message });
+          }
+          if ((user as any).fcmToken) {
+            await notificationService.sendPushNotification((user as any).fcmToken, subject, message);
+          }
+        }
+      } catch (notifErr) {
+        console.error("Error sending registration confirmation:", notifErr);
+      }
+
+      if (result) {
+        res.json(result);
+      } else {
+        res.status(500).json({ error: "Failed to create registration result" });
+      }
     } catch (error) {
       console.error("Error creating player registration:", error);
       res.status(500).json({ error: "Failed to register for tournament" });
@@ -3151,6 +3189,7 @@ ${(config as any).organizerInfo}` : ""}
             uscfRating: updatedRegistration.uscfRating,
             fideRating: updatedRegistration.fideRating,
             federation: federation,
+            userId: updatedRegistration.userId,
           };
 
           if (existingPlayer) {
@@ -3166,11 +3205,125 @@ ${(config as any).organizerInfo}` : ""}
           }
         }
       }
+      // Send status update notification
+      if (updatedRegistration) {
+        try {
+          const userForNotification = await storage.getUserById(updatedRegistration.userId);
+          const relatedTournament = await storage.getTournament(tournamentId);
+          if (userForNotification && relatedTournament) {
+            const subject = `Tournament Registration ${status.charAt(0).toUpperCase() + status.slice(1)}`;
+            let message = '';
+            if (status === 'approved') {
+              message = `Great news! Your registration for ${relatedTournament.name} has been approved.`;
+            } else if (status === 'declined') {
+              message = `Your registration for ${relatedTournament.name} has been declined. Please contact the organizer for details.`;
+            }
+            
+            if (message) {
+              // Persist in-app notification
+              try {
+                await storage.createNotification({
+                  userId: updatedRegistration.userId,
+                  title: subject,
+                  message,
+                  type: 'registration_status',
+                  read: false,
+                  meta: { tournamentId, registrationId, status },
+                });
+              } catch (dbNotifErr) {
+                console.error("Error persisting in-app notification:", dbNotifErr);
+              }
+
+              if (userForNotification.notifyRegistration ?? true) {
+                if (userForNotification.email && (userForNotification.notifyEmail ?? true)) {
+                  await notificationService.sendEmail({ 
+                    to: userForNotification.email, 
+                    subject, 
+                    text: message 
+                  });
+                }
+                if ((userForNotification as any).fcmToken) {
+                  await notificationService.sendPushNotification((userForNotification as any).fcmToken, subject, message);
+                }
+              }
+            }
+          }
+        } catch (notifErr) {
+          console.error("Error sending status notification:", notifErr);
+        }
+      }
 
       res.json(updatedRegistration);
     } catch (error) {
       console.error("Error updating player registration:", error);
       res.status(500).json({ error: "Failed to update player registration" });
+    }
+  });
+
+  // Save Firebase Cloud Messaging token
+  app.post("/api/users/fcm-token", requireAuth, async (req, res) => {
+    try {
+      const user = req.user;
+      if (!user) {
+        return res.status(401).json({ error: "User not found" });
+      }
+      
+      const { fcmToken } = req.body;
+      if (!fcmToken || typeof fcmToken !== 'string') {
+        return res.status(400).json({ error: "fcmToken is required and must be a string" });
+      }
+
+      const updatedUser = await storage.updateUser(user.id, { fcmToken });
+      
+      res.json({ message: "FCM token saved successfully", success: true });
+    } catch (error) {
+      console.error("Error saving FCM token:", error);
+      res.status(500).json({ error: "Failed to save FCM token" });
+    }
+  });
+
+  // ── Notification endpoints ─────────────────────────────────────────────
+
+  // Get all notifications for current user
+  app.get("/api/notifications", requireAuth, async (req, res) => {
+    try {
+      const user = req.user;
+      if (!user) return res.status(401).json({ error: "Unauthorized" });
+      const notifications = await storage.getNotificationsByUser(user.id);
+      const unreadCount = await storage.getUnreadNotificationCount(user.id);
+      res.json({ notifications, unreadCount });
+    } catch (error) {
+      console.error("Error fetching notifications:", error);
+      res.status(500).json({ error: "Failed to fetch notifications" });
+    }
+  });
+
+  // Mark a single notification as read
+  app.patch("/api/notifications/:id/read", requireAuth, async (req, res) => {
+    try {
+      const user = req.user;
+      if (!user) return res.status(401).json({ error: "Unauthorized" });
+      const notificationId = parseInt(req.params.id);
+      if (isNaN(notificationId)) return res.status(400).json({ error: "Invalid notification ID" });
+      const updated = await storage.markNotificationRead(notificationId, user.id);
+      if (!updated) return res.status(404).json({ error: "Notification not found" });
+      res.json(updated);
+    } catch (error) {
+      console.error("Error marking notification as read:", error);
+      res.status(500).json({ error: "Failed to mark notification as read" });
+    }
+  });
+
+  // Mark all notifications as read
+  app.post("/api/notifications/read-all", requireAuth, async (req, res) => {
+    try {
+      const user = req.user;
+      if (!user) return res.status(401).json({ error: "Unauthorized" });
+      await storage.markAllNotificationsRead(user.id);
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error marking all notifications as read:", error);
+      res.status(500).json({ error: "Failed to mark all notifications as read" });
     }
   });
 
@@ -3551,6 +3704,34 @@ ${(config as any).organizerInfo}` : ""}
       const matchData = { ...req.body, tournamentId };
       const match = insertMatchSchema.parse(matchData);
       const newMatch = await storage.createMatch(match);
+
+      // Notify players
+      try {
+        const whitePlayer = await storage.getPlayer(newMatch.whitePlayerId!);
+        const blackPlayer = newMatch.blackPlayerId ? await storage.getPlayer(newMatch.blackPlayerId) : null;
+        
+        if (whitePlayer?.userId) {
+          await storage.createNotification({
+            userId: whitePlayer.userId,
+            title: "New Match Created",
+            message: `Round ${newMatch.round}: A match has been manually created for you on Board ${newMatch.board}.`,
+            type: "pairing",
+            meta: { matchId: newMatch.id, tournamentId }
+          });
+        }
+        if (blackPlayer?.userId) {
+          await storage.createNotification({
+            userId: blackPlayer.userId,
+            title: "New Match Created",
+            message: `Round ${newMatch.round}: A match has been manually created for you on Board ${newMatch.board}.`,
+            type: "pairing",
+            meta: { matchId: newMatch.id, tournamentId }
+          });
+        }
+      } catch (notifErr) {
+        console.error("Error creating manual match notification:", notifErr);
+      }
+
       res.status(201).json(newMatch);
     } catch (error) {
       res.status(400).json({ message: "Invalid match data" });
@@ -3598,6 +3779,27 @@ ${(config as any).organizerInfo}` : ""}
           matchId: currentMatch.id,
           canRevert: true
         });
+
+        // Notify players about result change
+        const resultText = updatedMatch.result === '1-0' ? 'White won' : updatedMatch.result === '0-1' ? 'Black won' : updatedMatch.result === '1/2-1/2' ? 'Draw' : updatedMatch.result;
+        if (whitePlayerName?.userId) {
+          await storage.createNotification({
+            userId: whitePlayerName.userId,
+            title: "Match Result Updated",
+            message: `The result for your Round ${currentMatch.round} match has been recorded: ${resultText}.`,
+            type: "result_update",
+            meta: { matchId: currentMatch.id, tournamentId: currentMatch.tournamentId }
+          });
+        }
+        if (blackPlayerName?.userId) {
+          await storage.createNotification({
+            userId: blackPlayerName.userId,
+            title: "Match Result Updated",
+            message: `The result for your Round ${currentMatch.round} match has been recorded: ${resultText}.`,
+            type: "result_update",
+            meta: { matchId: currentMatch.id, tournamentId: currentMatch.tournamentId }
+          });
+        }
       }
 
       res.json(updatedMatch);
@@ -3693,6 +3895,41 @@ ${(config as any).organizerInfo}` : ""}
             throw new Error(`Invalid Round Robin schedule generated for section ${sectionKey}`);
           }
 
+          // Fetch users to check preferences
+          const userIds = Array.from(new Set(sectionPlayers.map(p => p.userId).filter(Boolean))) as number[];
+          const users = await storage.listUsersByIds(userIds);
+          const userMap = new Map(users.map(u => [u.id, u]));
+
+          const sendRealNotification = async (userId: number, title: string, message: string, preferenceKey: 'notifyPairings' | 'notifyTournamentStatus') => {
+            const user = userMap.get(userId);
+            if (!user || !(user[preferenceKey] ?? true)) return;
+
+            // Email
+            if ((user.notifyEmail ?? true) && user.email) {
+              await notificationService.sendEmail({ to: user.email, subject: title, text: message }).catch(err => console.error(`Failed to send email to ${user.email}:`, err));
+            }
+            // Push
+            if ((user as any).fcmToken) {
+              await notificationService.sendPushNotification((user as any).fcmToken, title, message).catch(err => console.error(`Failed to send push to ${user.username}:`, err));
+            }
+          };
+
+          // Notify tournament start for RR if it's the first execution
+          for (const player of sectionPlayers) {
+            if (player.userId) {
+              const title = "Tournament Started";
+              const message = `The tournament "${tournament.name}" has officially started! Round Robin pairings are now available.`;
+              await storage.createNotification({
+                userId: player.userId,
+                title,
+                message,
+                type: "tournament_status",
+                meta: { tournamentId }
+              });
+              await sendRealNotification(player.userId, title, message, 'notifyTournamentStatus');
+            }
+          }
+
           for (const pairing of roundRobinPairings) {
             if (pairing.isBye) {
               const savedPairing = await storage.createPairing({
@@ -3700,6 +3937,20 @@ ${(config as any).organizerInfo}` : ""}
                 opponentId: null, color: null, points: 2, isBye: true
               });
               combinedResults.pairings.push(savedPairing);
+
+              const player = sectionPlayers.find(p => p.id === pairing.whitePlayerId);
+              if (player?.userId) {
+                const title = "Round Bye";
+                const message = `Round ${pairing.round}: You have a bye for this round.`;
+                await storage.createNotification({
+                  userId: player.userId,
+                  title,
+                  message,
+                  type: "pairing",
+                   meta: { tournamentId }
+                });
+                await sendRealNotification(player.userId, title, message, 'notifyPairings');
+              }
             } else {
               const whitePairing = await storage.createPairing({
                 tournamentId, round: pairing.round, playerId: pairing.whitePlayerId!,
@@ -3716,6 +3967,34 @@ ${(config as any).organizerInfo}` : ""}
                 blackPlayerId: pairing.blackPlayerId!, board: pairing.board, result: null, status: 'pending'
               });
               combinedResults.matches.push(match);
+
+              // Notify players for Round Robin pairing
+              const whitePlayer = sectionPlayers.find(p => p.id === pairing.whitePlayerId);
+              const blackPlayer = sectionPlayers.find(p => p.id === pairing.blackPlayerId);
+              const title = "New Pairing Assigned";
+
+              if (whitePlayer?.userId) {
+                const message = `Round ${pairing.round}: You are playing White against ${blackPlayer?.firstName || 'Unknown'} on Board ${pairing.board}.`;
+                await storage.createNotification({
+                  userId: whitePlayer.userId,
+                  title,
+                  message,
+                  type: "pairing",
+                  meta: { matchId: match.id, tournamentId }
+                });
+                await sendRealNotification(whitePlayer.userId, title, message, 'notifyPairings');
+              }
+              if (blackPlayer?.userId) {
+                const message = `Round ${pairing.round}: You are playing Black against ${whitePlayer?.firstName || 'Unknown'} on Board ${pairing.board}.`;
+                await storage.createNotification({
+                  userId: blackPlayer.userId,
+                  title,
+                  message,
+                  type: "pairing",
+                  meta: { matchId: match.id, tournamentId }
+                });
+                await sendRealNotification(blackPlayer.userId, title, message, 'notifyPairings');
+              }
             }
           }
         }
@@ -3849,13 +4128,111 @@ ${(config as any).organizerInfo}` : ""}
             const blackPairing = await storage.createPairing({ tournamentId, round: currentRound, playerId: pairing.blackPlayerId, opponentId: pairing.whitePlayerId, color: 'black', points: 0, isBye: false });
             finalResults.pairings.push(whitePairing, blackPairing);
 
-            const match = await storage.createMatch({ tournamentId, round: currentRound, whitePlayerId: pairing.whitePlayerId, blackPlayerId: pairing.blackPlayerId, board: pairing.board, result: null, status: 'pending' });
-            finalResults.matches.push(match);
+            const savedMatch = await storage.createMatch({ tournamentId, round: currentRound, board: pairing.board, whitePlayerId: pairing.whitePlayerId, blackPlayerId: pairing.blackPlayerId, result: null, status: 'pending' });
+            finalResults.matches.push(savedMatch);
           }
         }
       }
 
       await storage.updateTournament(tournamentId, { currentRound: currentRound });
+
+      // Notify all players in this round
+      try {
+        const allApprovedPlayers = await storage.getPlayersByTournament(tournamentId);
+        const playerMap = new Map(allApprovedPlayers.map(p => [p.id, p]));
+        
+        // Fetch users to check preferences
+        const userIds = Array.from(new Set(allApprovedPlayers.map(p => p.userId).filter(Boolean))) as number[];
+        const users = await storage.listUsersByIds(userIds);
+        const userMap = new Map(users.map(u => [u.id, u]));
+
+        const sendRealNotification = async (userId: number, title: string, message: string, preferenceKey: 'notifyPairings' | 'notifyTournamentStatus') => {
+          const user = userMap.get(userId);
+          if (!user || !(user[preferenceKey] ?? true)) return;
+
+          // Email
+          if ((user.notifyEmail ?? true) && user.email) {
+            await notificationService.sendEmail({ to: user.email, subject: title, text: message }).catch(err => console.error(`Failed to send email to ${user.email}:`, err));
+          }
+          // Push
+          if ((user as any).fcmToken) {
+            await notificationService.sendPushNotification((user as any).fcmToken, title, message).catch(err => console.error(`Failed to send push to ${user.username}:`, err));
+          }
+        };
+        
+        // Notify of tournament start if this is round 1
+        if (currentRound === 1) {
+          for (const player of allApprovedPlayers) {
+            if (player.userId) {
+              const title = "Tournament Started";
+              const message = `The tournament "${tournament.name}" has officially started! Round 1 pairings are now available.`;
+              
+              await storage.createNotification({
+                userId: player.userId,
+                title,
+                message,
+                type: "tournament_status",
+                meta: { tournamentId }
+              });
+
+              await sendRealNotification(player.userId, title, message, 'notifyTournamentStatus');
+            }
+          }
+        }
+
+        // Notify specific pairings
+        for (const match of finalResults.matches) {
+          const whitePlayer = playerMap.get(match.whitePlayerId!);
+          const blackPlayer = match.blackPlayerId ? playerMap.get(match.blackPlayerId) : null;
+          const title = "New Pairing Assigned";
+
+          if (whitePlayer?.userId) {
+            const message = `Round ${currentRound}: You are playing White against ${blackPlayer ? (blackPlayer.firstName + ' ' + blackPlayer.lastName) : 'Unknown'} on Board ${match.board}.`;
+            await storage.createNotification({
+              userId: whitePlayer.userId,
+              title,
+              message,
+              type: "pairing",
+              meta: { matchId: match.id, tournamentId }
+            });
+            await sendRealNotification(whitePlayer.userId, title, message, 'notifyPairings');
+          }
+          if (blackPlayer?.userId) {
+            const message = `Round ${currentRound}: You are playing Black against ${whitePlayer ? (whitePlayer.firstName + ' ' + whitePlayer.lastName) : 'Unknown'} on Board ${match.board}.`;
+            await storage.createNotification({
+              userId: blackPlayer.userId,
+              title,
+              message,
+              type: "pairing",
+              meta: { matchId: match.id, tournamentId }
+            });
+            await sendRealNotification(blackPlayer.userId, title, message, 'notifyPairings');
+          }
+        }
+        
+        // Notify byes
+        for (const pairing of finalResults.pairings) {
+          if (pairing.isBye) {
+            const player = playerMap.get(pairing.playerId);
+            if (player?.userId) {
+              const title = "Round Bye";
+              const message = `Round ${currentRound}: You have a bye for this round.`;
+              await storage.createNotification({
+                userId: player.userId,
+                title,
+                message,
+                type: "pairing",
+                meta: { tournamentId }
+              });
+              await sendRealNotification(player.userId, title, message, 'notifyPairings');
+            }
+          }
+        }
+      } catch (notifErr) {
+        console.error("Error sending pairing notifications:", notifErr);
+      }
+
+      finalResults.message = `Pairings generated for round ${currentRound}.`;
       res.json(finalResults);
 
     } catch (error) {

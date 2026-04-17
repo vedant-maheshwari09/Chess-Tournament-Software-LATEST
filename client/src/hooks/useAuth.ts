@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
-import { apiRequest } from "@/lib/queryClient";
+import { apiRequest, getQueryFn } from "@/lib/queryClient";
 import type { User, LoginData, RegisterData } from "@shared/schema";
 
 interface AuthResponse {
@@ -18,22 +18,30 @@ export function useAuth() {
   const queryClient = useQueryClient();
 
   // Get current user from token
-  const { data: user, isLoading, error } = useQuery<User>({
+  const { data: user, isLoading, error } = useQuery<User | null>({
     queryKey: ["/api/auth/me"],
+    queryFn: getQueryFn({ on401: "returnNull" }),
     retry: false,
     enabled: !!localStorage.getItem("auth_token"),
-    refetchOnMount: false,
+    refetchOnMount: true, // Allow refetch on mount to verify session
     refetchOnWindowFocus: false,
     refetchOnReconnect: false,
+    staleTime: 5 * 60 * 1000, // Consider user data fresh for 5 minutes
   });
 
   useEffect(() => {
     if (error) {
+      console.error("[AUTH_ERROR] Error fetching user:", error);
       // If database is unavailable or token is invalid, clear the token to stop retries
+      const status = (error as any).status || (error as any).response?.status;
+      const message = error.message;
+
       if (
-        (error as any)?.message === "DATABASE_UNAVAILABLE" || 
-        (error as any)?.response?.status === 401
+        message === "DATABASE_UNAVAILABLE" || 
+        status === 401 ||
+        message.startsWith("401")
       ) {
+        console.warn("[AUTH] Clearing invalid session due to error:", message);
         localStorage.removeItem("auth_token");
         queryClient.setQueryData(["/api/auth/me"], null);
       }

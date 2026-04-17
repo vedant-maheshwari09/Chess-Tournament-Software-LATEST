@@ -9,6 +9,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useAuth } from "@/hooks/useAuth";
 import type { Tournament } from "@shared/schema";
 import SettingsMenu from "@/components/settings-menu";
+import NotificationBell from "@/components/notification-bell";
 
 
 export default function TournamentDirectorDashboard() {
@@ -218,6 +219,7 @@ export default function TournamentDirectorDashboard() {
               </p>
             </div>
             <div className="flex items-center gap-4">
+              <NotificationBell />
               <SettingsMenu />
               <Link href="/tournaments/new">
                 <Button className="flex items-center gap-2">

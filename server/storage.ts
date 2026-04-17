@@ -15,6 +15,8 @@ import {
   type InsertPlayerRegistration,
   type TournamentStar,
   type InsertTournamentStar,
+  type Notification,
+  type InsertNotification,
   type User,
   type InsertUser,
   type Session,
@@ -289,6 +291,13 @@ export interface IStorage {
   createTournamentStar(userId: number, tournamentId: number): Promise<TournamentStar>;
   deleteTournamentStar(userId: number, tournamentId: number): Promise<boolean>;
   getTournamentStarsByUser(userId: number): Promise<TournamentStar[]>;
+
+  // Notifications
+  createNotification(notification: InsertNotification): Promise<Notification>;
+  getNotificationsByUser(userId: number): Promise<Notification[]>;
+  getUnreadNotificationCount(userId: number): Promise<number>;
+  markNotificationRead(id: number, userId: number): Promise<Notification | undefined>;
+  markAllNotificationsRead(userId: number): Promise<void>;
 }
 
 class SupabaseStorage implements IStorage {
@@ -600,6 +609,59 @@ class SupabaseStorage implements IStorage {
 
   async getTournamentStarsByUser(userId: number): Promise<TournamentStar[]> {
     return fetchMany<TournamentStar>("tournament_stars", { userId });
+  }
+
+  // ── Notifications ──────────────────────────────────────────────────────
+
+  async createNotification(notification: InsertNotification): Promise<Notification> {
+    return insertOne<Notification>("notifications", notification as AnyRecord);
+  }
+
+  async getNotificationsByUser(userId: number): Promise<Notification[]> {
+    return fetchMany<Notification>("notifications", { userId }, { order: { column: "createdAt", ascending: false } });
+  }
+
+  async getUnreadNotificationCount(userId: number): Promise<number> {
+    const { count, error } = await client()
+      .from("notifications")
+      .select("*", { count: "exact", head: true })
+      .eq("user_id", userId)
+      .eq("read", false);
+
+    if (error) {
+      console.error("Failed to count unread notifications:", error);
+      return 0;
+    }
+    return count ?? 0;
+  }
+
+  async markNotificationRead(id: number, userId: number): Promise<Notification | undefined> {
+    // Verify ownership by filtering on both id and userId
+    const { data, error } = await client()
+      .from("notifications")
+      .update({ read: true })
+      .eq("id", id)
+      .eq("user_id", userId)
+      .select()
+      .maybeSingle();
+
+    if (error) {
+      console.error("Failed to mark notification read:", error);
+      return undefined;
+    }
+    return data ? toCamelCase<Notification>(data) : undefined;
+  }
+
+  async markAllNotificationsRead(userId: number): Promise<void> {
+    const { error } = await client()
+      .from("notifications")
+      .update({ read: true })
+      .eq("user_id", userId)
+      .eq("read", false);
+
+    if (error) {
+      console.error("Failed to mark all notifications read:", error);
+    }
   }
 }
 

@@ -17,6 +17,10 @@ export const users = pgTable("users", {
   notifySms: boolean("notify_sms").default(false),
   emailVerified: boolean("email_verified").default(false).notNull(),
   paymentSettings: jsonb("payment_settings"),
+  fcmToken: text("fcm_token"),
+  notifyPairings: boolean("notify_pairings").default(true),
+  notifyRegistration: boolean("notify_registration").default(true),
+  notifyTournamentStatus: boolean("notify_tournament_status").default(true),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -97,6 +101,7 @@ export const tournamentStars = pgTable(
 export const players = pgTable("players", {
   id: serial("id").primaryKey(),
   tournamentId: integer("tournament_id").notNull(),
+  userId: integer("user_id").references(() => users.id, { onDelete: "cascade" }),
   firstName: text("first_name").notNull(),
   lastName: text("last_name").notNull(),
   rating: integer("rating").default(1000),
@@ -199,8 +204,18 @@ export const playerRegistrations = pgTable("player_registrations", {
   currency: varchar("currency", { length: 10 }).default("USD"),
   paidAt: timestamp("paid_at"),
   status: varchar("status", { length: 20 }).default("pending").notNull(), // pending, approved, declined
-  createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const notifications = pgTable("notifications", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
+  title: text("title").notNull(),
+  message: text("message").notNull(),
+  type: text("type").notNull().default("info"), // 'registration_status', 'pairing', 'payment', 'info'
+  read: boolean("read").default(false).notNull(),
+  meta: jsonb("meta"), // For storing links or related IDs like tournamentId
+  createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
 // User schemas
@@ -224,9 +239,10 @@ export const registerSchema = z.object({
   lastName: z.string().min(1),
   role: z.enum(['player', 'tournament_director']),
   phoneNumber: z.string().trim().optional(),
-  carrier: z.string().trim().optional(),
   notifyEmail: z.boolean().optional(),
-  notifySms: z.boolean().optional(),
+  notifyPairings: z.boolean().optional(),
+  notifyRegistration: z.boolean().optional(),
+  notifyTournamentStatus: z.boolean().optional(),
 });
 
 export const forgotPasswordSchema = z.object({
@@ -289,11 +305,15 @@ export const insertTournamentHistorySchema = createInsertSchema(tournamentHistor
 
 export const insertPlayerRegistrationSchema = createInsertSchema(playerRegistrations).omit({
   id: true,
-  createdAt: true,
   updatedAt: true,
 });
 
 export const insertTournamentStarSchema = createInsertSchema(tournamentStars).omit({
+  id: true,
+  createdAt: true,
+});
+
+export const insertNotificationSchema = createInsertSchema(notifications).omit({
   id: true,
   createdAt: true,
 });
@@ -331,4 +351,7 @@ export type PlayerRegistration = typeof playerRegistrations.$inferSelect;
 export type InsertPlayerRegistration = z.infer<typeof insertPlayerRegistrationSchema>;
 export type TournamentStar = typeof tournamentStars.$inferSelect;
 export type InsertTournamentStar = z.infer<typeof insertTournamentStarSchema>;
+
+export type Notification = typeof notifications.$inferSelect;
+export type InsertNotification = z.infer<typeof insertNotificationSchema>;
 

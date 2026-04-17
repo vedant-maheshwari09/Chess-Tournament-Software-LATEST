@@ -301,6 +301,7 @@ export default function AuthForm() {
     try {
       await login(data);
       toast({ title: "Welcome back!", description: "You have successfully logged in." });
+      setLocation("/");
     } catch (error) {
       toast({
         title: "Login failed",
@@ -349,6 +350,7 @@ export default function AuthForm() {
         localStorage.setItem("auth_token", data.token);
         // Invalidate queries to refetch user data, which will trigger redirect
         queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
+        setLocation("/");
       } else {
         // Fallback if no token (shouldn't happen with updated API)
         setAuthMode('login');

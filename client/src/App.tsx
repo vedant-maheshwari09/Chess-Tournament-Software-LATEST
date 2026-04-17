@@ -1,4 +1,4 @@
-import { Switch, Route } from "wouter";
+import { Switch, Route, Redirect } from "wouter";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
@@ -41,6 +41,12 @@ function AuthenticatedApp() {
     <div className="min-h-screen">
       {/* Role-based Routing */}
       <Switch>
+        <Route path="/login">
+          <Redirect to="/" />
+        </Route>
+        <Route path="/register">
+          <Redirect to="/" />
+        </Route>
         <Route path="/settings" component={SettingsPage} />
         {(user as any)?.role === 'tournament_director' ? (
           <>

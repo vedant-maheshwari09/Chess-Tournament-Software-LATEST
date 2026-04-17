@@ -519,6 +519,7 @@ export default function SwissStandings({ tournamentId, showExportControls = true
       const isFide = tournamentConfig?.details.primaryRatingSystem === 'fide';
       const playerRating = isFide ? (standing.player.fideRating ?? standing.player.rating) : (standing.player.uscfRating ?? standing.player.rating);
       const ratingDisplay = playerRating != null ? ` (${playerRating})` : '';
+      const playerName = `${standing.player.firstName} ${standing.player.lastName}`.trim();
       printWindow.document.write(`<tr><td>${standing.position}</td><td style="text-align:left;">${playerName}${ratingDisplay}</td>`);
 
       standing.roundResults.forEach((result, index) => {

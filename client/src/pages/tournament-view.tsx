@@ -16,6 +16,7 @@ import { renderTournamentPageContent } from "@/lib/tournament-page";
 import type { Tournament } from "@shared/schema";
 import { useAuth } from "@/hooks/useAuth";
 import type { PlayerRegistration } from "@shared/schema";
+import { RegistrationStatusCard } from "@/components/registration-status-card";
 
 
 type TabKey = "pairings" | "standings" | "byes" | "predictor" | "info";
@@ -47,10 +48,12 @@ export default function TournamentView({ tournamentId }: TournamentViewProps) {
     enabled: !!user,
   });
 
-  const myRegistration = useMemo(() =>
-    registrations?.find(r => r.tournamentId === tournamentId),
+  const myRegistrations = useMemo(() =>
+    registrations?.filter(r => r.tournamentId === tournamentId) || [],
     [registrations, tournamentId]
   );
+  
+  const hasRegistration = myRegistrations.length > 0;
 
   const config = useMemo(
     () => (tournament ? parseTournamentConfig(tournament) : createDefaultConfig("swiss")),
@@ -112,7 +115,7 @@ export default function TournamentView({ tournamentId }: TournamentViewProps) {
 
       <div className="bg-white shadow dark:bg-gray-800">
         <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
             <div className="flex items-center gap-4">
               <Button variant="ghost" onClick={() => setLocation("/")} className="flex items-center gap-2">
                 <ArrowLeft className="h-4 w-4" />
@@ -125,31 +128,15 @@ export default function TournamentView({ tournamentId }: TournamentViewProps) {
                 </p>
               </div>
             </div>
-            <div className="flex items-center gap-4">
+            <div className="flex items-center gap-4 flex-wrap">
               <Badge variant={tournament.status === "active" ? "default" : tournament.status === "completed" ? "secondary" : "outline"} className={
                 tournament.status === "upcoming" ? "bg-blue-100 text-blue-800 border-none hover:bg-blue-100" : ""
               }>
                 {tournament.status.charAt(0).toUpperCase() + tournament.status.slice(1)}
               </Badge>
 
-              {myRegistration && (
-                <Badge variant="outline" className={
-                  myRegistration.status === "approved" 
-                    ? "border-emerald-400 text-emerald-600 bg-emerald-50" 
-                    : myRegistration.status === "declined"
-                    ? "border-red-400 text-red-600 bg-red-50"
-                    : "border-amber-400 text-amber-600 bg-amber-50"
-                }>
-                  {myRegistration.status === "approved" 
-                    ? "Registration Accepted" 
-                    : myRegistration.status === "declined"
-                    ? "Registration Declined"
-                    : "Pending"}
-                </Badge>
-              )}
-
               {(tournament.status === "upcoming" || tournament.status === "registration" || tournament.status === "active") && (
-                myRegistration ? (
+                hasRegistration ? (
                   config.registers.allowEditRegistration && (
                     <Button
                       onClick={() => setLocation(`/tournaments/${tournamentId}/register?edit=true`)}
@@ -187,6 +174,12 @@ export default function TournamentView({ tournamentId }: TournamentViewProps) {
       </div>
 
       <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
+        {hasRegistration && (
+          <div className="mb-6">
+            <h2 className="text-base font-semibold text-gray-900 dark:text-white mb-3">Registration Status</h2>
+            <RegistrationStatusCard registrations={myRegistrations} />
+          </div>
+        )}
         <Tabs value={activeTab} onValueChange={(value) => setLocation(`/tournaments/${tournamentId}/${value}`)}>
           <TabsList className="flex w-full flex-wrap gap-2">
             <TabsTrigger value="pairings" className="flex-1 min-w-[140px] text-sm font-semibold">
