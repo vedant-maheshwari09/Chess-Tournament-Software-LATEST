@@ -128,21 +128,31 @@ const formatSexDisplay = (sex?: string) => {
 
 const extractRatingValue = (rating?: ExtraRating) => rating?.value ?? rating?.display ?? "";
 
+const normalizeName = (name: string) => {
+  if (!name) return "";
+  return name.toLowerCase().replace(/\b\w/g, char => char.toUpperCase());
+};
+
 const formatNameLastFirst = (name?: string) => {
   if (!name) return "";
   const trimmed = name.trim();
   if (!trimmed) return "";
-  if (trimmed.includes(",")) {
-    const [last, ...rest] = trimmed.split(",");
+  
+  // Normalize the name before formatting if it's all uppercase
+  const shouldNormalize = trimmed === trimmed.toUpperCase() && /[A-Z]/.test(trimmed);
+  const targetName = shouldNormalize ? normalizeName(trimmed) : trimmed;
+
+  if (targetName.includes(",")) {
+    const [last, ...rest] = targetName.split(",");
     const first = rest.join(",").trim();
     const normalizedLast = last.trim();
     return first ? `${normalizedLast}, ${first}` : normalizedLast;
   }
-  const parts = trimmed.split(/\s+/);
-  if (parts.length <= 1) return trimmed;
+  const parts = targetName.split(/\s+/);
+  if (parts.length <= 1) return targetName;
   const last = parts.pop();
   const first = parts.join(" ");
-  return last ? `${last}, ${first}` : trimmed;
+  return last ? `${last}, ${first}` : targetName;
 };
 
 interface AddPlayerPageProps {
@@ -542,8 +552,8 @@ export default function AddPlayerPage({ tournamentId, playerId }: AddPlayerPageP
 
   const handleResultClick = (source: SourceKey, item: RatingLookupEntry) => {
     const [lastNameRaw, firstNameRaw] = item.name.split(",");
-    const cleanedFirst = (firstNameRaw ?? "").trim();
-    const cleanedLast = (lastNameRaw ?? item.name).trim();
+    const cleanedFirst = normalizeName((firstNameRaw ?? "").trim());
+    const cleanedLast = normalizeName((lastNameRaw ?? item.name).trim());
     const quickRating = item.extraRatings?.find((rating) => rating.type === "quick");
     const rapidRating = item.extraRatings?.find((rating) => rating.type === "rapid");
     const blitzRating = item.extraRatings?.find((rating) => rating.type === "blitz");
@@ -799,7 +809,7 @@ export default function AddPlayerPage({ tournamentId, playerId }: AddPlayerPageP
                                                 >
                                                   <div className="space-y-1">
                                                     <div className="text-sm font-semibold text-slate-900">{nameDisplay || item.name}</div>
-                                                    <div className="flex gap-4 font-mono text-xs text-muted-foreground">
+                                                    <div className="flex gap-4 font-sans text-xs text-muted-foreground">
                                                       <span>{classicDisplay}</span>
                                                       <span>{rapidDisplay}</span>
                                                       <span>{blitzDisplay}</span>
@@ -813,7 +823,7 @@ export default function AddPlayerPage({ tournamentId, playerId }: AddPlayerPageP
                                                     )}
                                                   </div>
                                                   <div className="flex flex-col items-end gap-1 text-xs text-muted-foreground">
-                                                    <span className="font-mono text-sm text-slate-700">{item.id || "—"}</span>
+                                                    <span className="font-sans text-sm text-slate-700">{item.id || "—"}</span>
                                                     {rightMeta.map((metaLine, index) => (
                                                       <span key={`${item.id}-meta-${index}`}>{metaLine}</span>
                                                     ))}
@@ -850,7 +860,7 @@ export default function AddPlayerPage({ tournamentId, playerId }: AddPlayerPageP
                                     <span>
                                       {player.lastName}, {player.firstName}
                                     </span>
-                                    <span className="font-mono text-muted-foreground">{player.rating ?? "-"}</span>
+                                    <span className="font-sans text-muted-foreground">{player.rating ?? "-"}</span>
                                   </div>
                                 ))}
                               </div>

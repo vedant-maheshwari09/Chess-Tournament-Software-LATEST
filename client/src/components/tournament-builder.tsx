@@ -291,16 +291,18 @@ function BasicInformationFields({ config, onConfigChange, variant = "full" }: Ba
         </div>
 
         <div className="grid gap-4 md:grid-cols-2">
-          <div className="space-y-2">
-            <Label htmlFor="basic-rounds">Rounds</Label>
-            <Input
-              id="basic-rounds"
-              type="number"
-              min={1}
-              value={config.details.rounds}
-              onChange={(event) => handleRoundsChange(parseInt(event.target.value, 10))}
-            />
-          </div>
+          {config.format !== 'arena' && config.format !== 'knockout' && (
+            <div className="space-y-2">
+              <Label htmlFor="basic-rounds">Rounds</Label>
+              <Input
+                id="basic-rounds"
+                type="number"
+                min={1}
+                value={config.details.rounds}
+                onChange={(event) => handleRoundsChange(parseInt(event.target.value, 10))}
+              />
+            </div>
+          )}
           <div className="space-y-2">
             <Label htmlFor="basic-city-state">City &amp; State (2-letter)</Label>
             <Input
@@ -432,23 +434,25 @@ function BasicInformationFields({ config, onConfigChange, variant = "full" }: Ba
             </SelectContent>
           </Select>
         </div>
-        <div className="space-y-2">
-          <Label htmlFor="basic-rounds">Rounds</Label>
-          <Input
-            id="basic-rounds"
-            type="number"
-            min={1}
-            value={config.details.rounds}
-            onChange={(event) => {
-              const val = parseInt(event.target.value, 10);
-              const nextRounds = Number.isFinite(val) && val > 0 ? val : 1;
-              onConfigChange({
-                ...config,
-                details: { ...config.details, rounds: nextRounds },
-              });
-            }}
-          />
-        </div>
+        {config.format !== 'arena' && config.format !== 'knockout' && (
+          <div className="space-y-2">
+            <Label htmlFor="basic-rounds">Rounds</Label>
+            <Input
+              id="basic-rounds"
+              type="number"
+              min={1}
+              value={config.details.rounds}
+              onChange={(event) => {
+                const val = parseInt(event.target.value, 10);
+                const nextRounds = Number.isFinite(val) && val > 0 ? val : 1;
+                onConfigChange({
+                  ...config,
+                  details: { ...config.details, rounds: nextRounds },
+                });
+              }}
+            />
+          </div>
+        )}
       </div>
 
       <div className="grid gap-4 md:grid-cols-2">
@@ -600,7 +604,7 @@ function StepOne({
         <CardHeader>
           <CardTitle className="text-2xl">Select Format</CardTitle>
           <p className="text-sm text-muted-foreground">
-            Choose the pairing system that matches your event. You can adjust details later.
+            Choose the tournament format that matches your event. You can adjust details later.
           </p>
         </CardHeader>
         <CardContent>
@@ -2141,27 +2145,29 @@ function StepTwo({ format, mode, config, onConfigChange, onBack: _onBack, onCanc
                   </div>
                 </div>
 
-                <div className="grid gap-4 md:grid-cols-2">
-                  <div className="space-y-2">
-                    <Label>Pairing System</Label>
-                    <Input
-                      value={config.details.pairingSystem}
-                      onChange={(event) => updateDetails({ pairingSystem: event.target.value })}
-                    />
+                {config.format !== 'arena' && config.format !== 'knockout' && (
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <div className="space-y-2">
+                      <Label>Pairing System</Label>
+                      <Input
+                        value={config.details.pairingSystem}
+                        onChange={(event) => updateDetails({ pairingSystem: event.target.value })}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Rounds</Label>
+                      <Input
+                        type="number"
+                        min={1}
+                        value={config.details.rounds}
+                        onChange={(event) => {
+                          const value = Math.max(1, parseInt(event.target.value || "1", 10));
+                          handleRoundsChange(value);
+                        }}
+                      />
+                    </div>
                   </div>
-                  <div className="space-y-2">
-                    <Label>Rounds</Label>
-                    <Input
-                      type="number"
-                      min={1}
-                      value={config.details.rounds}
-                      onChange={(event) => {
-                        const value = Math.max(1, parseInt(event.target.value || "1", 10));
-                        handleRoundsChange(value);
-                      }}
-                    />
-                  </div>
-                </div>
+                )}
 
                 <div className="space-y-4 pt-4 border-t border-slate-100">
                   <div className="flex items-center gap-2 mb-4">
@@ -2896,7 +2902,7 @@ function StepTwo({ format, mode, config, onConfigChange, onBack: _onBack, onCanc
                         <Input 
                           readOnly 
                           value={spectatorLink} 
-                          className="bg-white border-slate-200 pr-10 text-xs font-mono select-all focus:ring-slate-400 transition-all font-bold" 
+                          className="bg-white border-slate-200 pr-10 text-xs font-sans select-all focus:ring-slate-400 transition-all font-bold" 
                         />
                         <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
                            <button 

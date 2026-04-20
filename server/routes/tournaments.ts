@@ -2,6 +2,7 @@ import { insertTournamentSchema, insertPlayerSchema } from '@shared/schema';
 import { updateChessResultsScheduler, testChessResultsConnection, syncChessResults } from '../services/chessResults';
 import type { Express } from "express";
 import { z } from "zod";
+import { normalizePlayerName } from "./util";
 import Stripe from "stripe";
 import {
   lookupUSCF, lookupFide, mapLocalResult, extractQueryParam, normalizeSearchParams, parseLimitParam, getGeminiConfig, normalizeCurrency, computePaymentTotals, normalizeAccountPaymentSettings, formatCurrencyAmount, describeRatingWindow, generatePairings, groupPlayersByScore, pairUpperVsLowerHalf, determineSwissColors, generateSwissPairings, generateBoardNumberSequence, RatingSource, STRIPE_SECRET_KEY, STRIPE_PUBLISHABLE_KEY, STRIPE_WEBHOOK_SECRET, stripe, PAYMENT_STATUSES, PaymentStatus, RatingLookupResult, paymentProviderEnum, paymentScopeEnum, offlineMethodEnum, updateTournamentPaymentsSchema, accountPaymentSettingsSchema, geminiDraftSchema, updateNotificationPreferencesSchema, tournamentNotificationSchema, createPaymentIntentSchema, playerRegistrationSchema, BoardNumberingSettings
@@ -1881,8 +1882,8 @@ app.patch("/api/tournaments/:id/registrations/:registrationId", requireAuth, req
       if (status === "approved" && updatedRegistration) {
         const user = await storage.getUserById(updatedRegistration.userId);
         if (user) {
-          const fullName = updatedRegistration.playerName || `${user.firstName} ${user.lastName}`;
-          const nameParts = fullName.trim().split(/\s+/);
+          const fullName = normalizePlayerName(updatedRegistration.playerName || `${user.firstName} ${user.lastName}`);
+          const nameParts = fullName.split(/\s+/);
           const firstName = nameParts[0] || "";
           const lastName = nameParts.length > 1 ? nameParts.slice(1).join(" ") : "";
 

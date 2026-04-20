@@ -287,7 +287,7 @@ export default function RoundRobinCrosstable({ tournamentId }: RoundRobinCrossta
                       </div>
                     </div>
                   </td>
-                  <td className="border border-gray-300 p-2 text-center font-mono">
+                  <td className="border border-gray-300 p-2 text-center font-sans">
                     {standing.player.rating || 'Unrated'}
                   </td>
                   {sortedStandings.map((_, opponentIndex) => (

@@ -1,3 +1,4 @@
+import { normalizePlayerName } from './util';
 import type { Express, Request, Response } from "express";
 import { createServer, type Server } from "http";
 import { storage } from '../storage';
@@ -376,7 +377,7 @@ export const createPaymentIntentSchema = z.object({
 });
 
 export const playerRegistrationSchema = z.object({
-  playerName: z.string().min(1, "Player name is required"),
+  playerName: z.string().min(1, "Player name is required").transform(normalizePlayerName),
   uscfRating: z.coerce.number().optional().nullable(),
   fideRating: z.coerce.number().optional().nullable(),
   ratingProvider: z.string().trim().optional().nullable(),

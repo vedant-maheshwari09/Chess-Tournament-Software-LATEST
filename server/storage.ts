@@ -677,7 +677,7 @@ class SupabaseStorage implements IStorage {
   }
 
   async getArenaLobbyPlayers(tournamentId: number): Promise<Player[]> {
-    return fetchMany<Player>("players", { tournamentId, arenaStatus: "lobby" });
+    return fetchMany<Player>("players", { tournamentId });
   }
 
   async updateArenaPoints(playerId: number, points: string, streak: number, onFire: boolean): Promise<Player | undefined> {

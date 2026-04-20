@@ -18,6 +18,7 @@ import { useAuth } from "@/hooks/useAuth";
 import type { PlayerRegistration } from "@shared/schema";
 import { RegistrationStatusCard } from "@/components/registration-status-card";
 import KnockoutBracket from "@/components/knockout-bracket";
+import { cn } from "@/lib/utils";
 import { ArenaLobby, ArenaActiveMatches, ArenaStandings, ArenaTimer } from "@/components/arena-ui";
 
 
@@ -75,9 +76,15 @@ export default function TournamentView({ tournamentId }: TournamentViewProps) {
   const availableTabs = useMemo<TabKey[]>(
     () => {
       const tabs: TabKey[] = [];
-      if (isArena) tabs.push("lobby");
-      tabs.push("pairings", "standings");
-      if (!isArena) tabs.push("byes");
+      if (isArena) {
+        tabs.push("lobby");
+        // Remove "standings" for Arena as it's now integrated into Lobby
+      }
+      tabs.push("pairings");
+      if (!isArena) {
+        tabs.push("standings");
+        tabs.push("byes");
+      }
       if (showPredictor) tabs.push("predictor");
       tabs.push("info");
       return tabs;
@@ -136,7 +143,7 @@ export default function TournamentView({ tournamentId }: TournamentViewProps) {
               <div>
                 <h1 className="text-2xl font-bold text-gray-900 dark:text-white">{tournament.name}</h1>
                 <p className="text-gray-600 dark:text-gray-300">
-                  {tournament.format === "swiss" ? "Swiss System" : tournament.format === "arena" ? "Arena" : tournament.format.toUpperCase()} • {isArena ? `${tournament.arenaDuration || 0} mins` : `${tournament.rounds} rounds`}
+                  {tournament.format === "swiss" ? "Swiss System" : tournament.format === "arena" ? "Arena" : tournament.format.charAt(0).toUpperCase() + tournament.format.slice(1)} • {isArena ? `${tournament.arenaDuration || 0} mins` : `${tournament.rounds} rounds`}
                 </p>
               </div>
             </div>
@@ -153,7 +160,7 @@ export default function TournamentView({ tournamentId }: TournamentViewProps) {
                     <Button
                       onClick={() => setLocation(`/tournaments/${tournamentId}/register?edit=true`)}
                       variant="outline"
-                      className="border-blue-500 text-blue-600 hover:bg-blue-50 font-bold"
+                      className="border-blue-500 text-blue-600 hover:bg-blue-50 font-semibold"
                     >
                       <Pencil className="mr-2 h-4 w-4" />
                       Edit Registration
@@ -162,7 +169,7 @@ export default function TournamentView({ tournamentId }: TournamentViewProps) {
                 ) : (
                   <Button
                     onClick={() => setLocation(`/tournaments/${tournamentId}/register`)}
-                    className="bg-blue-500 hover:bg-blue-600 text-white font-bold shadow-sm shadow-blue-200"
+                    className="bg-blue-500 hover:bg-blue-600 text-white font-semibold shadow-sm shadow-blue-200"
                   >
                     <Trophy className="mr-2 h-4 w-4" />
                     Register
@@ -187,7 +194,7 @@ export default function TournamentView({ tournamentId }: TournamentViewProps) {
 
       <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
         {isArena && tournament && (
-          <div className="mb-6">
+          <div className="mb-6 flex justify-center">
             <ArenaTimer tournament={tournament} />
           </div>
         )}
@@ -197,10 +204,22 @@ export default function TournamentView({ tournamentId }: TournamentViewProps) {
             <RegistrationStatusCard registrations={myRegistrations} />
           </div>
         )}
-        <Tabs value={activeTab} onValueChange={(value) => setLocation(`/tournaments/${tournamentId}/${value}`)}>
-          <TabsList className="flex w-full flex-wrap gap-2">
+        <Tabs value={activeTab} onValueChange={(value) => setLocation(`/tournaments/${tournamentId}/${value}`)} className="w-full">
+          <TabsList className={cn(
+            "grid w-full items-stretch gap-0 overflow-hidden rounded-xl border border-slate-200 bg-white p-0",
+            availableTabs.length === 3 ? "grid-cols-3" : 
+            availableTabs.length === 4 ? "grid-cols-4" : 
+            availableTabs.length === 5 ? "grid-cols-5" : "grid-cols-6"
+          )}>
             {availableTabs.map((tab) => (
-              <TabsTrigger key={tab} value={tab} className="flex-1 min-w-[140px] text-sm font-semibold">
+              <TabsTrigger 
+                key={tab} 
+                value={tab} 
+                className={cn(
+                  "flex h-full w-full items-center justify-center gap-2 px-6 py-4 text-center text-sm font-semibold text-slate-600 transition",
+                  "data-[state=active]:bg-indigo-50 data-[state=active]:text-indigo-900 data-[state=active]:shadow-none data-[state=active]:rounded-none"
+                )}
+              >
                 {TAB_LABELS[tab]}
               </TabsTrigger>
             ))}
@@ -238,7 +257,7 @@ export default function TournamentView({ tournamentId }: TournamentViewProps) {
             ) : tournament.format === "swiss" ? (
               <SwissStandings tournamentId={tournamentId} showExportControls={false} />
             ) : tournament.format === "arena" ? (
-              <ArenaStandings tournamentId={tournamentId} />
+              <ArenaStandings tournamentId={tournamentId} isTD={canManageTournament} userId={user?.id} />
             ) : (
               <Card>
                 <CardHeader>

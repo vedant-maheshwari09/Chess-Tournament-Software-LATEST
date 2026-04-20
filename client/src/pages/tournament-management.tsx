@@ -21,6 +21,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
+import { cn } from "@/lib/utils";
 import { apiRequest } from "@/lib/queryClient";
 import SwissPairings from "@/components/swiss-pairings";
 import Standings from "@/components/standings";
@@ -44,6 +45,7 @@ interface TournamentManagementProps {
 export default function TournamentManagement({ tournamentId }: TournamentManagementProps) {
   const [, setLocation] = useLocation();
   const [activeTab, setActiveTab] = useState("dashboard");
+  const [arenaSubTab, setArenaSubTab] = useState<'lobby' | 'matches'>('lobby');
   const { toast } = useToast();
   const { user } = useAuth();
   const queryClient = useQueryClient();
@@ -62,6 +64,13 @@ export default function TournamentManagement({ tournamentId }: TournamentManagem
       setLocation(`/tournaments/${tournamentId}`);
     }
   }, [tournament, user, isOwner, tournamentId, setLocation]);
+
+  // Ensure activeTab is valid for Arena format
+  useEffect(() => {
+    if (tournament?.format === 'arena' && activeTab === 'standings') {
+      setActiveTab('rounds'); // 'rounds' is renamed to 'Arena Lobby' in the UI
+    }
+  }, [tournament?.format, activeTab]);
 
   // Fetch players
   // Fetch registrations for notification bubble
@@ -102,7 +111,9 @@ export default function TournamentManagement({ tournamentId }: TournamentManagem
     onSuccess: () => {
       toast({
         title: "Tournament Started",
-        description: "Round 1 pairings have been generated!",
+        description: tournament?.format === 'arena' 
+          ? "The Arena has begun! Players can now be paired in the Lobby."
+          : "Round 1 pairings have been generated!",
       });
       queryClient.invalidateQueries({ queryKey: [`/api/tournaments/${tournamentId}`] });
       queryClient.invalidateQueries({ queryKey: [`/api/tournaments/${tournamentId}/players`] });
@@ -224,8 +235,10 @@ export default function TournamentManagement({ tournamentId }: TournamentManagem
                 <Badge variant={tournament?.status === 'active' ? 'default' : tournament?.status === 'completed' ? 'secondary' : 'outline'}>
                   {tournament?.status.charAt(0).toUpperCase() + tournament?.status.slice(1)}
                 </Badge>
-                <span>{tournament?.format.toUpperCase()}</span>
-                {tournament?.rounds && <span>{tournament.rounds} rounds</span>}
+                <span>{tournament?.format.charAt(0).toUpperCase() + tournament?.format.slice(1)}</span>
+                {tournament?.rounds && tournament.format !== 'arena' && tournament.format !== 'knockout' && (
+                  <span>{tournament.rounds} rounds</span>
+                )}
                 <span>{players.length} players</span>
               </div>
             </div>
@@ -266,7 +279,7 @@ export default function TournamentManagement({ tournamentId }: TournamentManagem
                       <AlertDialogDescription>
                         {players.length === 0
                           ? "This tournament currently has no registered players. You can still start it now."
-                          : `This tournament has ${players.length} player${players.length === 1 ? "" : "s"}. Are you sure you want to start round 1?`}
+                          : `This tournament has ${players.length} player${players.length === 1 ? "" : "s"}. ${tournament.format === 'arena' ? "Are you sure you want to start the arena?" : "Are you sure you want to start round 1?"}`}
                       </AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter>
@@ -365,32 +378,35 @@ export default function TournamentManagement({ tournamentId }: TournamentManagem
       </Card>
 
       {/* Tournament Management Tabs */}
-      <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full">
-        <TabsList className="grid w-full grid-cols-6 items-stretch gap-0 overflow-hidden rounded-xl border border-slate-200 bg-white p-0">
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+        <TabsList className={cn(
+          "grid w-full items-stretch gap-0 overflow-hidden rounded-xl border border-slate-200 bg-white p-0 shadow-sm",
+          tournament.format === 'arena' ? "grid-cols-5" : "grid-cols-6"
+        )}>
           <TabsTrigger
             value="dashboard"
-            className="flex h-full w-full items-center justify-center gap-2 px-6 py-4 text-center text-sm font-medium text-slate-600 transition data-[state=active]:bg-indigo-50 data-[state=active]:text-indigo-900 data-[state=active]:shadow-none"
+            className="flex h-full w-full items-center justify-center gap-2 px-6 py-4 text-center text-sm font-semibold text-slate-600 transition data-[state=active]:bg-indigo-50 data-[state=active]:text-indigo-900 data-[state=active]:shadow-none"
           >
             <Trophy className="h-5 w-5 -translate-y-[4px]" />
             <span className="capitalize -translate-y-[2px]">Dashboard</span>
           </TabsTrigger>
           <TabsTrigger
             value="tournamentPage"
-            className="flex h-full w-full items-center justify-center gap-2 px-6 py-4 text-center text-sm font-medium text-slate-600 transition data-[state=active]:bg-indigo-50 data-[state=active]:text-indigo-900 data-[state=active]:shadow-none"
+            className="flex h-full w-full items-center justify-center gap-2 px-6 py-4 text-center text-sm font-semibold text-slate-600 transition data-[state=active]:bg-indigo-50 data-[state=active]:text-indigo-900 data-[state=active]:shadow-none"
           >
             <FileText className="h-5 w-5 -translate-y-[4px]" />
             <span className="capitalize -translate-y-[2px]">Tournament Page</span>
           </TabsTrigger>
           <TabsTrigger
             value="players"
-            className="flex h-full w-full items-center justify-center gap-2 px-6 py-4 text-center text-sm font-medium text-slate-600 transition data-[state=active]:bg-indigo-50 data-[state=active]:text-indigo-900 data-[state=active]:shadow-none"
+            className="flex h-full w-full items-center justify-center gap-2 px-6 py-4 text-center text-sm font-semibold text-slate-600 transition data-[state=active]:bg-indigo-50 data-[state=active]:text-indigo-900 data-[state=active]:shadow-none"
           >
             <Users className="h-5 w-5 -translate-y-[4px]" />
             <span className="capitalize -translate-y-[2px]">Players</span>
           </TabsTrigger>
           <TabsTrigger
             value="registrations"
-            className="flex h-full w-full items-center justify-center gap-2 px-6 py-4 text-center text-sm font-medium text-slate-600 transition data-[state=active]:bg-indigo-50 data-[state=active]:text-indigo-900 data-[state=active]:shadow-none"
+            className="flex h-full w-full items-center justify-center gap-2 px-6 py-4 text-center text-sm font-semibold text-slate-600 transition data-[state=active]:bg-indigo-50 data-[state=active]:text-indigo-900 data-[state=active]:shadow-none"
           >
             <Users className="h-5 w-5 -translate-y-[4px]" />
             <span className="capitalize -translate-y-[2px]">Registrations</span>
@@ -400,22 +416,24 @@ export default function TournamentManagement({ tournamentId }: TournamentManagem
           </TabsTrigger>
           <TabsTrigger
             value="rounds"
-            className="flex h-full w-full items-center justify-center gap-2 px-6 py-4 text-center text-sm font-medium text-slate-600 transition data-[state=active]:bg-indigo-50 data-[state=active]:text-indigo-900 data-[state=active]:shadow-none"
+            className="flex h-full w-full items-center justify-center gap-2 px-6 py-4 text-center text-sm font-semibold text-slate-600 transition data-[state=active]:bg-indigo-50 data-[state=active]:text-indigo-900 data-[state=active]:shadow-none"
           >
             <Calendar className="h-5 w-5 -translate-y-[4px]" />
             <span className="capitalize -translate-y-[2px]">
-              {tournament.format === 'arena' ? 'Arena Lobby' : 'Rounds'}
+              {tournament.format === 'arena' ? 'Arena Lobby' : tournament.format === 'knockout' ? 'Brackets' : 'Rounds'}
             </span>
           </TabsTrigger>
-          <TabsTrigger
-            value="standings"
-            className="flex h-full w-full items-center justify-center gap-2 px-6 py-4 text-center text-sm font-medium text-slate-600 transition data-[state=active]:bg-indigo-50 data-[state=active]:text-indigo-900 data-[state=active]:shadow-none"
-          >
-            <Trophy className="h-5 w-5 -translate-y-[4px]" />
-            <span className="capitalize -translate-y-[2px]">
-              {tournament.format === 'knockout' ? 'Knockout Bracket' : 'Standings'}
-            </span>
-          </TabsTrigger>
+          {tournament.format !== 'arena' && (
+            <TabsTrigger
+              value="standings"
+              className="flex h-full w-full items-center justify-center gap-2 px-6 py-4 text-center text-sm font-semibold text-slate-600 transition data-[state=active]:bg-indigo-50 data-[state=active]:text-indigo-900 data-[state=active]:shadow-none"
+            >
+              <Trophy className="h-5 w-5 -translate-y-[4px]" />
+              <span className="capitalize -translate-y-[2px]">
+                {tournament.format === 'knockout' ? 'Bracket' : 'Standings'}
+              </span>
+            </TabsTrigger>
+          )}
         </TabsList>
 
         <TabsContent value="dashboard" className="mt-6 space-y-8">
@@ -447,86 +465,124 @@ export default function TournamentManagement({ tournamentId }: TournamentManagem
         </TabsContent>
 
 
-        <TabsContent value="rounds" className="mt-6 space-y-6">
-          <Tabs value={activeRoundSection} onValueChange={setActiveRoundSection}>
-            <TabsList>
-              <TabsTrigger value="all">All</TabsTrigger>
-              {sections.map(section => (
-                <TabsTrigger key={section.id} value={section.id}>
-                  {section.name}
-                </TabsTrigger>
-              ))}
-            </TabsList>
-            <Card className="mt-4">
-              <CardHeader>
-                <CardTitle className="flex items-center space-x-2">
-                  <Calendar className="h-5 w-5" />
-                  <span>Tournament Pairings</span>
-                  {(tournament.currentRound || 0) > 0 && (
-                    <Badge>Round {tournament.currentRound || 0}</Badge>
-                  )}
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {tournament.format === 'swiss' || tournament.format === 'roundrobin' || tournament.format === 'knockout' ? (
-                  <div className="overflow-x-auto">
-                    <SwissPairings tournamentId={tournamentId} activeSection={activeRoundSection} />
-                  </div>
-                ) : tournament.format === 'arena' ? (
-                  <div className="space-y-6">
-                    <ArenaTimer tournament={tournament} />
-                    <Tabs defaultValue="lobby" className="w-full">
-                      <TabsList className="grid w-full grid-cols-2 mb-8">
-                        <TabsTrigger value="lobby">Arena Lobby</TabsTrigger>
-                        <TabsTrigger value="matches">Active Matches</TabsTrigger>
-                      </TabsList>
-                      <TabsContent value="lobby" className="mt-0">
-                        <ArenaLobby tournamentId={tournamentId} isTD={true} userId={user?.id} />
-                      </TabsContent>
-                      <TabsContent value="matches" className="mt-0">
-                        <ArenaActiveMatches tournamentId={tournamentId} isTD={true} userId={user?.id} />
-                      </TabsContent>
-                    </Tabs>
-                  </div>
-                ) : (
-                  <div className="py-8 text-center">
-                    <Calendar className="mx-auto mb-4 h-12 w-12 text-gray-400" />
-                    <p className="text-gray-600">Pairings will be available once the tournament starts.</p>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          </Tabs>
-        </TabsContent>
+        <TabsContent value="rounds" className="mt-12 space-y-12">
+          {tournament.format === 'arena' ? (
+            <div className="flex flex-col gap-12">
+              {/* Massive Hero Clock at the top */}
+              <ArenaTimer tournament={tournament} />
 
-        <TabsContent value="standings" className="mt-6">
-          {tournament.format === 'roundrobin' ? (
-            <RoundRobinCrosstable tournamentId={tournamentId} />
-          ) : tournament.format === 'swiss' ? (
-            <SwissStandings tournamentId={tournamentId} />
-          ) : tournament.format === 'knockout' ? (
-            <div className="space-y-6">
-              <KnockoutBracket 
-                tournamentId={tournamentId} 
-                sectionId={activeRoundSection === 'all' ? undefined : activeRoundSection} 
-              />
+              <div className="flex flex-col gap-10">
+                <div className="flex items-center justify-start">
+                  <div className="flex bg-[#f1f4f4] p-1.5 rounded-full shadow-inner">
+                    <button
+                      onClick={() => setArenaSubTab('lobby')}
+                      className={cn(
+                        "px-16 py-5 rounded-full text-lg font-semibold transition-all duration-700",
+                        arenaSubTab === 'lobby'
+                          ? "bg-white text-indigo-600 shadow-sm"
+                          : "text-slate-500 hover:text-indigo-600 hover:bg-white/50"
+                      )}
+                    >
+                      Lobby
+                    </button>
+                    <button
+                      onClick={() => setArenaSubTab('matches')}
+                      className={cn(
+                        "px-16 py-5 rounded-full text-lg font-semibold transition-all duration-700",
+                        arenaSubTab === 'matches'
+                          ? "bg-white text-indigo-600 shadow-sm"
+                          : "text-slate-500 hover:text-indigo-600 hover:bg-white/50"
+                      )}
+                    >
+                      Active Matches
+                    </button>
+                  </div>
+                </div>
+
+                <div className="animate-in fade-in zoom-in-95 duration-1000">
+                  {arenaSubTab === 'lobby' ? (
+                    <ArenaLobby 
+                      tournamentId={tournament.id} 
+                      isTD={!!isOwner} 
+                      userId={user?.id}
+                    />
+                  ) : (
+                    <ArenaActiveMatches 
+                      tournamentId={tournament.id} 
+                      isTD={!!isOwner}
+                      userId={user?.id}
+                    />
+                  )}
+                </div>
+              </div>
             </div>
           ) : (
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center space-x-2">
-                  <Trophy className="h-5 w-5" />
-                  <span>Tournament Standings</span>
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="overflow-x-auto">
-                  <Standings tournamentId={tournamentId} />
-                </div>
-              </CardContent>
-            </Card>
+            <Tabs value={activeRoundSection} onValueChange={setActiveRoundSection}>
+              <TabsList>
+                <TabsTrigger value="all">All</TabsTrigger>
+                {sections.map(section => (
+                  <TabsTrigger key={section.id} value={section.id}>
+                    {section.name}
+                  </TabsTrigger>
+                ))}
+              </TabsList>
+              <Card className="mt-4">
+                <CardHeader>
+                  <CardTitle className="flex items-center space-x-2">
+                    <Calendar className="h-5 w-5" />
+                    <span>Tournament Pairings</span>
+                    {(tournament.currentRound || 0) > 0 && (
+                      <Badge>Round {tournament.currentRound || 0}</Badge>
+                    )}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  {tournament.format === 'swiss' || tournament.format === 'roundrobin' || tournament.format === 'knockout' ? (
+                    <div className="overflow-x-auto">
+                      <SwissPairings tournamentId={tournamentId} activeSection={activeRoundSection} />
+                    </div>
+                  ) : (
+                    <div className="py-8 text-center">
+                      <Calendar className="mx-auto mb-4 h-12 w-12 text-gray-400" />
+                      <p className="text-gray-600">Pairings will be available once the tournament starts.</p>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </Tabs>
           )}
         </TabsContent>
+
+        {tournament.format !== 'arena' && (
+          <TabsContent value="standings" className="mt-6">
+            {tournament.format === 'roundrobin' ? (
+              <RoundRobinCrosstable tournamentId={tournamentId} />
+            ) : tournament.format === 'swiss' ? (
+              <SwissStandings tournamentId={tournamentId} />
+            ) : tournament.format === 'knockout' ? (
+              <div className="space-y-6">
+                <KnockoutBracket 
+                  tournamentId={tournamentId} 
+                  sectionId={activeRoundSection === 'all' ? undefined : activeRoundSection} 
+                />
+              </div>
+            ) : (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center space-x-2">
+                    <Trophy className="h-5 w-5" />
+                    <span>Tournament Standings</span>
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="overflow-x-auto">
+                    <Standings tournamentId={tournamentId} />
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+          </TabsContent>
+        )}
 
       </Tabs>
     </div>

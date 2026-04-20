@@ -108,7 +108,7 @@ export function ArenaSettingsCard({ value, onChange }: ArenaSettingsCardProps) {
             </div>
 
             <div className="pt-4 border-t">
-              <h4 className="text-sm font-semibold text-slate-700 mb-4 uppercase tracking-wider">Streak Bonuses ("On Fire")</h4>
+              <h4 className="text-sm font-semibold text-slate-700 mb-4">Streak Bonuses ("On Fire")</h4>
               <div className="grid gap-4 md:grid-cols-3">
                 <ScoreInput
                   id="arena-threshold"
