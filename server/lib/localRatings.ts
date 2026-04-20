@@ -1,7 +1,8 @@
-import { createReadStream, existsSync } from "fs";
+import { createReadStream, existsSync, statSync } from "fs";
 import path from "path";
 import readline from "readline";
 import { fileURLToPath } from "url";
+import Database from "better-sqlite3";
 
 type ExtraRatingType = "quick" | "blitz" | "rapid";
 
@@ -32,19 +33,6 @@ export interface LocalSearchParams {
   id?: string;
 }
 
-interface USCFEntryInternal {
-  id: string;
-  name: string;
-  state?: string;
-  expiration?: string;
-  rating?: RatingField;
-  quickRating?: RatingField;
-  blitzRating?: RatingField;
-  searchVector: string;
-  normalizedFullName: string;
-  normalizedLastFirst: string;
-}
-
 interface USCFMutableEntry {
   id: string;
   name: string;
@@ -53,21 +41,6 @@ interface USCFMutableEntry {
   rating?: RatingField;
   quickRating?: RatingField;
   blitzRating?: RatingField;
-}
-
-interface FideEntryInternal {
-  id: string;
-  name: string;
-  federation?: string;
-  sex?: string;
-  title?: string;
-  rating?: RatingField;
-  rapidRating?: RatingField;
-  blitzRating?: RatingField;
-  birthYear?: string;
-  searchVector: string;
-  normalizedFullName: string;
-  normalizedLastFirst: string;
 }
 
 const MODULE_DIR = path.dirname(fileURLToPath(import.meta.url));
@@ -97,7 +70,6 @@ function resolveDataPath(relativePath: string, envKey?: string) {
     }
   }
 
-  // Fall back to the first candidate to produce a helpful error downstream.
   const fallbackRoot = DEFAULT_ROOT_CANDIDATES[0] ?? process.cwd();
   return path.resolve(fallbackRoot, relativePath);
 }
@@ -105,76 +77,153 @@ function resolveDataPath(relativePath: string, envKey?: string) {
 const USCF_BLITZ_FILE = resolveDataPath("GDB2510T.TXT", "USCF_BLITZ_FILE");
 const USCF_QUICK_FILE = resolveDataPath("GDQ2510T.TXT", "USCF_QUICK_FILE");
 const FIDE_FILE = resolveDataPath("players_list-fide-oct-2025.txt", "FIDE_PLAYER_LIST_FILE");
+const DB_PATH = resolveDataPath("ratings_cache.sqlite", "RATINGS_CACHE_DB_FILE");
 
-let uscfDataPromise: Promise<USCFEntryInternal[]> | null = null;
-let fideDataPromise: Promise<FideEntryInternal[]> | null = null;
+let db: Database.Database | null = null;
+let initPromise: Promise<void> | null = null;
 
-type SearchInput = string | LocalSearchParams;
-
-export async function searchUSCF(input: SearchInput, limit = 25): Promise<LocalRatingResult[]> {
-  const { query, tokens } = resolveSearchInput(input);
-  if (!hasSufficientInput(query) || !tokens.length) return [];
-  const data = await ensureUSCFData();
-  const results = collectMatches(data, tokens, limit, query);
-  return results.map((entry) => ({
-    id: entry.id,
-    name: entry.name,
-    rating: entry.rating,
-    quickRating: entry.quickRating,
-    blitzRating: entry.blitzRating,
-    location: entry.state,
-    metadata: entry.expiration ? { expiration: entry.expiration } : undefined,
-  }));
-}
-
-export async function searchFide(input: SearchInput, limit = 25): Promise<LocalRatingResult[]> {
-  const { query, tokens } = resolveSearchInput(input);
-  if (!hasSufficientInput(query) || !tokens.length) return [];
-  const data = await ensureFideData();
-  const results = collectMatches(data, tokens, limit, query);
-  return results.map((entry) => ({
-    id: entry.id,
-    name: entry.name,
-    rating: entry.rating,
-    rapidRating: entry.rapidRating,
-    blitzRating: entry.blitzRating,
-    federation: entry.federation,
-    title: entry.title,
-    sex: entry.sex,
-    birthYear: entry.birthYear,
-  }));
-}
-
-async function ensureUSCFData(): Promise<USCFEntryInternal[]> {
-  if (!uscfDataPromise) {
-    uscfDataPromise = loadUSCFData();
+export async function preloadRatingData() {
+  if (!initPromise) {
+    initPromise = initializeDb();
   }
-  return uscfDataPromise;
+  return initPromise;
 }
 
-async function ensureFideData(): Promise<FideEntryInternal[]> {
-  if (!fideDataPromise) {
-    fideDataPromise = loadFideData();
+function getMtime(filePath: string) {
+  if (!existsSync(filePath)) return null;
+  return statSync(filePath).mtimeMs;
+}
+
+async function initializeDb() {
+  db = new Database(DB_PATH);
+  db.pragma('journal_mode = WAL');
+  db.pragma('synchronous = NORMAL');
+  
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);
+    CREATE TABLE IF NOT EXISTS uscf (
+      id TEXT PRIMARY KEY,
+      name TEXT,
+      state TEXT,
+      expiration TEXT,
+      rating_value TEXT,
+      rating_raw TEXT,
+      quick_rating_value TEXT,
+      quick_rating_raw TEXT,
+      blitz_rating_value TEXT,
+      blitz_rating_raw TEXT,
+      search_vector TEXT,
+      normalized_full_name TEXT,
+      normalized_last_first TEXT
+    );
+    CREATE TABLE IF NOT EXISTS fide (
+      id TEXT PRIMARY KEY,
+      name TEXT,
+      federation TEXT,
+      sex TEXT,
+      title TEXT,
+      rating_value TEXT,
+      rating_raw TEXT,
+      rapid_rating_value TEXT,
+      rapid_rating_raw TEXT,
+      blitz_rating_value TEXT,
+      blitz_rating_raw TEXT,
+      birth_year TEXT,
+      search_vector TEXT,
+      normalized_full_name TEXT,
+      normalized_last_first TEXT
+    );
+  `);
+
+  const uscfBlitzMtime = getMtime(USCF_BLITZ_FILE);
+  const uscfQuickMtime = getMtime(USCF_QUICK_FILE);
+  const fideMtime = getMtime(FIDE_FILE);
+
+  const getMeta = db.prepare(`SELECT value FROM meta WHERE key = ?`);
+  const setMeta = db.prepare(`INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)`);
+
+  const currentUscfMeta = getMeta.get('uscf_mtime') as {value: string} | undefined;
+  const currentFideMeta = getMeta.get('fide_mtime') as {value: string} | undefined;
+
+  const expectedUscfMeta = `${uscfBlitzMtime}_${uscfQuickMtime}`;
+  const expectedFideMeta = `${fideMtime}`;
+
+  if (currentUscfMeta?.value !== expectedUscfMeta) {
+    if (uscfBlitzMtime && uscfQuickMtime) {
+      console.log("Rebuilding USCF database index...");
+      await buildUscfIndex();
+      setMeta.run('uscf_mtime', expectedUscfMeta);
+      console.log("USCF index build complete.");
+    }
   }
-  return fideDataPromise;
+
+  if (currentFideMeta?.value !== expectedFideMeta) {
+    if (fideMtime) {
+      console.log("Rebuilding FIDE database index...");
+      await buildFideIndex();
+      setMeta.run('fide_mtime', expectedFideMeta);
+      console.log("FIDE index build complete.");
+    }
+  }
 }
 
-async function loadUSCFData(): Promise<USCFEntryInternal[]> {
+async function buildUscfIndex() {
   assertFileExists(USCF_BLITZ_FILE, "USCF blitz ratings file not found");
   assertFileExists(USCF_QUICK_FILE, "USCF quick ratings file not found");
 
   const map = new Map<string, USCFMutableEntry>();
-
   await parseUSCFFile(USCF_BLITZ_FILE, map, "blitz");
   await parseUSCFFile(USCF_QUICK_FILE, map, "quick");
 
-  return Array.from(map.values()).map(finalizeUSCFEntry);
+  db!.exec('BEGIN TRANSACTION');
+  db!.exec('DELETE FROM uscf');
+  const insert = db!.prepare(`
+    INSERT INTO uscf (
+      id, name, state, expiration, 
+      rating_value, rating_raw, 
+      quick_rating_value, quick_rating_raw, 
+      blitz_rating_value, blitz_rating_raw,
+      search_vector, normalized_full_name, normalized_last_first
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+
+  for (const entry of Array.from(map.values())) {
+    const normalizedFullName = normalizeForSearch(toFirstLast(entry.name));
+    const normalizedLastFirst = normalizeForSearch(entry.name.replace(",", " "));
+    const tokenSet = new Set<string>();
+    addTokens(tokenSet, normalizedFullName);
+    addTokens(tokenSet, normalizedLastFirst);
+    addTokens(tokenSet, entry.id);
+    if (entry.state) addTokens(tokenSet, entry.state);
+
+    const searchVector = Array.from(tokenSet).join(" ");
+    
+    insert.run(
+      entry.id, entry.name, entry.state || null, entry.expiration || null,
+      entry.rating?.value || null, entry.rating?.raw || null,
+      entry.quickRating?.value || null, entry.quickRating?.raw || null,
+      entry.blitzRating?.value || null, entry.blitzRating?.raw || null,
+      searchVector, normalizedFullName, normalizedLastFirst
+    );
+  }
+  db!.exec('COMMIT');
 }
 
-async function loadFideData(): Promise<FideEntryInternal[]> {
+async function buildFideIndex() {
   assertFileExists(FIDE_FILE, "FIDE player list file not found");
+  
+  db!.exec('BEGIN TRANSACTION');
+  db!.exec('DELETE FROM fide');
+  const insert = db!.prepare(`
+    INSERT INTO fide (
+      id, name, federation, sex, title, 
+      rating_value, rating_raw, 
+      rapid_rating_value, rapid_rating_raw, 
+      blitz_rating_value, blitz_rating_raw, 
+      birth_year, search_vector, normalized_full_name, normalized_last_first
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
 
-  const entries: FideEntryInternal[] = [];
   const reader = readline.createInterface({
     input: createReadStream(FIDE_FILE),
     crlfDelay: Infinity,
@@ -190,10 +239,27 @@ async function loadFideData(): Promise<FideEntryInternal[]> {
     if (!line.trim()) continue;
     const parsed = parseFideLine(line);
     if (!parsed) continue;
-    entries.push(finalizeFideEntry(parsed));
-  }
 
-  return entries;
+    const normalizedFullName = normalizeForSearch(toNameFirstLast(parsed.name));
+    const normalizedLastFirst = normalizeForSearch(parsed.name.replace(",", " "));
+    const tokenSet = new Set<string>();
+    addTokens(tokenSet, normalizedFullName);
+    addTokens(tokenSet, normalizedLastFirst);
+    addTokens(tokenSet, parsed.id);
+    if (parsed.federation) addTokens(tokenSet, parsed.federation);
+    if (parsed.title) addTokens(tokenSet, parsed.title);
+
+    const searchVector = Array.from(tokenSet).join(" ");
+
+    insert.run(
+      parsed.id, parsed.name, parsed.federation || null, parsed.sex || null, parsed.title || null,
+      parsed.rating?.value || null, parsed.rating?.raw || null,
+      parsed.rapidRating?.value || null, parsed.rapidRating?.raw || null,
+      parsed.blitzRating?.value || null, parsed.blitzRating?.raw || null,
+      parsed.birthYear || null, searchVector, normalizedFullName, normalizedLastFirst
+    );
+  }
+  db!.exec('COMMIT');
 }
 
 async function parseUSCFFile(filePath: string, map: Map<string, USCFMutableEntry>, extraType: ExtraRatingType) {
@@ -310,71 +376,90 @@ function extractPrimaryNumber(segment: string): string | undefined {
   return preferred ?? matches[0];
 }
 
-function finalizeUSCFEntry(entry: USCFMutableEntry): USCFEntryInternal {
-  const normalizedFullName = normalizeForSearch(toFirstLast(entry.name));
-  const normalizedLastFirst = normalizeForSearch(entry.name.replace(",", " "));
-  const tokenSet = new Set<string>();
-  addTokens(tokenSet, normalizedFullName);
-  addTokens(tokenSet, normalizedLastFirst);
-  addTokens(tokenSet, entry.id);
-  if (entry.state) addTokens(tokenSet, entry.state);
+type SearchInput = string | LocalSearchParams;
 
-  return {
-    id: entry.id,
-    name: entry.name,
-    state: entry.state,
-    expiration: entry.expiration,
-    rating: entry.rating,
-    quickRating: entry.quickRating,
-    blitzRating: entry.blitzRating,
-    searchVector: Array.from(tokenSet).join(" "),
-    normalizedFullName,
-    normalizedLastFirst,
-  };
-}
-
-function finalizeFideEntry(entry: Omit<FideEntryInternal, "searchVector" | "normalizedFullName" | "normalizedLastFirst">): FideEntryInternal {
-  const normalizedFullName = normalizeForSearch(toNameFirstLast(entry.name));
-  const normalizedLastFirst = normalizeForSearch(entry.name.replace(",", " "));
-  const tokenSet = new Set<string>();
-  addTokens(tokenSet, normalizedFullName);
-  addTokens(tokenSet, normalizedLastFirst);
-  addTokens(tokenSet, entry.id);
-  if (entry.federation) addTokens(tokenSet, entry.federation);
-  if (entry.title) addTokens(tokenSet, entry.title);
-
-  return {
-    ...entry,
-    searchVector: Array.from(tokenSet).join(" "),
-    normalizedFullName,
-    normalizedLastFirst,
-  };
-}
-
-function collectMatches<T extends { searchVector: string; normalizedFullName: string; normalizedLastFirst: string; id: string }>(
-  data: T[],
-  tokens: string[],
-  limit: number,
-  query: string,
-): T[] {
-  const queryNormalized = normalizeForSearch(query);
-  const matches: { entry: T; score: number }[] = [];
-
-  for (const entry of data) {
-    if (!tokens.every((token) => entry.searchVector.includes(token))) {
-      continue;
-    }
-
-    const score = computeScore(entry, tokens, queryNormalized);
-    matches.push({ entry, score });
+export async function searchUSCF(input: SearchInput, limit = 25): Promise<LocalRatingResult[]> {
+  await preloadRatingData();
+  const { query, tokens } = resolveSearchInput(input);
+  if (!hasSufficientInput(query) || !tokens.length) return [];
+  
+  let sql = 'SELECT * FROM uscf WHERE 1=1';
+  const params: any[] = [];
+  for (const token of tokens) {
+    sql += ` AND search_vector LIKE ?`;
+    params.push(`%${token}%`);
   }
-
+  sql += ' LIMIT 200';
+  
+  const stmt = db!.prepare(sql);
+  const rows = stmt.all(...params) as any[];
+  
+  const queryNormalized = normalizeForSearch(query);
+  const matches = rows.map(row => ({
+    entry: row,
+    score: computeScore(row, tokens, queryNormalized)
+  }));
+  
   matches.sort((a, b) => {
     if (b.score !== a.score) return b.score - a.score;
-    return a.entry.normalizedFullName.localeCompare(b.entry.normalizedFullName);
+    return a.entry.normalized_full_name.localeCompare(b.entry.normalized_full_name);
   });
+  
+  return matches.slice(0, limit).map((match) => {
+    const entry = match.entry;
+    return {
+      id: entry.id,
+      name: entry.name,
+      rating: entry.rating_value ? { value: entry.rating_value, raw: entry.rating_raw } : undefined,
+      quickRating: entry.quick_rating_value ? { value: entry.quick_rating_value, raw: entry.quick_rating_raw } : undefined,
+      blitzRating: entry.blitz_rating_value ? { value: entry.blitz_rating_value, raw: entry.blitz_rating_raw } : undefined,
+      location: entry.state,
+      metadata: entry.expiration ? { expiration: entry.expiration } : undefined,
+    };
+  });
+}
 
-  return matches.slice(0, limit).map((match) => match.entry);
+export async function searchFide(input: SearchInput, limit = 25): Promise<LocalRatingResult[]> {
+  await preloadRatingData();
+  const { query, tokens } = resolveSearchInput(input);
+  if (!hasSufficientInput(query) || !tokens.length) return [];
+  
+  let sql = 'SELECT * FROM fide WHERE 1=1';
+  const params: any[] = [];
+  for (const token of tokens) {
+    sql += ` AND search_vector LIKE ?`;
+    params.push(`%${token}%`);
+  }
+  sql += ' LIMIT 200';
+  
+  const stmt = db!.prepare(sql);
+  const rows = stmt.all(...params) as any[];
+  
+  const queryNormalized = normalizeForSearch(query);
+  const matches = rows.map(row => ({
+    entry: row,
+    score: computeScore(row, tokens, queryNormalized)
+  }));
+  
+  matches.sort((a, b) => {
+    if (b.score !== a.score) return b.score - a.score;
+    return a.entry.normalized_full_name.localeCompare(b.entry.normalized_full_name);
+  });
+  
+  return matches.slice(0, limit).map((match) => {
+    const entry = match.entry;
+    return {
+      id: entry.id,
+      name: entry.name,
+      rating: entry.rating_value ? { value: entry.rating_value, raw: entry.rating_raw } : undefined,
+      rapidRating: entry.rapid_rating_value ? { value: entry.rapid_rating_value, raw: entry.rapid_rating_raw } : undefined,
+      blitzRating: entry.blitz_rating_value ? { value: entry.blitz_rating_value, raw: entry.blitz_rating_raw } : undefined,
+      federation: entry.federation,
+      title: entry.title,
+      sex: entry.sex,
+      birthYear: entry.birth_year,
+    };
+  });
 }
 
 function resolveSearchInput(input: SearchInput) {
@@ -392,20 +477,20 @@ function resolveSearchInput(input: SearchInput) {
 }
 
 function computeScore(
-  entry: { normalizedFullName: string; normalizedLastFirst: string; id: string },
+  entry: { normalized_full_name: string; normalized_last_first: string; id: string },
   tokens: string[],
   fullQuery: string,
 ): number {
   let score = 0;
-  if (fullQuery && entry.normalizedFullName.startsWith(fullQuery)) score += 6;
-  if (fullQuery && entry.normalizedLastFirst.startsWith(fullQuery)) score += 4;
+  if (fullQuery && entry.normalized_full_name.startsWith(fullQuery)) score += 6;
+  if (fullQuery && entry.normalized_last_first.startsWith(fullQuery)) score += 4;
 
   for (const token of tokens) {
     if (!token) continue;
-    if (entry.normalizedFullName.startsWith(token)) score += 3;
-    else if (entry.normalizedFullName.includes(` ${token}`)) score += 2;
-    if (entry.normalizedLastFirst.startsWith(token)) score += 3;
-    else if (entry.normalizedLastFirst.includes(` ${token}`)) score += 1;
+    if (entry.normalized_full_name.startsWith(token)) score += 3;
+    else if (entry.normalized_full_name.includes(` ${token}`)) score += 2;
+    if (entry.normalized_last_first.startsWith(token)) score += 3;
+    else if (entry.normalized_last_first.includes(` ${token}`)) score += 1;
     if (entry.id.startsWith(token)) score += 8;
     else if (entry.id.includes(token)) score += 3;
   }
@@ -459,9 +544,3 @@ function hasSufficientInput(query: string) {
   if (trimmed.length >= 2) return true;
   return /^\d+$/.test(trimmed) && trimmed.length > 0;
 }
-
-export async function preloadRatingData() {
-  await Promise.all([ensureUSCFData(), ensureFideData()]);
-}
-
-

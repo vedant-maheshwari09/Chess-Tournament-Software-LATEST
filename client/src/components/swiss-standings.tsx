@@ -36,6 +36,7 @@ interface SwissPlayerStanding {
   totalPoints: number;
   roundResults: PlayerRoundResult[];
   isWithdrawn: boolean;
+  tiebreakValues: Record<string, number>;
 }
 
 function interpretPlayerResult(
@@ -185,70 +186,116 @@ export default function SwissStandings({ tournamentId, showExportControls = true
       // Use the actual highest round number instead of planned rounds to show extended tournaments
       const totalRounds = Math.max(currentRound, tournament.rounds || 5);
 
-      // USCF Tiebreaker calculation functions (local scope)
-      const calculateModifiedMedian = (playerId: number): number => {
-        const opponentScores = getOpponentScores(playerId);
-        if (opponentScores.length <= 2) return opponentScores.reduce((sum, score) => sum + score, 0);
-
-        const sortedScores = [...opponentScores].sort((a, b) => b - a);
-        const middleScores = sortedScores.slice(1, -1);
-        return middleScores.reduce((sum, score) => sum + score, 0) / middleScores.length;
-      }
-
-      const calculateSolkoff = (playerId: number): number => {
-        const opponentScores = getOpponentScores(playerId);
-        return opponentScores.reduce((sum, score) => sum + score, 0);
-      }
-
-      const calculateCumulative = (playerId: number): number => {
-        let cumulative = 0;
-        let runningTotal = 0;
-
-        const playerMatches = matches
-          .filter((m) => m.whitePlayerId === playerId || m.blackPlayerId === playerId)
-          .sort((a, b) => a.round - b.round);
-
-        playerMatches.forEach((match) => {
-          const normalized = normalizeMatchResult(match.result);
-          if (!normalized) {
-            return;
-          }
-          const isWhite = match.whitePlayerId === playerId;
-          const points = getPointsForResult(match.result, isWhite ? "white" : "black");
-          runningTotal += points;
-          cumulative += runningTotal;
-        });
-
-        return cumulative;
-      }
-
+      // Centralized Tiebreaker Calculators
       const getOpponentScores = (playerId: number): number[] => {
-        const opponentIds = new Set<number>();
+        const opponentIds: number[] = [];
 
         matches.forEach((match) => {
           if (match.whitePlayerId === playerId && match.blackPlayerId) {
-            opponentIds.add(match.blackPlayerId);
+            opponentIds.push(match.blackPlayerId);
           } else if (match.blackPlayerId === playerId && match.whitePlayerId) {
-            opponentIds.add(match.whitePlayerId);
+            opponentIds.push(match.whitePlayerId);
           }
         });
 
-        return Array.from(opponentIds).map((opponentId) => {
+        return opponentIds.map((opponentId) => {
           let totalPoints = 0;
-
           matches.forEach((match) => {
             if (match.whitePlayerId === opponentId || match.blackPlayerId === opponentId) {
               const normalized = normalizeMatchResult(match.result);
-              if (!normalized) {
-                return;
+              if (normalized) {
+                totalPoints += getPointsForResult(match.result, match.whitePlayerId === opponentId ? "white" : "black");
               }
-              const isWhite = match.whitePlayerId === opponentId;
-              totalPoints += getPointsForResult(match.result, isWhite ? "white" : "black");
             }
           });
-
           return totalPoints;
         });
+      };
+
+      const tiebreakCalculators: Record<string, (playerId: number) => number> = {
+        "Solkoff": (playerId) => {
+          return getOpponentScores(playerId).reduce((sum, s) => sum + s, 0);
+        },
+        "Buchholz": (playerId) => {
+          return getOpponentScores(playerId).reduce((sum, s) => sum + s, 0);
+        },
+        "Modified Median": (playerId) => {
+          const scores = getOpponentScores(playerId);
+          if (scores.length <= 2) return scores.reduce((sum, s) => sum + s, 0);
+          
+          const sorted = [...scores].sort((a, b) => a - b);
+          // Standard implementation: exclude lowest if < 9 rounds, highest and lowest if 9+
+          if (totalRounds < 9) {
+            return sorted.slice(1).reduce((sum, s) => sum + s, 0);
+          } else {
+            return sorted.slice(1, -1).reduce((sum, s) => sum + s, 0);
+          }
+        },
+        "Cumulative": (playerId) => {
+          let cumulative = 0;
+          let runningTotal = 0;
+          const playerMatches = matches
+            .filter((m) => m.whitePlayerId === playerId || m.blackPlayerId === playerId)
+            .sort((a, b) => a.round - b.round);
+
+          playerMatches.forEach((match) => {
+            const normalized = normalizeMatchResult(match.result);
+            if (normalized) {
+              runningTotal += getPointsForResult(match.result, match.whitePlayerId === playerId ? "white" : "black");
+              cumulative += runningTotal;
+            }
+          });
+          return cumulative;
+        },
+        "Sonneborn-Berger": (playerId) => {
+          let sb = 0;
+          matches.forEach((match) => {
+            const isWhite = match.whitePlayerId === playerId;
+            const isBlack = match.blackPlayerId === playerId;
+            if (!isWhite && !isBlack) return;
+
+            const normalized = normalizeMatchResult(match.result);
+            if (!normalized) return;
+
+            const oppId = isWhite ? match.blackPlayerId : match.whitePlayerId;
+            if (!oppId) return;
+
+            // Get opponent's total points
+            const oppPoints = matches.reduce((sum, m) => {
+              if (m.whitePlayerId === oppId || m.blackPlayerId === oppId) {
+                return sum + getPointsForResult(m.result, m.whitePlayerId === oppId ? "white" : "black");
+              }
+              return sum;
+            }, 0);
+
+            const resultPoints = getPointsForResult(match.result, isWhite ? "white" : "black");
+            if (resultPoints === 1) sb += oppPoints;
+            else if (resultPoints === 0.5) sb += oppPoints * 0.5;
+          });
+          return sb;
+        },
+        "Opponent Average Rating": (playerId) => {
+          const opponentIds: number[] = [];
+          matches.forEach((match) => {
+            if (match.whitePlayerId === playerId && match.blackPlayerId) opponentIds.push(match.blackPlayerId);
+            else if (match.blackPlayerId === playerId && match.whitePlayerId) opponentIds.push(match.whitePlayerId);
+          });
+          if (opponentIds.length === 0) return 0;
+          const ratings = opponentIds.map(id => {
+            const p = playerById.get(id);
+            if (!p) return 0;
+            return (tournamentConfig?.details.primaryRatingSystem === 'fide' ? (p.fideRating ?? p.rating) : (p.uscfRating ?? p.rating)) || 0;
+          });
+          return ratings.reduce((sum, r) => sum + r, 0) / ratings.length;
+        },
+        "Number of Wins": (playerId) => {
+          return matches.filter(m => {
+            const isWhite = m.whitePlayerId === playerId;
+            const isBlack = m.blackPlayerId === playerId;
+            if (!isWhite && !isBlack) return false;
+            return getPointsForResult(m.result, isWhite ? "white" : "black") === 1;
+          }).length;
+        }
       };
 
       // First pass: Calculate basic points and rankings
@@ -286,34 +333,34 @@ export default function SwissStandings({ tournamentId, showExportControls = true
         };
       });
 
-      // Calculate tiebreakers for each player if using USCF system
-      const standingsWithTiebreakers = tournament?.tiebreakOrder === "uscf"
-        ? basicStandings.map((standing) => ({
-            ...standing,
-            modifiedMedian: calculateModifiedMedian(standing.player.id),
-            solkoff: calculateSolkoff(standing.player.id),
-            cumulative: calculateCumulative(standing.player.id),
-          }))
-        : basicStandings;
+      // Get active tiebreakers
+      const activeTiebreakRules = tournamentConfig?.details.tiebreaksEnabled 
+        ? (tournamentConfig.details.tiebreaks || [])
+        : [];
 
-      // Sort by points first, then by tiebreaker system
+      const standingsWithTiebreakers = basicStandings.map((standing) => {
+        const values: Record<string, number> = {};
+        activeTiebreakRules.forEach(rule => {
+          const calculator = tiebreakCalculators[rule];
+          if (calculator) {
+            values[rule] = calculator(standing.player.id);
+          }
+        });
+        return {
+          ...standing,
+          tiebreakValues: values,
+        };
+      });
+
+      // Sort by points first, then by dynamic tiebreaker rules
       standingsWithTiebreakers.sort((a, b) => {
         if (b.totalPoints !== a.totalPoints) return b.totalPoints - a.totalPoints;
 
-        if (tournament?.tiebreakOrder === "uscf") {
-          // USCF tiebreaker order: Modified Median → Solkoff → Cumulative
-          const aWithTiebreaks = a as any;
-          const bWithTiebreaks = b as any;
-
-          if (bWithTiebreaks.modifiedMedian !== aWithTiebreaks.modifiedMedian) {
-            return bWithTiebreaks.modifiedMedian - aWithTiebreaks.modifiedMedian;
-          }
-          if (bWithTiebreaks.solkoff !== aWithTiebreaks.solkoff) {
-            return bWithTiebreaks.solkoff - aWithTiebreaks.solkoff;
-          }
-          if (bWithTiebreaks.cumulative !== aWithTiebreaks.cumulative) {
-            return bWithTiebreaks.cumulative - aWithTiebreaks.cumulative;
-          }
+        // Apply active tiebreakers in order
+        for (const rule of activeTiebreakRules) {
+          const valA = a.tiebreakValues[rule] || 0;
+          const valB = b.tiebreakValues[rule] || 0;
+          if (valB !== valA) return valB - valA;
         }
 
         // Final tiebreaker: rating
@@ -435,6 +482,7 @@ export default function SwissStandings({ tournamentId, showExportControls = true
           totalPoints: standing.totalPoints,
           roundResults,
           isWithdrawn: standing.isWithdrawn,
+          tiebreakValues: standing.tiebreakValues,
         };
       });
 
@@ -451,8 +499,9 @@ export default function SwissStandings({ tournamentId, showExportControls = true
   const totalRounds = Math.max(currentRound, tournament?.rounds || 5);
 
   const downloadStandings = useCallback(() => {
+    const activeTiebreaks = tournamentConfig?.details.tiebreaksEnabled ? (tournamentConfig.details.tiebreaks || []) : [];
     const baseHeaders = ['Rank', 'Name', 'Rating', 'Points'];
-    const tiebreakHeaders = tournament?.tiebreakOrder === 'uscf' ? ['Modified Median', 'Solkoff', 'Cumulative'] : [];
+    const tiebreakHeaders = activeTiebreaks;
     const roundHeaders = Array.from({ length: totalRounds }, (_, i) => `Round ${i + 1}`);
     const headers = [...baseHeaders, ...tiebreakHeaders, ...roundHeaders];
 
@@ -466,13 +515,7 @@ export default function SwissStandings({ tournamentId, showExportControls = true
         formatPoints(standing),
       ];
 
-      const tiebreakData = tournament?.tiebreakOrder === 'uscf'
-        ? [
-            (standing as any).modifiedMedian?.toFixed(2) || '0.00',
-            (standing as any).solkoff?.toFixed(2) || '0.00',
-            (standing as any).cumulative?.toFixed(2) || '0.00',
-          ]
-        : [];
+      const tiebreakData = activeTiebreaks.map(rule => standing.tiebreakValues[rule]?.toFixed(2) || '0.00');
 
       const roundData = standing.roundResults.map((result, index) => formatRoundResult(result, index + 1));
 
@@ -497,7 +540,7 @@ export default function SwissStandings({ tournamentId, showExportControls = true
     link.click();
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
-  }, [formatPoints, selectedSectionId, selectedSectionLabel, standings, tournament?.name, tournament?.tiebreakOrder, totalRounds]);
+  }, [formatPoints, selectedSectionId, selectedSectionLabel, standings, tournament?.name, tournamentConfig?.details.tiebreaks, tournamentConfig?.details.tiebreaksEnabled, totalRounds]);
 
   const handlePrintStandings = useCallback(() => {
     if (standings.length === 0 || typeof window === 'undefined') return;
@@ -664,8 +707,10 @@ export default function SwissStandings({ tournamentId, showExportControls = true
             {selectedSectionId !== "__all__" && (
               <p className="text-xs text-muted-foreground">Showing Section: {selectedSectionLabel}</p>
             )}
-            {tournament?.tiebreakOrder === "uscf" && (
-              <p className="mt-1 text-xs text-gray-400">MM: Modified Median | SK: Solkoff | CU: Cumulative</p>
+            {tournamentConfig?.details.tiebreaksEnabled && tournamentConfig.details.tiebreaks?.length > 0 && (
+              <p className="mt-1 text-xs text-gray-400">
+                Tiebreaks: {tournamentConfig.details.tiebreaks.join(" → ")}
+              </p>
             )}
           </div>
           <div className="flex flex-col items-end gap-3">
@@ -761,11 +806,13 @@ export default function SwissStandings({ tournamentId, showExportControls = true
                           : (standing.player.uscfRating ?? standing.player.rating)}{" "}
                         {standing.player.federation}
                       </div>
-                      {tournament?.tiebreakOrder === 'uscf' && (standing as any).modifiedMedian !== undefined && (
-                        <div className="text-xs text-gray-400 mt-1">
-                          MM: {(standing as any).modifiedMedian?.toFixed(1)} | 
-                          SK: {(standing as any).solkoff?.toFixed(1)} | 
-                          CU: {(standing as any).cumulative?.toFixed(1)}
+                      {tournamentConfig?.details.tiebreaksEnabled && Object.keys(standing.tiebreakValues).length > 0 && (
+                        <div className="text-xs text-gray-400 mt-1 flex flex-wrap gap-x-2">
+                          {(tournamentConfig.details.tiebreaks || []).map(rule => (
+                            <span key={rule}>
+                              {rule.split(' ').map(w => w[0]).join('')}: {standing.tiebreakValues[rule]?.toFixed(1)}
+                            </span>
+                          ))}
                         </div>
                       )}
                     </td>

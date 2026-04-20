@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
-import { ArrowLeft, Trophy, Users, Settings as SettingsIcon, Pencil } from "lucide-react";
+import { ArrowLeft, Trophy, Users, Settings as SettingsIcon, Pencil, Swords } from "lucide-react";
 import SwissStandings from "@/components/swiss-standings";
 import SwissPairings from "@/components/swiss-pairings";
 import RoundRobinCrosstable from "@/components/round-robin-crosstable";
@@ -17,11 +17,14 @@ import type { Tournament } from "@shared/schema";
 import { useAuth } from "@/hooks/useAuth";
 import type { PlayerRegistration } from "@shared/schema";
 import { RegistrationStatusCard } from "@/components/registration-status-card";
+import KnockoutBracket from "@/components/knockout-bracket";
+import { ArenaLobby, ArenaActiveMatches, ArenaStandings, ArenaTimer } from "@/components/arena-ui";
 
 
-type TabKey = "pairings" | "standings" | "byes" | "predictor" | "info";
+type TabKey = "pairings" | "standings" | "byes" | "predictor" | "info" | "lobby";
 
 const TAB_LABELS: Record<TabKey, string> = {
+  lobby: "Lobby",
   pairings: "Pairings",
   standings: "Standings",
   byes: "Byes",
@@ -65,12 +68,21 @@ export default function TournamentView({ tournamentId }: TournamentViewProps) {
     tournament &&
     ((tournament.currentRound ?? 0) > 0 || tournament.status === "active" || tournament.status === "completed"),
   );
+  const isArena = tournament?.format === "arena";
   const showPredictor =
     predictorEnabled && (tournament?.format ?? config.format) === "swiss" && tournamentHasStarted;
 
   const availableTabs = useMemo<TabKey[]>(
-    () => (showPredictor ? ["pairings", "standings", "byes", "predictor", "info"] : ["pairings", "standings", "byes", "info"]),
-    [showPredictor],
+    () => {
+      const tabs: TabKey[] = [];
+      if (isArena) tabs.push("lobby");
+      tabs.push("pairings", "standings");
+      if (!isArena) tabs.push("byes");
+      if (showPredictor) tabs.push("predictor");
+      tabs.push("info");
+      return tabs;
+    },
+    [showPredictor, isArena]
   );
 
   const activeTab = useMemo(() => {
@@ -124,7 +136,7 @@ export default function TournamentView({ tournamentId }: TournamentViewProps) {
               <div>
                 <h1 className="text-2xl font-bold text-gray-900 dark:text-white">{tournament.name}</h1>
                 <p className="text-gray-600 dark:text-gray-300">
-                  {tournament.format === "swiss" ? "Swiss System" : tournament.format.toUpperCase()} • {tournament.rounds} rounds
+                  {tournament.format === "swiss" ? "Swiss System" : tournament.format === "arena" ? "Arena" : tournament.format.toUpperCase()} • {isArena ? `${tournament.arenaDuration || 0} mins` : `${tournament.rounds} rounds`}
                 </p>
               </div>
             </div>
@@ -174,6 +186,11 @@ export default function TournamentView({ tournamentId }: TournamentViewProps) {
       </div>
 
       <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
+        {isArena && tournament && (
+          <div className="mb-6">
+            <ArenaTimer tournament={tournament} />
+          </div>
+        )}
         {hasRegistration && (
           <div className="mb-6">
             <h2 className="text-base font-semibold text-gray-900 dark:text-white mb-3">Registration Status</h2>
@@ -182,35 +199,35 @@ export default function TournamentView({ tournamentId }: TournamentViewProps) {
         )}
         <Tabs value={activeTab} onValueChange={(value) => setLocation(`/tournaments/${tournamentId}/${value}`)}>
           <TabsList className="flex w-full flex-wrap gap-2">
-            <TabsTrigger value="pairings" className="flex-1 min-w-[140px] text-sm font-semibold">
-              {TAB_LABELS.pairings}
-            </TabsTrigger>
-            <TabsTrigger value="standings" className="flex-1 min-w-[140px] text-sm font-semibold">
-              {TAB_LABELS.standings}
-            </TabsTrigger>
-            <TabsTrigger value="byes" className="flex-1 min-w-[140px] text-sm font-semibold">
-              {TAB_LABELS.byes}
-            </TabsTrigger>
-            {showPredictor ? (
-              <TabsTrigger value="predictor" className="flex-1 min-w-[140px] text-sm font-semibold">
-                {TAB_LABELS.predictor}
+            {availableTabs.map((tab) => (
+              <TabsTrigger key={tab} value={tab} className="flex-1 min-w-[140px] text-sm font-semibold">
+                {TAB_LABELS[tab]}
               </TabsTrigger>
-            ) : null}
-            <TabsTrigger value="info" className="flex-1 min-w-[140px] text-sm font-semibold">
-              {TAB_LABELS.info}
-            </TabsTrigger>
+            ))}
           </TabsList>
+
+          {isArena && (
+            <TabsContent value="lobby" className="mt-6">
+              <ArenaLobby tournamentId={tournamentId} isTD={canManageTournament} userId={user?.id} />
+            </TabsContent>
+          )}
 
           <TabsContent value="pairings" className="mt-6">
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2 text-base">
-                  <Users className="h-5 w-5" />
-                  <span>Current Pairings</span>
+                  {isArena ? <Swords className="h-5 w-5 text-blue-500" /> : <Users className="h-5 w-5 border-blue-500" />}
+                  <span>{isArena ? "Active Arena Matches" : "Current Pairings"}</span>
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <SwissPairings tournamentId={tournamentId} activeSection="all" showExportControls={false} />
+                {tournament.format === 'knockout' ? (
+                  <KnockoutBracket tournamentId={tournamentId} />
+                ) : tournament.format === 'arena' ? (
+                  <ArenaActiveMatches tournamentId={tournamentId} isTD={canManageTournament} userId={user?.id} />
+                ) : (
+                  <SwissPairings tournamentId={tournamentId} activeSection="all" showExportControls={false} />
+                )}
               </CardContent>
             </Card>
           </TabsContent>
@@ -220,6 +237,8 @@ export default function TournamentView({ tournamentId }: TournamentViewProps) {
               <RoundRobinCrosstable tournamentId={tournamentId} />
             ) : tournament.format === "swiss" ? (
               <SwissStandings tournamentId={tournamentId} showExportControls={false} />
+            ) : tournament.format === "arena" ? (
+              <ArenaStandings tournamentId={tournamentId} />
             ) : (
               <Card>
                 <CardHeader>
@@ -235,9 +254,11 @@ export default function TournamentView({ tournamentId }: TournamentViewProps) {
             )}
           </TabsContent>
 
-          <TabsContent value="byes" className="mt-6">
-            <TournamentByes tournamentId={tournamentId} />
-          </TabsContent>
+          {!isArena && (
+            <TabsContent value="byes" className="mt-6">
+              <TournamentByes tournamentId={tournamentId} />
+            </TabsContent>
+          )}
 
           {showPredictor ? (
             <TabsContent value="predictor" className="mt-6">

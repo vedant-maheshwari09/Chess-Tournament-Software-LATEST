@@ -16,6 +16,7 @@ import {
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
+import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
@@ -24,13 +25,29 @@ import {
   ChessResultsSettingsCard,
   FideRegistrationSection,
   UscfReportSection,
+  ArenaSettingsCard,
 } from "@/components/tournament-settings/sections";
 import { GeneralSettingsCard } from "@/components/tournament-settings/GeneralSettingsCard";
 import { BoardNumberingCard } from "@/components/tournament-settings/BoardNumberingCard";
-import { Loader2 } from "lucide-react";
+import { 
+  ChevronLeft, 
+  Loader2, 
+  Settings, 
+  Hash, 
+  BarChart3, 
+  Globe, 
+  Flag, 
+  RotateCw, 
+  Timer,
+  Info,
+  Calendar,
+  CreditCard,
+  Trophy,
+  UserPlus
+} from "lucide-react";
 
 
-type SettingsSection = "basic" | "details" | "schedule" | "payments" | "prizes" | "player-signup" | "rate-tournament" | "general" | "board-numbering" | "fide" | "uscf" | "chess-results";
+type SettingsSection = "basic" | "details" | "schedule" | "payments" | "prizes" | "player-signup" | "rate-tournament" | "general" | "board-numbering" | "fide" | "uscf" | "chess-results" | "arena";
 
 interface TournamentSettingsPageProps {
   tournamentId: number;
@@ -98,6 +115,7 @@ export default function TournamentSettingsPage({ tournamentId, section }: Tourna
     "uscf",
     "chess-results",
     "board-numbering",
+    "arena",
   ] satisfies SettingsSection[];
 
   const currentSection: SettingsSection = useMemo(() => {
@@ -199,6 +217,21 @@ export default function TournamentSettingsPage({ tournamentId, section }: Tourna
         ...prev,
         chessResults: {
           ...prev.chessResults,
+          ...update,
+        },
+      };
+    });
+    markDirty();
+  };
+
+  const updateArena = (update: any) => {
+    if (!config) return;
+    setConfig((prev) => {
+      if (!prev || !prev.arena) return prev;
+      return {
+        ...prev,
+        arena: {
+          ...prev.arena,
           ...update,
         },
       };
@@ -383,23 +416,48 @@ export default function TournamentSettingsPage({ tournamentId, section }: Tourna
   }
 
   const sectionLabels: Record<SettingsSection, string> = {
-    basic: "Basic",
+    basic: "Basic Info",
     general: "General",
     details: "Details",
     schedule: "Schedule",
     payments: "Payments",
     prizes: "Prizes",
     "player-signup": "Player Signup",
-    "rate-tournament": "Rating",
-    fide: "FIDE",
-    uscf: "USCF",
+    "rate-tournament": "Rating Hub",
+    fide: "FIDE Settings",
+    uscf: "USCF Settings",
     "chess-results": "Chess-Results",
     "board-numbering": "Boards",
+    arena: "Arena Scoring",
+  };
+
+  const sectionIcons: Record<SettingsSection, any> = {
+    basic: Info,
+    general: Settings,
+    details: Settings, // or another one
+    schedule: Calendar,
+    payments: CreditCard,
+    prizes: Trophy,
+    "player-signup": UserPlus,
+    "rate-tournament": BarChart3,
+    fide: Globe,
+    uscf: Flag,
+    "chess-results": RotateCw,
+    "board-numbering": Hash,
+    arena: Timer,
   };
 
   return (
     <div className="min-h-screen bg-slate-50">
       <div className="mx-auto max-w-6xl space-y-6 p-6">
+        <Button
+          variant="link"
+          onClick={() => setLocation(`/tournaments/${tournamentId}/manage`)}
+          className="pl-0 text-slate-500 hover:text-slate-900"
+        >
+          <ChevronLeft className="mr-1 h-4 w-4" />
+          Back to management
+        </Button>
 
         <div className="flex flex-col gap-4 border-b pb-4 md:flex-row md:items-center md:justify-between">
           <div className="space-y-2">
@@ -433,7 +491,38 @@ export default function TournamentSettingsPage({ tournamentId, section }: Tourna
 
         <Separator />
 
-        <div className="space-y-6 pb-12">
+        <div className="flex flex-col gap-8 md:flex-row">
+          {/* Sidebar Navigation */}
+          <aside className="w-full shrink-0 md:w-64">
+            <nav className="flex flex-wrap gap-1 md:flex-col">
+              {(Object.entries(sectionLabels) as [SettingsSection, string][]).map(([key, label]) => {
+                const isActive = currentSection === key;
+                const Icon = sectionIcons[key];
+
+                // Only show arena settings if it's relevant
+                if (key === 'arena' && tournament?.format !== 'arena') return null;
+
+                return (
+                  <button
+                    key={key}
+                    onClick={() => setLocation(`/tournaments/${tournamentId}/settings/${key}`)}
+                    className={cn(
+                      "flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition-colors",
+                      isActive
+                        ? "bg-indigo-100 text-indigo-900"
+                        : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
+                    )}
+                  >
+                    {Icon && <Icon className={cn("h-4 w-4", isActive ? "text-indigo-900" : "text-slate-400")} />}
+                    <span>{label}</span>
+                  </button>
+                );
+              })}
+            </nav>
+          </aside>
+
+          {/* Settings Content */}
+          <div className="flex-1 space-y-6 pb-12">
           {currentSection === "general" && (
             <div className="space-y-6">
               <GeneralSettingsCard value={config.registers} onChange={updateRegisters} />
@@ -496,8 +585,13 @@ export default function TournamentSettingsPage({ tournamentId, section }: Tourna
               )}
             </>
           )}
+
+          {currentSection === "arena" && config.arena && (
+            <ArenaSettingsCard value={config.arena} onChange={updateArena} />
+          )}
         </div>
       </div>
     </div>
+  </div>
   );
 }

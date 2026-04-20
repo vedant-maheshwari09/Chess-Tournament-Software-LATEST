@@ -49,7 +49,7 @@ import {
   type TemplateSectionKey,
   type TournamentTemplateSnapshot,
 } from "@/lib/tournament-templates";
-import { Upload, Check, ChevronRight, Settings, X, ChevronUp, ChevronDown, Plus, CreditCard, ExternalLink } from "lucide-react";
+import { Upload, Check, ChevronRight, Settings, X, ChevronUp, ChevronDown, Plus, CreditCard, ExternalLink, Trophy, Users, Calculator, Link, QrCode, Printer, Copy } from "lucide-react";
 import qrcode from "qrcode";
 
 type BuilderMode = "create" | "edit";
@@ -722,6 +722,110 @@ interface PaymentsConfigResponse {
   payments: TournamentConfig["payments"];
   publishableKey: string | null;
   onlineConfigured: boolean;
+}
+
+function ArenaSettingsTab({ config, onConfigChange, onSave, saving }: { config: TournamentConfig; onConfigChange: (c: TournamentConfig) => void; onSave: () => void; saving: boolean }) {
+  const arena = config.arena ?? {
+    durationMinutes: 60,
+    scoring: {
+      winPoints: 2,
+      drawPoints: 1,
+      lossPoints: 0,
+      streakThreshold: 2,
+      onFireWinPoints: 4,
+      onFireDrawPoints: 2,
+    },
+  };
+
+  const updateArena = (updates: Partial<typeof arena>) => {
+    onConfigChange({
+      ...config,
+      arena: { ...arena, ...updates },
+    });
+  };
+
+  const updateScoring = (updates: Partial<typeof arena.scoring>) => {
+    updateArena({
+      scoring: { ...arena.scoring, ...updates },
+    });
+  };
+
+  return (
+    <div className="bg-white p-6 space-y-6">
+      <div className="space-y-4">
+        <div className="flex items-center gap-2">
+          <Settings className="h-4 w-4 text-primary" />
+          <h3 className="font-semibold text-orange-900 uppercase tracking-wider text-sm">Arena Timing</h3>
+        </div>
+        <div className="grid gap-4 md:grid-cols-2">
+          <div className="space-y-2">
+            <Label>Duration (Minutes)</Label>
+            <Input
+              type="number"
+              value={arena.durationMinutes}
+              onChange={(e) => updateArena({ durationMinutes: parseInt(e.target.value) || 0 })}
+            />
+            <p className="text-xs text-muted-foreground">The arena will automatically conclude after this time.</p>
+          </div>
+        </div>
+      </div>
+
+      <div className="space-y-4 pt-4 border-t">
+        <div className="flex items-center gap-2">
+          <Calculator className="h-4 w-4 text-primary" />
+          <h3 className="font-semibold text-orange-900 uppercase tracking-wider text-sm">Arena Scoring & Streaks</h3>
+        </div>
+        <div className="grid gap-4 md:grid-cols-3">
+          <ScoreInput
+            id="arena-win"
+            label="Base Win"
+            value={arena.scoring.winPoints}
+            onChange={(v) => updateScoring({ winPoints: parseFloat(v) || 0 })}
+          />
+          <ScoreInput
+            id="arena-draw"
+            label="Base Draw"
+            value={arena.scoring.drawPoints}
+            onChange={(v) => updateScoring({ drawPoints: parseFloat(v) || 0 })}
+          />
+          <ScoreInput
+            id="arena-loss"
+            label="Base Loss"
+            value={arena.scoring.lossPoints}
+            onChange={(v) => updateScoring({ lossPoints: parseFloat(v) || 0 })}
+          />
+        </div>
+        <div className="grid gap-4 md:grid-cols-3 pt-2">
+          <div className="space-y-2">
+            <Label>Streak Threshold</Label>
+            <Input
+              type="number"
+              value={arena.scoring.streakThreshold}
+              onChange={(e) => updateScoring({ streakThreshold: parseInt(e.target.value) || 0 })}
+            />
+            <p className="text-[10px] text-muted-foreground">Consecutive wins to become "On Fire".</p>
+          </div>
+          <ScoreInput
+            id="arena-fire-win"
+            label="Fire Win Bonus"
+            value={arena.scoring.onFireWinPoints}
+            onChange={(v) => updateScoring({ onFireWinPoints: parseFloat(v) || 0 })}
+          />
+          <ScoreInput
+            id="arena-fire-draw"
+            label="Fire Draw Bonus"
+            value={arena.scoring.onFireDrawPoints}
+            onChange={(v) => updateScoring({ onFireDrawPoints: parseFloat(v) || 0 })}
+          />
+        </div>
+      </div>
+      <div className="flex justify-end pt-4">
+        <Button onClick={onSave} disabled={saving}>
+          {saving ? "Saving..." : "Save Configuration"}
+        </Button>
+      </div>
+    </div>
+  );
 }
 
 function StepTwo({ format, mode, config, onConfigChange, onBack: _onBack, onCancel, onSave, saving, tournament }: StepTwoProps) {
@@ -1816,13 +1920,13 @@ function StepTwo({ format, mode, config, onConfigChange, onBack: _onBack, onCanc
         <Card className="overflow-hidden">
           <CardContent className="p-0">
             <Tabs defaultValue="basic" className="w-full">
-            <TabsList className="grid w-full grid-cols-8">
+            <TabsList className={cn("grid w-full", format === "arena" ? "grid-cols-8" : "grid-cols-7")}>
                 <TabsTrigger value="basic">Basic information</TabsTrigger>
                 <TabsTrigger value="details">Details</TabsTrigger>
+                {format === "arena" && <TabsTrigger value="arena">Arena Settings</TabsTrigger>}
                 <TabsTrigger value="schedule">Schedule</TabsTrigger>
               <TabsTrigger value="payments">Payments</TabsTrigger>
               <TabsTrigger value="prizes">Prizes</TabsTrigger>
-                <TabsTrigger value="playerSignup">Player sign up</TabsTrigger>
                 <TabsTrigger value="rate-tournament">Rate Tournament</TabsTrigger>
                 <TabsTrigger value="options">Options</TabsTrigger>
               </TabsList>
@@ -1830,6 +1934,12 @@ function StepTwo({ format, mode, config, onConfigChange, onBack: _onBack, onCanc
                 <BasicInformationFields config={config} onConfigChange={onConfigChange} />
                 {renderTabSaveButton()}
               </TabsContent>
+
+              {format === "arena" && (
+                <TabsContent value="arena" className="p-0">
+                  <ArenaSettingsTab config={config} onConfigChange={onConfigChange} onSave={onSave} saving={saving} />
+                </TabsContent>
+              )}
 
               <TabsContent value="details" className="bg-white p-6 space-y-4">
                 <div className="grid gap-4 md:grid-cols-3">
@@ -1910,23 +2020,40 @@ function StepTwo({ format, mode, config, onConfigChange, onBack: _onBack, onCanc
                   </div>
                 </div>
 
-                <div className="space-y-2">
-                  <Label>Rating Type</Label>
-                  <Select
-                    value={config.details.ratingType}
-                    onValueChange={(value) => updateDetails({ ratingType: value })}
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {RATING_TYPE_OPTIONS.map((option) => (
-                        <SelectItem key={option.value} value={option.value}>
-                          {option.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label>Rating Type</Label>
+                    <Select
+                      value={config.details.ratingType}
+                      onValueChange={(value) => updateDetails({ ratingType: value })}
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {RATING_TYPE_OPTIONS.map((option) => (
+                          <SelectItem key={option.value} value={option.value}>
+                            {option.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Primary Rating System</Label>
+                    <Select
+                      value={config.details.primaryRatingSystem ?? "uscf"}
+                      onValueChange={(value) => updateDetails({ primaryRatingSystem: value as "uscf" | "fide" })}
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="uscf">US Chess (USCF)</SelectItem>
+                        <SelectItem value="fide">FIDE</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
                 </div>
 
 
@@ -2035,6 +2162,198 @@ function StepTwo({ format, mode, config, onConfigChange, onBack: _onBack, onCanc
                     />
                   </div>
                 </div>
+
+                <div className="space-y-4 pt-4 border-t border-slate-100">
+                  <div className="flex items-center gap-2 mb-4">
+                    <div className="w-8 h-8 rounded-lg bg-indigo-100 flex items-center justify-center">
+                      <Calculator className="h-4 w-4 text-indigo-600" />
+                    </div>
+                    <h3 className="text-sm font-bold text-indigo-900 uppercase tracking-wider">Scoring Protocol</h3>
+                  </div>
+                  <div className="flex items-center justify-between mb-2">
+                    <p className="text-xs text-slate-600">Customize how many points players earn for each result.</p>
+                    <Button variant="outline" size="sm" className="h-8 text-[10px] uppercase font-bold tracking-tight" onClick={resetScoring}>
+                      Reset to defaults
+                    </Button>
+                  </div>
+                  <div className="grid gap-4 md:grid-cols-3">
+                    <ScoreInput
+                      id="scoring-win"
+                      label="Win"
+                      value={scoring.win}
+                      onChange={(v) => handleScoreChange("win", v)}
+                    />
+                    <ScoreInput
+                      id="scoring-draw"
+                      label="Draw"
+                      value={scoring.draw}
+                      onChange={(v) => handleScoreChange("draw", v)}
+                    />
+                    <ScoreInput
+                      id="scoring-loss"
+                      label="Loss"
+                      value={scoring.loss}
+                      onChange={(v) => handleScoreChange("loss", v)}
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-4 pt-4 border-t border-slate-100">
+                  <div className="flex items-center gap-2 mb-4">
+                    <div className="w-8 h-8 rounded-lg bg-indigo-100 flex items-center justify-center">
+                      <Settings className="h-4 w-4 text-indigo-600" />
+                    </div>
+                    <h3 className="text-sm font-bold text-indigo-900 uppercase tracking-wider">Tiebreaker System</h3>
+                  </div>
+                  <div className="flex items-center justify-between mb-2">
+                    <p className="text-xs text-slate-600">Configure the rules and priority used to resolve score parity.</p>
+                    <div className="flex items-center gap-2">
+                      <Label className="text-[10px] font-bold text-slate-500 uppercase">Status</Label>
+                      <Switch checked={config.details.tiebreaksEnabled} onCheckedChange={toggleTiebreaks} />
+                    </div>
+                  </div>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={addTiebreakRule}
+                        disabled={!config.details.tiebreaksEnabled}
+                      >
+                        <Plus className="h-4 w-4 mr-2" />
+                        Add Rule
+                      </Button>
+                    </div>
+                  {config.details.tiebreaksEnabled && (
+                    <div className="space-y-2">
+                      {tiebreaks.map((rule, index) => (
+                        <TiebreakRow
+                          key={index}
+                          index={index}
+                          total={tiebreaks.length}
+                          value={rule}
+                          onChange={(v) => updateTiebreakRule(index, v)}
+                          onRemove={() => removeTiebreakRule(index)}
+                          onMoveUp={() => moveTiebreakRule(index, -1)}
+                          onMoveDown={() => moveTiebreakRule(index, 1)}
+                        />
+                      ))}
+                      {tiebreaks.length === 0 && (
+                        <p className="text-xs text-slate-400 italic py-2 text-center border border-dashed rounded-lg">
+                          No custom tiebreakers added yet. Standard system will be used.
+                        </p>
+                      )}
+                      <datalist id="tiebreak-option-list">
+                        <option value="Modified Median" />
+                        <option value="Solkoff" />
+                        <option value="Buchholz" />
+                        <option value="Cumulative" />
+                        <option value="Sonneborn-Berger" />
+                        <option value="Opponent Average Rating" />
+                        <option value="Direct Encounter" />
+                        <option value="Number of Wins" />
+                        <option value="Most Blacks" />
+                      </datalist>
+                    </div>
+                  )}
+                
+                {config.format === 'knockout' && (
+                  <div className="space-y-6 mb-6 p-6 rounded-xl bg-indigo-50/30 border border-indigo-100 shadow-sm">
+                    <div className="flex items-center gap-2 mb-2">
+                      <div className="w-8 h-8 rounded-lg bg-indigo-100 flex items-center justify-center">
+                        <Trophy className="h-4 w-4 text-indigo-600" />
+                      </div>
+                      <h3 className="text-sm font-bold text-indigo-900 uppercase tracking-wider">Knockout Protocol</h3>
+                    </div>
+
+                    <div className="grid gap-6 md:grid-cols-2">
+                      <div className="space-y-2">
+                        <Label className="text-indigo-900 font-semibold">Seeding Protocol</Label>
+                        <p className="text-[11px] text-indigo-700/70 mb-2">
+                          Define how participants are positioned within the tournament bracket. Standard seeding matches superior seeds against lower seeds.
+                        </p>
+                        <Select
+                          value={config.seedingMethod ?? "rating"}
+                          onValueChange={(value) => onConfigChange({ ...config, seedingMethod: value as any })}
+                        >
+                          <SelectTrigger className="w-full bg-white shadow-sm border-indigo-100 focus:ring-indigo-500">
+                            <SelectValue placeholder="Select seeding method" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="rating">Standard Seeding (High vs Low)</SelectItem>
+                            <SelectItem value="slaughter">Slaughter Seeding (Top Half vs Bottom Half)</SelectItem>
+                            <SelectItem value="random">Randomized (Blind Draw)</SelectItem>
+                            <SelectItem value="manual">Manual Assignment (Custom Seeds)</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+
+                      {config.seedingMethod !== 'random' && config.seedingMethod !== 'manual' && (
+                        <div className="space-y-2">
+                          <Label className="text-indigo-900 font-semibold">Rating Source</Label>
+                          <p className="text-[11px] text-indigo-700/70 mb-2">
+                            Select the primary rating database used to determine participant eligibility and bracket position.
+                          </p>
+                          <Select
+                            value={config.seedingSource ?? "rating"}
+                            onValueChange={(value) => onConfigChange({ ...config, seedingSource: value as any })}
+                          >
+                            <SelectTrigger className="w-full bg-white shadow-sm border-indigo-100 focus:ring-indigo-500">
+                              <SelectValue placeholder="Select rating source" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="rating">Tournament Entry Rating</SelectItem>
+                              <SelectItem value="uscf">USCF Official Rating</SelectItem>
+                              <SelectItem value="fide">FIDE Official Rating</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="border-t border-indigo-100/50 pt-6">
+                      <div className="flex items-center gap-2 mb-4">
+                        <Trophy className="h-4 w-4 text-indigo-400" />
+                        <div>
+                          <Label className="text-indigo-900 font-bold uppercase tracking-tight">Match Victory Thresholds</Label>
+                          <p className="text-[11px] text-indigo-700/70">
+                            Define the total points required for a participant to secure a series victory in each round.
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                        {Array.from({ length: config.details.rounds || 0 }).map((_, i) => {
+                          const roundNum = i + 1;
+                          const winCondition = config.details.matchWinConditions?.[roundNum] || 1;
+                          
+                          return (
+                            <div key={roundNum} className="p-3 bg-white rounded-lg border border-indigo-100 shadow-sm space-y-2">
+                              <Label className="text-[10px] font-black text-indigo-400 uppercase tracking-widest">
+                                {roundNum === config.details.rounds ? "Final" : roundNum === config.details.rounds - 1 ? "Semifinals" : `Round ${roundNum}`}
+                              </Label>
+                              <div className="flex items-center gap-2">
+                                <Input
+                                  type="number"
+                                  step="0.5"
+                                  min="0.5"
+                                  className="h-8 text-xs font-bold border-indigo-50"
+                                  value={winCondition}
+                                  onChange={(e) => {
+                                    const val = parseFloat(e.target.value);
+                                    const nextWinConditions = { ...(config.details.matchWinConditions || {}) };
+                                    if (isNaN(val)) delete nextWinConditions[roundNum];
+                                    else nextWinConditions[roundNum] = val;
+                                    updateDetails({ matchWinConditions: nextWinConditions });
+                                  }}
+                                />
+                                <span className="text-[10px] font-black text-indigo-300">PTS</span>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                )}
 
 
 
@@ -2532,96 +2851,7 @@ function StepTwo({ format, mode, config, onConfigChange, onBack: _onBack, onCanc
                 {renderTabSaveButton()}
               </TabsContent>
 
-              <TabsContent value="playerSignup" className="bg-white p-6 space-y-4">
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <div className="flex items-center justify-between rounded-lg border px-4 py-3">
-                    <div>
-                      <Label className="text-sm font-medium">Email notifications</Label>
-                      <p className="text-xs text-muted-foreground">Send pairing updates by email to registered players.</p>
-                    </div>
-                    <Switch
-                      checked={config.registers.notifyPairingsEmail}
-                      onCheckedChange={(checked) => updateRegisters({ notifyPairingsEmail: checked })}
-                    />
-                  </div>
-                  <div className="flex items-center justify-between rounded-lg border px-4 py-3">
-                    <div>
-                      <Label className="text-sm font-medium">SMS notifications</Label>
-                      <p className="text-xs text-muted-foreground">Deliver pairing texts when players opt in.</p>
-                    </div>
-                    <Switch
-                      checked={config.registers.notifyPairingsSms}
-                      onCheckedChange={(checked) => updateRegisters({ notifyPairingsSms: checked })}
-                    />
-                  </div>
-                  <div className="flex items-center justify-between rounded-lg border px-4 py-3">
-                    <div>
-                      <Label className="text-sm font-medium">Disable SMS notifications</Label>
-                      <p className="text-xs text-muted-foreground">Turn off tournament-wide SMS messaging.</p>
-                    </div>
-                    <Switch
-                      checked={config.registers.disableSms}
-                      onCheckedChange={(checked) => updateRegisters({ disableSms: checked })}
-                    />
-                  </div>
-                  <div className="flex items-center justify-between rounded-lg border px-4 py-3">
-                    <div>
-                      <Label className="text-sm font-medium">Hide Teams / School / Grade</Label>
-                      <p className="text-xs text-muted-foreground">Remove optional fields from the registration form.</p>
-                    </div>
-                    <Switch
-                      checked={config.registers.hideTeams}
-                      onCheckedChange={(checked) => updateRegisters({ hideTeams: checked })}
-                    />
-                  </div>
-                </div>
 
-                <div className="space-y-2">
-                  <Label htmlFor="player-limit">Player cap</Label>
-                  <Input
-                    id="player-limit"
-                    type="number"
-                    min={0}
-                    value={typeof config.registers.playerLimit === "number" ? String(config.registers.playerLimit) : ""}
-                    onChange={(event) => {
-                      const raw = event.target.value;
-                      const trimmed = raw.trim();
-                      if (trimmed.length === 0) {
-                        updateRegisters({ playerLimit: null });
-                        return;
-                      }
-
-                      const parsed = Number(trimmed);
-                      updateRegisters({ playerLimit: Number.isFinite(parsed) ? parsed : config.registers.playerLimit ?? null });
-                    }}
-                    placeholder="Leave blank for no limit"
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="bye-limit">Bye limit</Label>
-                  <Input
-                    id="bye-limit"
-                    type="number"
-                    min={0}
-                    value={typeof config.registers.byeLimit === "number" ? String(config.registers.byeLimit) : ""}
-                    onChange={(event) => {
-                      const raw = event.target.value;
-                      const trimmed = raw.trim();
-                      if (trimmed.length === 0) {
-                        updateRegisters({ byeLimit: null });
-                        return;
-                      }
-
-                      const parsed = Number(trimmed);
-                      updateRegisters({ byeLimit: Number.isFinite(parsed) ? parsed : config.registers.byeLimit ?? null });
-                    }}
-                    placeholder="Maximum half-point byes allowed"
-                  />
-                </div>
-
-                {renderTabSaveButton()}
-              </TabsContent>
 
               <TabsContent value="rate-tournament" className="bg-white p-6 space-y-4">
                 <div className="space-y-2">
@@ -2651,269 +2881,170 @@ function StepTwo({ format, mode, config, onConfigChange, onBack: _onBack, onCanc
                 )}
               </TabsContent>
 
-              <TabsContent value="options" className="bg-white p-6 space-y-4">
-                <div className="space-y-4 rounded-lg border border-slate-200 bg-slate-50/70 p-4">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div>
-                      <h3 className="text-sm font-semibold text-slate-900">Scoring rules</h3>
-                      <p className="text-xs text-slate-600">Customize how many points players earn for each result.</p>
+              <TabsContent value="options" className="bg-white p-6 space-y-6">
+                <div className="rounded-lg border bg-slate-50/20 p-6 space-y-4 shadow-sm border-slate-200">
+                  <div className="flex items-center gap-2 mb-2">
+                    <div className="w-8 h-8 rounded-lg bg-white border border-slate-200 flex items-center justify-center">
+                      <Link className="h-4 w-4 text-slate-400" />
                     </div>
-                    <Button type="button" variant="ghost" size="sm" onClick={resetScoring}>
-                      Reset to defaults
-                    </Button>
+                    <h3 className="text-sm font-bold text-slate-900 uppercase tracking-wider">Public Access Protocol</h3>
                   </div>
-                  <div className="grid gap-4 md:grid-cols-3">
-                    <ScoreInput
-                      id="score-win"
-                      label="Win"
-                      value={scoring.win}
-                      onChange={(value) => handleScoreChange("win", value)}
-                    />
-                    <ScoreInput
-                      id="score-draw"
-                      label="Draw"
-                      value={scoring.draw}
-                      onChange={(value) => handleScoreChange("draw", value)}
-                    />
-                    <ScoreInput
-                      id="score-loss"
-                      label="Loss"
-                      value={scoring.loss}
-                      onChange={(value) => handleScoreChange("loss", value)}
-                    />
-                  </div>
-                </div>
-                <div className="space-y-2">
-                  <Label>Tiebreak System</Label>
-                  <Select
-                    value={config.details.tiebreakSystem}
-                    onValueChange={(value) => updateDetails({ tiebreakSystem: value })}
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {TIEBREAK_OPTIONS.map((option) => (
-                        <SelectItem key={option.value} value={option.value}>
-                          {option.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                {(config.registers.fideRated && config.registers.uscfRated) && (
-                  <div className="space-y-2">
-                    <Label>Primary Rating System (Display & Pairings)</Label>
-                    <Select
-                      value={config.details.primaryRatingSystem || "uscf"}
-                      onValueChange={(value) => updateDetails({ primaryRatingSystem: value as "uscf" | "fide" })}
-                    >
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="uscf">USCF Ratings</SelectItem>
-                        <SelectItem value="fide">FIDE Ratings</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <p className="text-[11px] text-slate-500">
-                      Choose which rating system to use for player display, pairing calculations, and standings.
+                  
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-3">
+                      <div className="flex-1 relative group">
+                        <Input 
+                          readOnly 
+                          value={spectatorLink} 
+                          className="bg-white border-slate-200 pr-10 text-xs font-mono select-all focus:ring-slate-400 transition-all font-bold" 
+                        />
+                        <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
+                           <button 
+                             onClick={() => {
+                               navigator.clipboard.writeText(spectatorLink);
+                               toast({ title: "Copied", description: "Spectator link copied to clipboard" });
+                             }}
+                             className="p-1 hover:bg-slate-100 rounded text-slate-400"
+                           >
+                             <Copy className="h-3 w-3" />
+                           </button>
+                        </div>
+                      </div>
+                      <Button variant="outline" size="sm" className="h-9 gap-2 text-xs border-slate-200 bg-white font-bold" onClick={() => setQrCodeModalOpen(true)}>
+                        <QrCode className="h-3 w-3" />
+                        QR Code
+                      </Button>
+                      <Button variant="outline" size="sm" className="h-9 gap-2 text-xs border-slate-200 bg-white font-bold" onClick={handleSpectatorLinkPrint}>
+                        <Printer className="h-3 w-3" />
+                        Print
+                      </Button>
+                    </div>
+                    <p className="text-[10px] text-slate-500 italic">
+                      Distribute this URL to allow participants to self-register or spectators to monitor live progress.
                     </p>
                   </div>
-                )}
-                <div className="space-y-4 rounded-lg border border-slate-200 bg-slate-50/70 p-4">
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div>
-                      <h3 className="text-sm font-semibold text-slate-900">Tiebreak ordering</h3>
-                      <p className="text-xs text-slate-600">Enable and arrange the rules used to break tied scores.</p>
+                </div>
+
+                <div className="rounded-lg border bg-indigo-50/20 p-6 space-y-6">
+                  <div className="flex items-center gap-2 mb-2">
+                    <div className="w-8 h-8 rounded-lg bg-indigo-100 flex items-center justify-center">
+                      <Users className="h-4 w-4 text-indigo-600" />
                     </div>
-                    <div className="flex items-center gap-2 text-xs text-slate-600">
-                      <span>{config.details.tiebreaksEnabled ? "Enabled" : "Disabled"}</span>
-                      <Switch checked={config.details.tiebreaksEnabled} onCheckedChange={toggleTiebreaks} />
+                    <h3 className="text-sm font-bold text-indigo-900 uppercase tracking-wider">Registration Policy</h3>
+                  </div>
+
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <div className="flex items-center justify-between rounded-lg border border-indigo-100 bg-white px-4 py-3 shadow-sm">
+                        <div>
+                          <Label className="text-xs font-bold text-indigo-900">Online Registration</Label>
+                          <p className="text-[10px] text-indigo-700/70">Allow players to self-register online.</p>
+                        </div>
+                        <Switch
+                          checked={config.registers.allowPlayerToJoin}
+                          onCheckedChange={(checked) => updateRegisters({ allowPlayerToJoin: checked })}
+                        />
+                      </div>
+
+                      <div className="flex items-center justify-between rounded-lg border border-indigo-100 bg-white px-4 py-3 shadow-sm">
+                        <div>
+                          <Label className="text-xs font-bold text-indigo-900">Multi-Player Entry</Label>
+                          <p className="text-[10px] text-indigo-700/70">Enable registration of multiple players per account.</p>
+                        </div>
+                        <Switch
+                          checked={config.registers.allowMultiPlayerSignup}
+                          onCheckedChange={(checked) => updateRegisters({ allowMultiPlayerSignup: checked })}
+                        />
+                      </div>
+
+                      <div className="flex items-center justify-between rounded-lg border border-indigo-100 bg-white px-4 py-3 shadow-sm">
+                        <div>
+                          <Label className="text-xs font-bold text-indigo-900">Registration Edits</Label>
+                          <p className="text-[10px] text-indigo-700/70">Allow participants to modify their details post-entry.</p>
+                        </div>
+                        <Switch
+                          checked={config.registers.allowEditRegistration}
+                          onCheckedChange={(checked) => updateRegisters({ allowEditRegistration: checked })}
+                        />
+                      </div>
+
+                      <div className="flex items-center justify-between rounded-lg border border-indigo-100 bg-white px-4 py-3 shadow-sm">
+                        <div>
+                          <Label className="text-xs font-bold text-indigo-900">Pairing Predictor</Label>
+                          <p className="text-[10px] text-indigo-700/70">Allow live simulation of upcoming pairings.</p>
+                        </div>
+                        <Switch
+                          checked={config.registers.enablePairingPredictor}
+                          onCheckedChange={(checked) => updateRegisters({ enablePairingPredictor: checked })}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid gap-4 md:grid-cols-2 pt-2 border-t border-indigo-100/50">
+                      <div className="space-y-3">
+                        <Label className="text-xs font-black text-indigo-400 uppercase tracking-widest">Communication</Label>
+                        <div className="space-y-2">
+                          <div className="flex items-center justify-between text-xs">
+                             <span className="text-slate-600">Email Notifications</span>
+                             <Switch
+                               checked={config.registers.notifyPairingsEmail}
+                               onCheckedChange={(checked) => updateRegisters({ notifyPairingsEmail: checked })}
+                             />
+                          </div>
+                          <div className="flex items-center justify-between text-xs">
+                             <span className="text-slate-600">SMS Notifications</span>
+                             <Switch
+                               checked={config.registers.notifyPairingsSms}
+                               onCheckedChange={(checked) => updateRegisters({ notifyPairingsSms: checked })}
+                             />
+                          </div>
+                          <div className="flex items-center justify-between text-xs">
+                             <span className="text-slate-600">Display School/Grade</span>
+                             <Switch
+                               checked={!config.registers.hideTeams}
+                               onCheckedChange={(checked) => updateRegisters({ hideTeams: !checked })}
+                             />
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="space-y-3">
+                        <Label className="text-xs font-black text-indigo-400 uppercase tracking-widest">Constraints</Label>
+                        <div className="space-y-4">
+                          <div className="space-y-1">
+                            <Label className="text-[10px] text-slate-500 uppercase">Participant Capacity</Label>
+                            <Input
+                              type="number"
+                              className="h-8 text-xs font-bold"
+                              placeholder="Unlimited"
+                              value={config.registers.playerLimit ?? ""}
+                              onChange={(e) => updateRegisters({ playerLimit: e.target.value ? parseInt(e.target.value) : null })}
+                            />
+                          </div>
+                          <div className="space-y-1">
+                            <Label className="text-[10px] text-slate-500 uppercase">Maximum Byes</Label>
+                            <Input
+                              type="number"
+                              className="h-8 text-xs font-bold"
+                              placeholder="0"
+                              value={config.registers.byeLimit ?? ""}
+                              onChange={(e) => updateRegisters({ byeLimit: e.target.value ? parseInt(e.target.value) : null })}
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between rounded-lg border border-slate-200 bg-white px-4 py-3 shadow-sm">
+                      <div>
+                        <Label className="text-sm font-medium">Calendar Visibility</Label>
+                        <p className="text-xs text-muted-foreground">List this tournament on the public global calendar.</p>
+                      </div>
+                      <Switch
+                        checked={config.registers.showOnCalendar}
+                        onCheckedChange={(checked) => updateRegisters({ showOnCalendar: checked })}
+                      />
                     </div>
                   </div>
-                  {config.details.tiebreaksEnabled ? (
-                    <>
-                      <datalist id="tiebreak-option-list">
-                        {TIEBREAK_OPTIONS.map((option) => (
-                          <option key={option.value} value={option.label} />
-                        ))}
-                      </datalist>
-                      {tiebreaks.length === 0 ? (
-                        <div className="rounded-lg border border-dashed border-slate-300 bg-white p-4 text-xs text-slate-500">
-                          No tiebreak rules yet. Add one to start ordering tied results.
-                        </div>
-                      ) : (
-                        <div className="space-y-2">
-                          {tiebreaks.map((method, index) => (
-                            <TiebreakRow
-                              key={`${method}-${index}`}
-                              index={index}
-                              total={tiebreaks.length}
-                              value={method}
-                              onChange={(value) => updateTiebreakRule(index, value)}
-                              onRemove={() => removeTiebreakRule(index)}
-                              onMoveUp={() => moveTiebreakRule(index, -1)}
-                              onMoveDown={() => moveTiebreakRule(index, 1)}
-                            />
-                          ))}
-                        </div>
-                      )}
-                      <Button type="button" variant="outline" size="sm" onClick={addTiebreakRule}>
-                        <Plus className="mr-2 h-4 w-4" />
-                        Add tiebreak rule
-                      </Button>
-                    </>
-                  ) : (
-                    <p className="text-xs text-slate-500">Enable tiebreaks to configure their order.</p>
-                  )}
-                </div>
-                <div className="space-y-4">
-
-                                <div className="flex items-center justify-between rounded-lg border px-4 py-3">
-
-                                  <div>
-
-                                    <Label className="text-sm font-medium">Enable Pairing Predictor</Label>
-
-                                    <p className="text-xs text-muted-foreground">Allow players to simulate upcoming pairings.</p>
-
-                                  </div>
-
-                                  <Switch
-
-                                    checked={config.registers.enablePairingPredictor}
-
-                                    onCheckedChange={(checked) => updateRegisters({ enablePairingPredictor: checked })}
-
-                                  />
-
-                                </div>
-
-                                <div className="flex items-center justify-between rounded-lg border px-4 py-3">
-
-                                  <div>
-
-                                    <Label className="text-sm font-medium">Show on Calendar</Label>
-
-                                    <p className="text-xs text-muted-foreground">Publish this event on the public calendar.</p>
-
-                                  </div>
-
-                                  <Switch
-
-                                    checked={config.registers.showOnCalendar}
-
-                                    onCheckedChange={(checked) => updateRegisters({ showOnCalendar: checked })}
-
-                                  />
-
-                                </div>
-
-                                                <div className="space-y-2">
-
-                                                  <Label>Spectator Link</Label>
-
-                                                  <div className="flex items-center gap-2">
-
-                                                    <Input
-
-                                                      readOnly
-
-                                                      value={`${window.location.origin}/tournaments/${tournamentId}`}
-
-                                                    />
-
-                                                                                            <Button
-
-                                                                                              variant="outline"
-
-                                                                                              size="sm"
-
-                                                                                              onClick={() => setQrCodeModalOpen(true)}
-
-                                                                                            >
-
-                                                                                              Show QR Code
-
-                                                                                            </Button>
-
-                                                                                                                <Button
-
-                                                                                                                  variant="outline"
-
-                                                                                                                  size="sm"
-
-                                                                                                                  onClick={handleSpectatorLinkPrint}
-
-                                                                                                                >
-
-                                                                                                                  Print
-
-                                                                                                                </Button>
-
-                                                                                            
-
-                                                  </div>
-
-                                                  <p className="text-xs text-muted-foreground">
-
-                                                    Share this link to allow others to spectate the event.
-
-                                                  </p>
-
-                                                  <div className="flex flex-col gap-3 pt-2">
-                                                    <div className="flex items-center space-x-2">
-                                                      <Switch
-                                                        id="allow-player-to-join"
-                                                        checked={config.registers.allowPlayerToJoin}
-                                                        onCheckedChange={(checked) =>
-                                                          updateRegisters({ allowPlayerToJoin: checked })
-                                                        }
-                                                      />
-                                                      <Label htmlFor="allow-player-to-join">
-                                                        Allow Players to Join
-                                                      </Label>
-                                                    </div>
-                                                    <p className="text-xs text-muted-foreground">
-                                                      If enabled, players can complete the registration form; otherwise, they can just spectate.
-                                                    </p>
-
-                                                    <div className="flex items-center space-x-2">
-                                                      <Switch
-                                                        id="allow-multi-player-signup"
-                                                        checked={config.registers.allowMultiPlayerSignup}
-                                                        onCheckedChange={(checked) =>
-                                                          updateRegisters({ allowMultiPlayerSignup: checked })
-                                                        }
-                                                      />
-                                                      <Label htmlFor="allow-multi-player-signup">
-                                                        Allow Multi-Player Sign Up
-                                                      </Label>
-                                                    </div>
-                                                    <p className="text-xs text-muted-foreground">
-                                                      When enabled, a single account can register multiple players for this event.
-                                                    </p>
-
-                                                    <div className="flex items-center space-x-2">
-                                                      <Switch
-                                                        id="allow-edit-registration"
-                                                        checked={config.registers.allowEditRegistration}
-                                                        onCheckedChange={(checked) =>
-                                                          updateRegisters({ allowEditRegistration: checked })
-                                                        }
-                                                      />
-                                                      <Label htmlFor="allow-edit-registration">
-                                                        Allow Registration Editing
-                                                      </Label>
-                                                    </div>
-                                                    <p className="text-xs text-muted-foreground">
-                                                      When enabled, players can edit their registration details after submission (director will be notified).
-                                                    </p>
-                                                  </div>
-
-                                                </div>
 
                                 <ChessResultsSettingsCard
 
@@ -2938,8 +3069,6 @@ function StepTwo({ format, mode, config, onConfigChange, onBack: _onBack, onCanc
                                   onEnabledChange={setChessResultsEnabled}
 
                                 />
-
-                              </div>
 
                               {renderTabSaveButton()}
 

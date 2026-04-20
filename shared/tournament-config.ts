@@ -37,6 +37,7 @@ export interface RegistersConfig {
   paymentDetails?: string;
   allowEditRegistration: boolean;
   enablePairingPredictor: boolean;
+  isDoubleElimination: boolean;
 }
 
 export interface FideRegistrationData {
@@ -149,6 +150,15 @@ export interface ScoringRules {
   loss: number;
 }
 
+export interface ArenaScoringConfig {
+  winPoints: number;
+  drawPoints: number;
+  lossPoints: number;
+  streakThreshold: number;
+  onFireWinPoints: number;
+  onFireDrawPoints: number;
+}
+
 export interface AccountPaymentSettings {
   preferredProvider: PaymentProvider | null;
   stripeAccountId?: string;
@@ -207,6 +217,7 @@ export interface TournamentConfig {
     scoring: ScoringRules;
     tiebreaksEnabled: boolean;
     tiebreaks: string[];
+    matchWinConditions?: Record<number, number>; // round number -> points to win
   };
   schedule: ScheduleEvent[];
   sections: SectionDefinition[];
@@ -220,6 +231,12 @@ export interface TournamentConfig {
   contacts: ContactEntry[];
   tournamentPageContent: string;
   boardNumbering: BoardNumberingSettings;
+  seedingMethod?: "rating" | "random" | "slaughter" | "manual";
+  seedingSource?: "rating" | "uscf" | "fide";
+  arena?: {
+    durationMinutes: number;
+    scoring: ArenaScoringConfig;
+  };
 }
 
 export interface BoardNumberingSettings {
@@ -317,6 +334,7 @@ export function createDefaultConfig(format: Tournament["format"], mode: Tourname
       },
       tiebreaksEnabled: true,
       tiebreaks: [],
+      matchWinConditions: {},
     },
     schedule: createDefaultSchedule(defaultRounds),
     sections: [],
@@ -357,6 +375,7 @@ export function createDefaultConfig(format: Tournament["format"], mode: Tourname
       paymentDetails: "",
       allowEditRegistration: false,
       enablePairingPredictor: false,
+      isDoubleElimination: false,
     },
     fide: {
       prizeFund: "",
@@ -415,6 +434,19 @@ export function createDefaultConfig(format: Tournament["format"], mode: Tourname
       increment: 1,
       gaps: '',
       customSequence: '',
+    },
+    seedingMethod: "rating",
+    seedingSource: "rating",
+    arena: {
+      durationMinutes: 60,
+      scoring: {
+        winPoints: 2,
+        drawPoints: 1,
+        lossPoints: 0,
+        streakThreshold: 2,
+        onFireWinPoints: 4,
+        onFireDrawPoints: 2,
+      },
     },
   };
 }
@@ -512,6 +544,7 @@ export function parseTournamentConfig(tournament: Tournament): TournamentConfig 
         tiebreaksEnabled,
         tiebreaks,
         primaryRatingSystem: parsed.details?.primaryRatingSystem ?? defaults.details.primaryRatingSystem ?? "uscf",
+        matchWinConditions: parsed.details?.matchWinConditions ?? defaults.details.matchWinConditions ?? {},
       },
       boardNumbering: {
         ...defaults.boardNumbering,
@@ -541,6 +574,7 @@ export function parseTournamentConfig(tournament: Tournament): TournamentConfig 
         earlyBirdDetails: parsed.registers?.earlyBirdDetails ?? "",
         paymentDetails: parsed.registers?.paymentDetails ?? "",
         allowEditRegistration: parsed.registers?.allowEditRegistration ?? false,
+        isDoubleElimination: parsed.registers?.isDoubleElimination ?? tournament.isDoubleElimination ?? false,
       },
       fide: {
         ...defaults.fide,
@@ -563,6 +597,12 @@ export function parseTournamentConfig(tournament: Tournament): TournamentConfig 
       prizes: normalizedPrizes,
       payments: sanitizedPayments,
       mode: normalizedMode,
+      seedingMethod: (parsed as any)?.seedingMethod ?? tournament.seedingMethod ?? "rating",
+      seedingSource: (parsed as any)?.seedingSource ?? "rating",
+      arena: {
+        durationMinutes: tournament.arenaDuration ?? parsed.arena?.durationMinutes ?? defaults.arena.durationMinutes,
+        scoring: (tournament.arenaScoringConfig as any) ?? parsed.arena?.scoring ?? defaults.arena.scoring,
+      },
     };
   }
 
@@ -662,6 +702,7 @@ export function serializeTournamentConfig(config: TournamentConfig): TournamentC
     entryFees: normalizedEntryFees,
     prizes: normalizedPrizes,
     payments: sanitizedPayments,
+    arena: config.arena,
   };
 }
 
@@ -1017,7 +1058,10 @@ export function buildTournamentPayload(
       customSequence: parseCustomSequence(serialized.boardNumbering.customSequence),
     },
     location: serialized.basic.city,
+    isDoubleElimination: serialized.registers.isDoubleElimination,
     useQuickSetup: false,
+    arenaDuration: serialized.arena?.durationMinutes,
+    arenaScoringConfig: serialized.arena?.scoring,
   };
 }
 

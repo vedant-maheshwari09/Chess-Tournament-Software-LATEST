@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
-import { Users, Trophy, Calendar, Play, Plus, Undo, FileText, Settings as SettingsIcon, CalendarClock } from "lucide-react";
+import { Users, Trophy, Calendar, Play, Plus, Undo, FileText, Settings as SettingsIcon, CalendarClock, Calculator } from "lucide-react";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -33,6 +33,8 @@ import PlayerManager from "@/components/player-manager";
 import RegistrationManagement from "@/components/registration-management";
 import TournamentPagePanel from "@/components/tournament-page-panel";
 import { parseTournamentConfig } from "@/lib/tournament-config";
+import { ArenaLobby, ArenaActiveMatches, ArenaTimer } from "@/components/arena-ui";
+
 
 
 interface TournamentManagementProps {
@@ -349,12 +351,14 @@ export default function TournamentManagement({ tournamentId }: TournamentManagem
                   Settings
                 </Button>
               )}
-              <Button
-                variant="outline"
-                onClick={() => setLocation("/dashboard")}
-              >
-                Back to Dashboard
-              </Button>
+              {isOwner && (
+                <Button
+                  variant="outline"
+                  onClick={() => setLocation("/dashboard")}
+                >
+                  Back to Dashboard
+                </Button>
+              )}
             </div>
           </div>
         </CardContent>
@@ -399,14 +403,18 @@ export default function TournamentManagement({ tournamentId }: TournamentManagem
             className="flex h-full w-full items-center justify-center gap-2 px-6 py-4 text-center text-sm font-medium text-slate-600 transition data-[state=active]:bg-indigo-50 data-[state=active]:text-indigo-900 data-[state=active]:shadow-none"
           >
             <Calendar className="h-5 w-5 -translate-y-[4px]" />
-            <span className="capitalize -translate-y-[2px]">Rounds</span>
+            <span className="capitalize -translate-y-[2px]">
+              {tournament.format === 'arena' ? 'Arena Lobby' : 'Rounds'}
+            </span>
           </TabsTrigger>
           <TabsTrigger
             value="standings"
             className="flex h-full w-full items-center justify-center gap-2 px-6 py-4 text-center text-sm font-medium text-slate-600 transition data-[state=active]:bg-indigo-50 data-[state=active]:text-indigo-900 data-[state=active]:shadow-none"
           >
             <Trophy className="h-5 w-5 -translate-y-[4px]" />
-            <span className="capitalize -translate-y-[2px]">Standings</span>
+            <span className="capitalize -translate-y-[2px]">
+              {tournament.format === 'knockout' ? 'Knockout Bracket' : 'Standings'}
+            </span>
           </TabsTrigger>
         </TabsList>
 
@@ -460,9 +468,25 @@ export default function TournamentManagement({ tournamentId }: TournamentManagem
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
-                {tournament.format === 'swiss' || tournament.format === 'roundrobin' ? (
+                {tournament.format === 'swiss' || tournament.format === 'roundrobin' || tournament.format === 'knockout' ? (
                   <div className="overflow-x-auto">
                     <SwissPairings tournamentId={tournamentId} activeSection={activeRoundSection} />
+                  </div>
+                ) : tournament.format === 'arena' ? (
+                  <div className="space-y-6">
+                    <ArenaTimer tournament={tournament} />
+                    <Tabs defaultValue="lobby" className="w-full">
+                      <TabsList className="grid w-full grid-cols-2 mb-8">
+                        <TabsTrigger value="lobby">Arena Lobby</TabsTrigger>
+                        <TabsTrigger value="matches">Active Matches</TabsTrigger>
+                      </TabsList>
+                      <TabsContent value="lobby" className="mt-0">
+                        <ArenaLobby tournamentId={tournamentId} isTD={true} userId={user?.id} />
+                      </TabsContent>
+                      <TabsContent value="matches" className="mt-0">
+                        <ArenaActiveMatches tournamentId={tournamentId} isTD={true} userId={user?.id} />
+                      </TabsContent>
+                    </Tabs>
                   </div>
                 ) : (
                   <div className="py-8 text-center">
@@ -473,20 +497,6 @@ export default function TournamentManagement({ tournamentId }: TournamentManagem
               </CardContent>
             </Card>
           </Tabs>
-
-          {tournament.format === 'knockout' && (
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center space-x-2">
-                  <Trophy className="h-5 w-5" />
-                  <span>Bracket</span>
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <KnockoutBracket tournamentId={tournamentId} />
-              </CardContent>
-            </Card>
-          )}
         </TabsContent>
 
         <TabsContent value="standings" className="mt-6">
@@ -494,6 +504,13 @@ export default function TournamentManagement({ tournamentId }: TournamentManagem
             <RoundRobinCrosstable tournamentId={tournamentId} />
           ) : tournament.format === 'swiss' ? (
             <SwissStandings tournamentId={tournamentId} />
+          ) : tournament.format === 'knockout' ? (
+            <div className="space-y-6">
+              <KnockoutBracket 
+                tournamentId={tournamentId} 
+                sectionId={activeRoundSection === 'all' ? undefined : activeRoundSection} 
+              />
+            </div>
           ) : (
             <Card>
               <CardHeader>

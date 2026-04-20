@@ -88,8 +88,7 @@ export default function AuthForm() {
     mode: "onChange",
   });
 
-  // Debug: Watch form values
-  console.log("Register form values:", registerForm.watch());
+
 
   // Debounced username validation
   const checkUsernameAvailability = useCallback(async (username: string) => {
@@ -313,7 +312,7 @@ export default function AuthForm() {
 
   const handleRegister = async (data: RegisterData) => {
     try {
-      console.log("Registration data:", data);
+
       const response = await register(data);
       if (response.requiresVerification) {
         setPendingUserEmail(data.email);
@@ -517,7 +516,7 @@ export default function AuthForm() {
                     placeholder="Enter your username"
                     value={registerForm.watch("username")}
                     onChange={(e) => {
-                      console.log("Username input change:", e.target.value);
+
                       registerForm.setValue("username", e.target.value, { shouldValidate: true });
                     }}
                     className={`pr-10 ${

@@ -66,6 +66,8 @@ export default function PlayerManager({ tournament, tournamentId }: PlayerManage
   const [, setLocation] = useLocation();
   const queryClient = useQueryClient();
   const { toast } = useToast();
+  const [editingSeedId, setEditingSeedId] = useState<number | null>(null);
+  const [seedValue, setSeedValue] = useState<string>("");
 
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
   const [confirmedMap, setConfirmedMap] = useState<Record<number, boolean>>({});
@@ -202,12 +204,26 @@ export default function PlayerManager({ tournament, tournamentId }: PlayerManage
   }, [totalRounds]);
 
   const selectedPlayers = useMemo(
-    () =>
-      selectedIds
-        .map((id) => players.find((player) => player.id === id) || null)
-        .filter((player): player is Player => player !== null),
+    () => players.filter((p) => selectedIds.includes(p.id)),
     [players, selectedIds],
   );
+
+  const handleUpdateSeed = async (playerId: number, newSeed: string) => {
+    try {
+      await apiRequest(`/api/players/${playerId}/seed`, {
+        method: "PATCH",
+        body: JSON.stringify({ seed: newSeed || null }),
+      });
+      queryClient.invalidateQueries({ queryKey: [`/api/tournaments/${tournamentId}/players`] });
+      setEditingSeedId(null);
+    } catch (error: any) {
+      toast({
+        title: "Failed to update seed",
+        description: error?.message ?? "Please try again.",
+        variant: "destructive",
+      });
+    }
+  };
 
   const toggleSelectAll = useCallback(
     (checked: boolean) => {
@@ -514,6 +530,9 @@ export default function PlayerManager({ tournament, tournamentId }: PlayerManage
                               {sortKey === 'rating' && <ArrowUpDown className="ml-2 h-4 w-4 inline" />}
                             </Button>
                           </TableHead>
+                          {tournament.format === 'knockout' && (
+                            <TableHead className="w-20">Seed</TableHead>
+                          )}
                           <TableHead>Byes</TableHead>
                           <TableHead className="text-right">
                             <div className="flex items-center justify-end gap-2">
@@ -562,6 +581,36 @@ export default function PlayerManager({ tournament, tournamentId }: PlayerManage
                                   ? (player.fideRating ?? player.rating ?? "-")
                                   : (player.uscfRating ?? player.rating ?? "-")}
                               </TableCell>
+                              {tournament.format === 'knockout' && (
+                                <TableCell>
+                                  {editingSeedId === player.id ? (
+                                    <Input
+                                      type="number"
+                                      className="h-8 w-16"
+                                      value={seedValue}
+                                      onChange={(e) => setSeedValue(e.target.value)}
+                                      onBlur={() => handleUpdateSeed(player.id, seedValue)}
+                                      onKeyDown={(e) => {
+                                        if (e.key === 'Enter') handleUpdateSeed(player.id, seedValue);
+                                        if (e.key === 'Escape') setEditingSeedId(null);
+                                      }}
+                                      onClick={(e) => e.stopPropagation()}
+                                      autoFocus
+                                    />
+                                  ) : (
+                                    <div 
+                                      className="cursor-pointer hover:bg-slate-100 p-1 rounded min-w-[2rem] text-center"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setEditingSeedId(player.id);
+                                        setSeedValue(player.seed?.toString() || "");
+                                      }}
+                                    >
+                                      {player.seed ?? "-"}
+                                    </div>
+                                  )}
+                                </TableCell>
+                              )}
                               <TableCell>
                                 {pairingsLoading ? (
                                   <Loader2 className="h-4 w-4 animate-spin text-slate-400" />

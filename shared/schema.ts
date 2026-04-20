@@ -73,7 +73,15 @@ export const tournaments = pgTable("tournaments", {
   enablePairingPredictor: boolean("enable_pairing_predictor").default(false),
   chessResultsUrl: text("chess_results_url"),
   boardNumberingSettings: jsonb("board_numbering_settings"),
+  seedingMethod: text("seeding_method").default("rating"), // "rating", "random", "slaughter", "manual"
+  seedingSource: text("seeding_source").default("rating"), // "rating", "uscf", "fide"
+  matchWinConditions: jsonb("match_win_conditions"), // for knockout matchups
+  primaryRatingSystem: text("primary_rating_system").default("uscf"),
+  isDoubleElimination: boolean("is_double_elimination").default(false),
   createdBy: integer("created_by").notNull(), // User ID of tournament director
+  arenaDuration: integer("arena_duration"), // in minutes
+  arenaStartTime: timestamp("arena_start_time"),
+  arenaScoringConfig: jsonb("arena_scoring_config"), // e.g. { streakThreshold: 2, winBonus: 2, ... }
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -115,6 +123,10 @@ export const players = pgTable("players", {
   isActiveTd: boolean("is_active_td").default(false), // Only one player per tournament can be active TD
   sectionId: text("section_id"),
   sectionName: text("section_name"),
+  arenaStatus: text("arena_status").default('lobby').notNull(), // 'lobby', 'playing', 'paused'
+  arenaPoints: numeric("arena_points", { precision: 10, scale: 2 }).default("0").notNull(),
+  arenaStreak: integer("arena_streak").default(0).notNull(),
+  onFire: boolean("on_fire").default(false).notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 });
 
@@ -127,6 +139,13 @@ export const matches = pgTable("matches", {
   blackPlayerId: integer("black_player_id"),
   result: text("result"), // '1-0', '0-1', '1/2-1/2', null for pending
   status: text("status").notNull().default('pending'), // 'pending', 'in_progress', 'completed'
+  isBye: boolean("is_bye").default(false),
+  whitePoints: numeric("white_points", { precision: 5, scale: 2 }),
+  blackPoints: numeric("black_points", { precision: 5, scale: 2 }),
+  gameNumber: integer("game_number").default(1),
+  bracketType: text("bracket_type").default("winners"), // 'winners', 'losers', 'grand_final'
+  sectionId: text("section_id"), // for multi-section knockout support
+  winnerId: integer("winner_id"),
 });
 
 export const pairings = pgTable("pairings", {

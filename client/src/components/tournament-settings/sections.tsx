@@ -17,6 +17,8 @@ import {
 } from "@/lib/tournament-config";
 import { cn } from "@/lib/utils";
 import { Download, ExternalLink } from "lucide-react";
+export { ArenaSettingsCard } from "./ArenaSettingsCard";
+
 
 interface FideRegistrationSectionProps {
   value: FideRegistrationData;

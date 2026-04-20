@@ -227,6 +227,16 @@ export default function SettingsPage() {
       <div className="max-w-4xl mx-auto px-4 space-y-6">
 
 
+        <Button
+          variant="ghost"
+          size="sm"
+          className="flex items-center gap-1 text-muted-foreground hover:text-foreground mb-2"
+          onClick={() => setLocation("/")}
+        >
+          <ArrowLeft className="h-4 w-4" />
+          Back to Dashboard
+        </Button>
+
         <div className="space-y-2">
           <h1 className="text-3xl font-semibold text-gray-900 dark:text-white">Settings</h1>
           <p className="text-gray-600 dark:text-gray-400">

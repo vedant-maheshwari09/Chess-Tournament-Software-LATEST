@@ -97,23 +97,6 @@ export default function Standings({ tournamentId, showExportControls = true }: S
     return players.filter((player) => playerSectionMap.get(player.id)?.id === selectedSectionId);
   }, [players, playerSectionMap, selectedSectionId]);
 
-  if (tournamentLoading || playersLoading || matchesLoading || pairingsLoading) {
-    return (
-      <Card>
-        <CardHeader>
-          <CardTitle>Tournament Standings</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="animate-pulse space-y-4">
-            {[1, 2, 3, 4, 5].map((i) => (
-              <div key={i} className="h-16 bg-gray-200 rounded-lg"></div>
-            ))}
-          </div>
-        </CardContent>
-      </Card>
-    );
-  }
-
   const calculateStandings = useCallback((): PlayerStanding[] => {
     if (!filteredPlayers.length || !matches) return [];
 
@@ -201,7 +184,7 @@ export default function Standings({ tournamentId, showExportControls = true }: S
     });
 
     return standings;
-  }, [filteredPlayers, matches, pairings]);
+  }, [filteredPlayers, matches, pairings, tournamentConfig]);
 
   const standings = useMemo(() => calculateStandings(), [calculateStandings]);
   const hasStandings = standings.length > 0;
@@ -231,7 +214,7 @@ export default function Standings({ tournamentId, showExportControls = true }: S
     printWindow.document.close();
     printWindow.focus();
     printWindow.print();
-  }, [hasStandings, selectedSectionId, selectedSectionLabel, standings, tournament?.name]);
+  }, [hasStandings, selectedSectionId, selectedSectionLabel, standings, tournament?.name, tournamentConfig]);
 
   const handleDownloadStandings = useCallback(() => {
     if (!hasStandings || typeof window === "undefined") return;
@@ -275,7 +258,24 @@ export default function Standings({ tournamentId, showExportControls = true }: S
     link.click();
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
-  }, [hasStandings, selectedSectionId, selectedSectionLabel, standings, tournament?.name]);
+  }, [hasStandings, selectedSectionId, selectedSectionLabel, standings, tournament?.name, tournamentConfig]);
+
+  if (tournamentLoading || playersLoading || matchesLoading || pairingsLoading) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>Tournament Standings</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="animate-pulse space-y-4">
+            {[1, 2, 3, 4, 5].map((i) => (
+              <div key={i} className="h-16 bg-gray-200 rounded-lg"></div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
 
   const getPositionIcon = (position: number) => {
     switch (position) {

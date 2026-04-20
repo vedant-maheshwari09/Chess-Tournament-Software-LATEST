@@ -9,6 +9,7 @@ interface GeneralSettingsCardProps {
     allowMultiPlayerSignup: boolean;
     allowEditRegistration: boolean;
     enablePairingPredictor: boolean;
+    isDoubleElimination: boolean;
   };
   onChange: (update: Partial<GeneralSettingsCardProps['value']>) => void;
 }
@@ -55,6 +56,14 @@ export function GeneralSettingsCard({ value, onChange }: GeneralSettingsCardProp
             id="allowEditRegistration"
             checked={value.allowEditRegistration}
             onCheckedChange={(checked) => onChange({ allowEditRegistration: checked })}
+          />
+        </div>
+        <div className="flex items-center justify-between">
+          <Label htmlFor="isDoubleElimination">Double Elimination</Label>
+          <Switch
+            id="isDoubleElimination"
+            checked={value.isDoubleElimination}
+            onCheckedChange={(checked) => onChange({ isDoubleElimination: checked })}
           />
         </div>
         <div className="flex items-center justify-between">

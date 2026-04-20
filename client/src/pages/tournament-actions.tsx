@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
-import { AlertTriangle, Mail, Share2, Trash2 } from "lucide-react";
+import { AlertTriangle, ChevronLeft, Mail, Share2, Trash2 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
@@ -242,6 +242,14 @@ export default function TournamentActionsPage({ tournamentId }: TournamentAction
   return (
     <div className="min-h-screen bg-slate-50">
       <div className="mx-auto max-w-4xl space-y-6 p-6">
+        <Button
+          variant="link"
+          onClick={() => setLocation(`/tournaments/${tournamentId}/manage`)}
+          className="pl-0 text-slate-500 hover:text-slate-900"
+        >
+          <ChevronLeft className="mr-1 h-4 w-4" />
+          Back to management
+        </Button>
 
         <div className="flex flex-wrap items-center justify-between gap-4 border-b pb-4">
           <div>

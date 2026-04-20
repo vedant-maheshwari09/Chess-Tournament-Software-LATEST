@@ -298,6 +298,12 @@ export interface IStorage {
   getUnreadNotificationCount(userId: number): Promise<number>;
   markNotificationRead(id: number, userId: number): Promise<Notification | undefined>;
   markAllNotificationsRead(userId: number): Promise<void>;
+
+  // Arena-specific
+  setPlayerArenaStatus(playerId: number, status: string): Promise<Player | undefined>;
+  getArenaLobbyPlayers(tournamentId: number): Promise<Player[]>;
+  updateArenaPoints(playerId: number, points: string, streak: number, onFire: boolean): Promise<Player | undefined>;
+  initializeArenaPlayers(tournamentId: number): Promise<void>;
 }
 
 class SupabaseStorage implements IStorage {
@@ -661,6 +667,40 @@ class SupabaseStorage implements IStorage {
 
     if (error) {
       console.error("Failed to mark all notifications read:", error);
+    }
+  }
+
+  // ── Arena ──────────────────────────────────────────────────────────────
+
+  async setPlayerArenaStatus(playerId: number, status: string): Promise<Player | undefined> {
+    return updateOne<Player>("players", { id: playerId }, { arenaStatus: status });
+  }
+
+  async getArenaLobbyPlayers(tournamentId: number): Promise<Player[]> {
+    return fetchMany<Player>("players", { tournamentId, arenaStatus: "lobby" });
+  }
+
+  async updateArenaPoints(playerId: number, points: string, streak: number, onFire: boolean): Promise<Player | undefined> {
+    return updateOne<Player>("players", { id: playerId }, { 
+      arenaPoints: points, 
+      arenaStreak: streak, 
+      onFire 
+    });
+  }
+
+  async initializeArenaPlayers(tournamentId: number): Promise<void> {
+    const { error } = await client()
+      .from("players")
+      .update({ 
+        arena_status: "lobby", 
+        arena_points: "0", 
+        arena_streak: 0, 
+        on_fire: false 
+      })
+      .eq("tournament_id", tournamentId);
+
+    if (error) {
+      throw new Error(`Failed to initialize arena players: ${error.message}`);
     }
   }
 }

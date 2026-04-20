@@ -1,11 +1,11 @@
-import { useState, useEffect, useMemo, useCallback } from "react";
+import React, { useState, useEffect, useMemo, useCallback } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
-import { Play, RefreshCw, Crown as Chess, RotateCcw, Printer, Download } from "lucide-react";
+import { Play, RefreshCw, Crown as Chess, RotateCcw, Printer, Download, ChevronDown, ChevronUp } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -13,6 +13,9 @@ import type { Match, Player, Pairing, Tournament } from "@shared/schema";
 import { parseTournamentConfig } from "@/lib/tournament-config";
 import type { SectionDefinition } from "@shared/tournament-config";
 import { HEAD_TO_HEAD_RESULT_OPTIONS, BYE_RESULT_OPTIONS, getPointsForResult } from "@shared/match-results";
+import { MatchManagementDialog } from "./match-management-dialog";
+import { Swords } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 interface TournamentPairingsProps {
   tournamentId: number;
@@ -34,8 +37,26 @@ export default function SwissPairings({ tournamentId, activeSection, showExportC
     match2: { id: number; whitePlayerId: number | null; blackPlayerId: number | null };
     timestamp: number;
   } | null>(null);
+  const [selectedMatchForManagement, setSelectedMatchForManagement] = useState<Match | null>(null);
+  const [expandedSeries, setExpandedSeries] = useState<Set<number>>(new Set());
   const { toast } = useToast();
   const { user } = useAuth();
+
+  const toggleExpand = (matchId: number) => {
+    setExpandedSeries(prev => {
+      const next = new Set(prev);
+      if (next.has(matchId)) next.delete(matchId);
+      else next.add(matchId);
+      return next;
+    });
+  };
+
+  const getPendingPlayerLabel = (round: number, board: number, color: 'white' | 'black') => {
+    if (round === 1) return "T.B.D.";
+    const prevRound = round - 1;
+    const prevBoard = color === 'white' ? (board * 2) - 1 : (board * 2);
+    return `Winner of ${prevRound}${String.fromCharCode(64 + prevBoard)}`;
+  };
   
   // Get tournament data for planned rounds
   const { data: tournament } = useQuery<Tournament>({
@@ -69,6 +90,7 @@ export default function SwissPairings({ tournamentId, activeSection, showExportC
   // Get all matches to determine the current round
   const { data: allMatches } = useQuery<Match[]>({
     queryKey: [`/api/tournaments/${tournamentId}/matches`],
+    refetchInterval: 5000,
   });
 
   // Update current round based on latest matches
@@ -91,20 +113,22 @@ export default function SwissPairings({ tournamentId, activeSection, showExportC
     }
   }, [lastSwapState]);
 
-  // For Round Robin, show all matches, for Swiss show current round
+  // For Round Robin or Knockout, show all matches. For Swiss show current round
   const { data: matches, isLoading } = useQuery<Match[]>({
-    queryKey: [`/api/tournaments/${tournamentId}/matches`, { round: tournament?.format === 'roundrobin' ? undefined : currentRound }],
+    queryKey: [`/api/tournaments/${tournamentId}/matches`, { round: (tournament?.format === 'roundrobin' || tournament?.format === 'knockout') ? undefined : currentRound }],
     queryFn: async () => {
-      if (tournament?.format === 'roundrobin') {
+      if (tournament?.format === 'roundrobin' || tournament?.format === 'knockout') {
         return await apiRequest(`/api/tournaments/${tournamentId}/matches`);
       } else {
         return await apiRequest(`/api/tournaments/${tournamentId}/matches?round=${currentRound}`);
       }
     },
+    refetchInterval: 5000,
   });
 
   const { data: players } = useQuery<Player[]>({
     queryKey: [`/api/tournaments/${tournamentId}/players`],
+    refetchInterval: 5000,
   });
 
   const playerSectionMap = useMemo(() => {
@@ -194,6 +218,39 @@ export default function SwissPairings({ tournamentId, activeSection, showExportC
     return [...filteredMatches].sort((a, b) => (a.board || 0) - (b.board || 0));
   }, [filteredMatches, tournament?.format]);
 
+  // Group knockout matches by round and board to handle series
+  const knockoutGroups = useMemo(() => {
+    if (!matches || tournament?.format !== 'knockout') return [] as Array<{ round: number; matches: Match[] }>;
+    
+    const roundGroups = new Map<number, Match[]>();
+    
+    const sourceMatches = allMatches || matches || [];
+    sourceMatches.forEach(match => {
+      if (!matchSectionFilter(match, activeSection)) return;
+      if (tournament?.format === 'knockout' && !match.bracketType) return; // Ignore non-bracket matches if any
+      const list = roundGroups.get(match.round) || [];
+      list.push(match);
+      roundGroups.set(match.round, list);
+    });
+
+    return Array.from(roundGroups.entries())
+      .sort((a, b) => a[0] - b[0])
+      .map(([round, roundMatches]) => {
+        // For knockout, we only want the unique pairs (round/board)
+        const uniqueSeries = new Map<number, Match>();
+        roundMatches.forEach(m => {
+          if (m.board && !uniqueSeries.has(m.board)) {
+            uniqueSeries.set(m.board, m);
+          }
+        });
+        
+        return {
+          round,
+          matches: Array.from(uniqueSeries.values()).sort((a, b) => (a.board || 0) - (b.board || 0))
+        };
+      });
+  }, [matches, matchSectionFilter, activeSection, tournament?.format]);
+
   const filteredByes = useMemo(() => {
     if (!pairings) return [] as Pairing[];
     const byes = pairings.filter((pairing) => pairing.isBye);
@@ -208,8 +265,11 @@ export default function SwissPairings({ tournamentId, activeSection, showExportC
     if (tournament?.format === 'swiss') {
       return swissMatches.length ? [{ round: currentRound, matches: swissMatches }] : [];
     }
+    if (tournament?.format === 'knockout') {
+      return knockoutGroups;
+    }
     return [] as Array<{ round: number; matches: Match[] }>;
-  }, [currentRound, roundRobinGroups, swissMatches, tournament?.format]);
+  }, [currentRound, roundRobinGroups, swissMatches, knockoutGroups, tournament?.format]);
 
   const hasPrintableMatches = pairingGroups.some((group) => group.matches.length > 0);
   const hasDisplayData = hasPrintableMatches || (tournament?.format === 'swiss' && filteredByes.length > 0);
@@ -1168,7 +1228,156 @@ export default function SwissPairings({ tournamentId, activeSection, showExportC
                     </div>
                   ))}
                 </div>
-              )
+            )) : tournament?.format === 'knockout' ? (
+              <div className="space-y-8">
+                 {knockoutGroups.map(({ round, matches: roundMatches }) => (
+                   <div key={round} className="rounded-lg border border-slate-200 p-4 bg-white shadow-sm overflow-hidden">
+                      <div className="mb-4 flex items-center justify-between border-b border-slate-100 pb-4">
+                        <div className="flex items-center gap-3">
+                           <div className="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center font-bold text-xs ring-1 ring-blue-100">
+                             {round}
+                           </div>
+                           <h3 className="text-lg font-bold text-slate-900 tracking-tight">
+                             {round === (tournament.rounds || 0) ? 'Finals' : 
+                              round === (tournament.rounds || 0) - 1 ? 'Semifinals' : 
+                              round === (tournament.rounds || 0) - 2 ? 'Quarterfinals' : 
+                              `Round ${round}`}
+                           </h3>
+                        </div>
+                        {round === currentRound && (
+                          <Badge className="bg-blue-500 hover:bg-blue-600 text-white font-bold px-3 py-1 text-[10px] uppercase tracking-wider">Active Round</Badge>
+                        )}
+                      </div>
+
+                      <div className="overflow-x-auto">
+                        <table className="min-w-full divide-y divide-gray-200">
+                          <thead className="bg-gray-50">
+                            <tr>
+                              <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 w-8"></th>
+                              <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Board</th>
+                              <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Players</th>
+                              <th className="px-6 py-3 text-center text-xs font-medium uppercase tracking-wider text-gray-500">Score</th>
+                              <th className="px-6 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500">Actions</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-gray-200 bg-white">
+                            {roundMatches.map((match) => {
+                              const seriesGames = (allMatches || []).filter(m => 
+                                m.round === match.round && 
+                                m.board === match.board &&
+                                m.bracketType === match.bracketType &&
+                                m.sectionId === match.sectionId
+                              ).sort((a,b) => (a.gameNumber || 0) - (b.gameNumber || 0));
+                              
+                              let wScore = 0;
+                              let bScore = 0;
+                              seriesGames.forEach(g => {
+                                if (g.result === "1-0" || g.result === "1-0F") wScore += 1;
+                                if (g.result === "0-1" || g.result === "0-1F") bScore += 1;
+                                if (g.result === "1/2-1/2") { wScore += 0.5; bScore += 0.5; }
+                              });
+
+                              const formatScore = (num: number) => {
+                                if (num % 1 === 0) return num.toString();
+                                return (Math.floor(num) === 0 ? "" : Math.floor(num)) + "½";
+                              };
+                              const isExpanded = expandedSeries.has(match.id);
+
+                              return (
+                                <React.Fragment key={match.id}>
+                                  <tr className="hover:bg-slate-50 transition-colors">
+                                    <td className="px-6 py-4 whitespace-nowrap text-center">
+                                      <Button variant="ghost" size="icon" className="h-6 w-6 p-0 hover:bg-slate-200" onClick={() => toggleExpand(match.id)}>
+                                        {isExpanded ? <ChevronUp className="h-4 w-4 text-slate-500" /> : <ChevronDown className="h-4 w-4 text-slate-500" />}
+                                      </Button>
+                                    </td>
+                                    <td className="whitespace-nowrap px-6 py-4">
+                                      <div className="text-sm font-medium text-gray-900">{round}{String.fromCharCode(64 + (match.board || 1))}</div>
+                                    </td>
+                                    <td className="whitespace-nowrap px-6 py-4">
+                                       <div className="flex flex-col gap-1.5">
+                                          <div className="flex items-center gap-2">
+                                             <div className={`w-1.5 h-1.5 rounded-full ${match.result === '1-0' ? 'bg-green-500' : 'bg-slate-200'}`} />
+                                             <span className={`text-sm ${match.result === '1-0' ? 'text-slate-900 font-bold' : 'text-slate-700'}`}>
+                                                {match.whitePlayerId ? getPlayerName(match.whitePlayerId) : getPendingPlayerLabel(match.round, match.board || 1, 'white')}
+                                             </span>
+                                          </div>
+                                          <div className="flex items-center gap-2">
+                                             <div className={`w-1.5 h-1.5 rounded-full ${match.result === '0-1' ? 'bg-green-500' : 'bg-slate-200'}`} />
+                                             <span className={`text-sm ${match.result === '0-1' ? 'text-slate-900 font-bold' : 'text-slate-700'}`}>
+                                                {match.blackPlayerId ? getPlayerName(match.blackPlayerId) : getPendingPlayerLabel(match.round, match.board || 1, 'black')}
+                                             </span>
+                                          </div>
+                                       </div>
+                                    </td>
+                                    <td className="whitespace-nowrap px-6 py-4 text-center">
+                                        <div className="inline-flex items-center justify-center h-10 px-4 rounded bg-[#f1f1f1] border border-[#e1e1e1] shadow-sm">
+                                           <span className="text-base font-bold text-slate-900 tracking-tight">
+                                             {formatScore(wScore)} - {formatScore(bScore)}
+                                           </span>
+                                        </div>
+                                        <div className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">Games: {seriesGames.length}</div>
+                                    </td>
+                                    <td className="whitespace-nowrap px-6 py-4 text-right">
+                                       {isTournamentDirector && (
+                                         <Button 
+                                          variant="outline" 
+                                          size="sm"
+                                          className="h-8 border-slate-200 text-slate-600 hover:text-blue-600"
+                                          onClick={() => setSelectedMatchForManagement(match)}
+                                         >
+                                           <Swords className="h-3 w-3 mr-2" />
+                                           MANAGE SERIES
+                                         </Button>
+                                       )}
+                                    </td>
+                                  </tr>
+                                  {isExpanded && (
+                                    <tr>
+                                      <td colSpan={5} className="p-0 border-b border-t border-slate-100 bg-slate-50/50">
+                                        <div className="px-14 py-4 space-y-3 shadow-inner">
+                                          <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-500">Series History</h4>
+                                          {seriesGames.length === 0 ? (
+                                            <div className="text-sm text-slate-400 italic">No games played yet.</div>
+                                          ) : (
+                                            <div className="grid gap-2">
+                                              {seriesGames.map((game, i) => (
+                                                <div key={game.id} className="flex items-center justify-between bg-white px-4 py-2 rounded border border-slate-100 shadow-sm text-sm">
+                                                  <div className="flex items-center gap-4">
+                                                    <Badge variant="outline" className="w-16 justify-center">Game {i + 1}</Badge>
+                                                    <div className="flex items-center gap-2 w-40">
+                                                      <div className="w-3 h-3 border border-slate-300 bg-white" title="White Pieces" />
+                                                      <span className="truncate">{game.whitePlayerId ? getPlayerName(game.whitePlayerId) : "T.B.D."}</span>
+                                                    </div>
+                                                    <span className="text-slate-400 text-xs">vs</span>
+                                                    <div className="flex items-center gap-2 w-40">
+                                                      <div className="w-3 h-3 border border-slate-400 bg-slate-900" title="Black Pieces" />
+                                                      <span className="truncate">{game.blackPlayerId ? getPlayerName(game.blackPlayerId) : "T.B.D."}</span>
+                                                    </div>
+                                                  </div>
+                                                  <Badge 
+                                                    variant={game.result ? "default" : "secondary"}
+                                                    className={cn(game.result && "bg-[#81b64c] hover:bg-[#72a344] border-0")}
+                                                  >
+                                                    {game.result || "Ongoing"}
+                                                  </Badge>
+                                                </div>
+                                              ))}
+                                            </div>
+                                          )}
+                                        </div>
+                                      </td>
+                                    </tr>
+                                  )}
+                                </React.Fragment>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                   </div>
+                 ))}
+              </div>
             ) : (
               // Swiss - Show current round only
               <div className="space-y-6">
@@ -1322,6 +1531,20 @@ export default function SwissPairings({ tournamentId, activeSection, showExportC
           </AlertDialogContent>
         </AlertDialog>
       )}
+      {/* Match Management Dialog for Knockout */}
+      <MatchManagementDialog
+        match={selectedMatchForManagement}
+        open={!!selectedMatchForManagement}
+        onOpenChange={(open) => !open && setSelectedMatchForManagement(null)}
+        players={players || []}
+        allMatches={allMatches || []}
+        isTD={isTournamentDirector}
+        tournamentId={tournamentId}
+        onMatchUpdated={() => {
+          queryClient.invalidateQueries({ queryKey: [`/api/tournaments/${tournamentId}/matches`] });
+          queryClient.invalidateQueries({ queryKey: [`/api/tournaments/${tournamentId}/players`] });
+        }}
+      />
     </Card>
   );
 }
