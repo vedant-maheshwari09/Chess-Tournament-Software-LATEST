@@ -19,7 +19,7 @@ import type { PlayerRegistration } from "@shared/schema";
 import { RegistrationStatusCard } from "@/components/registration-status-card";
 import KnockoutBracket from "@/components/knockout-bracket";
 import { cn } from "@/lib/utils";
-import { ArenaLobby, ArenaActiveMatches, ArenaStandings, ArenaTimer } from "@/components/arena-ui";
+import { ArenaLobby, ArenaActiveMatches, ArenaStandings, ArenaTimer, TournamentHistory } from "@/components/arena-ui";
 
 
 type TabKey = "pairings" | "standings" | "byes" | "predictor" | "info" | "lobby";
@@ -226,9 +226,11 @@ export default function TournamentView({ tournamentId }: TournamentViewProps) {
           </TabsList>
 
           {isArena && (
-            <TabsContent value="lobby" className="mt-6">
-              <ArenaLobby tournamentId={tournamentId} isTD={canManageTournament} userId={user?.id} />
-            </TabsContent>
+            <>
+              <TabsContent value="lobby" className="mt-6">
+                <ArenaLobby tournamentId={tournamentId} isTD={canManageTournament} userId={user?.id} />
+              </TabsContent>
+            </>
           )}
 
           <TabsContent value="pairings" className="mt-6">

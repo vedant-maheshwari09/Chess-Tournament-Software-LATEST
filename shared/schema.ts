@@ -165,6 +165,7 @@ export const matches = pgTable("matches", {
   bracketType: text("bracket_type").default("winners"), // 'winners', 'losers', 'grand_final'
   sectionId: text("section_id"), // for multi-section knockout support
   winnerId: integer("winner_id"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
 export const pairings = pgTable("pairings", {

@@ -168,8 +168,8 @@ export async function pairPool(tournamentId: number, tournamentOverride?: Tourna
     for (const p of lobbyPlayers) {
       const hist: number[] = [];
       for (const m of sortedMatches) {
-        if (m.whitePlayerId === p.id && m.blackPlayerId !== null) hist.push(m.blackPlayerId);
-        else if (m.blackPlayerId === p.id && m.whitePlayerId !== null) hist.push(m.whitePlayerId);
+        if (m.whitePlayerId == p.id && m.blackPlayerId !== null) hist.push(Number(m.blackPlayerId));
+        else if (m.blackPlayerId == p.id && m.whitePlayerId !== null) hist.push(Number(m.whitePlayerId));
         if (hist.length >= 4) break;
       }
       matchHistory.set(p.id, hist);
@@ -196,15 +196,24 @@ export async function pairPool(tournamentId: number, tournamentOverride?: Tourna
 
         // --- BULLETPROOF IMMEDIATE REMATCH LOCK ---
         // Checks BOTH the database explicit lastOpponentId AND the array history
-        const isImmediateRematch =
-          (playerA.lastOpponentId === playerB.id) ||
-          (playerB.lastOpponentId === playerA.id) ||
-          ((matchHistory.get(playerA.id) || [])[0] === playerB.id);
+        // Get the count of truly participating players to decide if rematches are allowed
+        const activePlayerCount = allPlayers.filter(p => p.status === 'active').length;
+
+        const histA = matchHistory.get(playerA.id) || [];
+        const histB = matchHistory.get(playerB.id) || [];
+        
+        // Debug types and values if needed (uncomment for extreme debugging)
+        // log(`DEBUG: playerA=${playerA.id} lastOpp=${playerA.lastOpponentId} histA[0]=${histA[0]} | playerB=${playerB.id}`);
+
+        const isImmediateRematch = 
+          (Number(playerA.lastOpponentId) === Number(playerB.id)) ||
+          (Number(playerB.lastOpponentId) === Number(playerA.id)) ||
+          (Number(histA[0]) === Number(playerB.id)) ||
+          (Number(histB[0]) === Number(playerA.id));
 
         if (isImmediateRematch) {
-          if (allPlayers.length > 2) {
-            // STRICT RULE: If there are >2 players in the tournament, NEVER pair them back to back.
-            log(`T${tournamentId}: BLOCKED ${playerA.firstName} vs ${playerB.firstName} (Back-to-back forbidden)`);
+          if (activePlayerCount > 2) {
+            log(`T${tournamentId}: REMATCH_SKIP ${playerA.firstName} vs ${playerB.firstName} (Recent: ${histA[0]})`);
             continue;
           } else {
             // Only 2 players exist in the entire tournament.

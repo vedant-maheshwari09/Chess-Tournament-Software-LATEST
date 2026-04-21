@@ -488,6 +488,7 @@ export default function TournamentWizard({ tournament, onTournamentCreated }: To
                     Set dates and times for each round (all optional)
                   </p>
                   <div className="space-y-2">
+                    {roundTimings.map((timing, index) => (
                       <div key={index} className="flex items-center space-x-3 bg-white p-3 rounded-xl border border-slate-100 shadow-sm transition-all hover:bg-slate-50/50">
                         <span className="text-sm font-semibold w-20 text-slate-600">Round {timing.round}</span>
                         <div className="flex-1">
@@ -507,6 +508,7 @@ export default function TournamentWizard({ tournament, onTournamentCreated }: To
                           />
                         </div>
                       </div>
+                    ))}
                   </div>
                 </div>
               </div>
