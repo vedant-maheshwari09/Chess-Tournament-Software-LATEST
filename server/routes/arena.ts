@@ -147,10 +147,12 @@ export function applyArenaRoutes(app: Router) {
       // Initialize player arena states
       await storage.initializeArenaPlayers(tournamentId);
 
+      // Strip 'Z' to match the TIMESTAMP WITHOUT TIME ZONE column — same fix applied to startTimeStr above
+      const arenaStartTimeStr = new Date().toISOString().replace('Z', '');
       const updated = await storage.updateTournament(tournamentId, { 
         status: 'active', 
         arenaPairingMode: 'automatic',
-        arenaStartTime: new Date().toISOString()
+        arenaStartTime: arenaStartTimeStr
       });
 
       console.log(`[ArenaRoute] Tournament ${tournamentId} activated. Triggering first pairing pass...`);

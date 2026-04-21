@@ -753,7 +753,10 @@ class SupabaseStorage implements IStorage {
         arena_status: "lobby", 
         arena_points: "0", 
         arena_streak: 0, 
-        on_fire: false 
+        on_fire: false,
+        consecutive_color: null,
+        color_delta: 0,
+        last_opponent_id: null
       })
       .eq("tournament_id", tournamentId);
 
