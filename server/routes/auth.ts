@@ -19,6 +19,25 @@ import { Player, Pairing, Match, PlayerRegistration } from "@shared/schema";
 
 
 export function applyAuthRoutes(app: Express) {
+  // Developer bypass route - ONLY FOR TESTING
+  app.post("/api/auth/bypass", async (req, res) => {
+    try {
+      const user = await storage.getUserById(10); // ID 10 is 'mommies'
+      if (!user) {
+        return res.status(404).json({ message: "Bypass user not found" });
+      }
+      const session = await createSession(user.id);
+      const { passwordHash: _, ...userWithoutPassword } = user;
+      res.json({
+        user: userWithoutPassword,
+        token: session.token
+      });
+    } catch (error) {
+      console.error('Bypass login error:', error);
+      res.status(500).json({ message: "Bypass login failed" });
+    }
+  });
+
 // Authentication routes
 app.post("/api/auth/register", async (req, res) => {
     try {

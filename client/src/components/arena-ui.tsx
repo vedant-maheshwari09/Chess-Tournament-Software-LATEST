@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
+import { motion, AnimatePresence } from "framer-motion";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -47,9 +48,9 @@ function calculatePerformanceSequence(playerId: number, matches: Match[], scorin
 function PerformanceBar({ sequence }: { sequence: number[] }) {
   if (sequence.length === 0) return <span className="text-[10px] text-slate-300 italic">—</span>;
   return (
-    <div className="flex items-center gap-1">
-      {sequence.slice(-12).map((points, i) => {
-        let cls = "w-4 h-5 rounded-sm flex items-center justify-center text-[9px] font-black shadow-sm transition-transform hover:scale-110 cursor-default";
+    <div className="flex items-center gap-1 overflow-x-auto max-w-[120px] pb-1 no-scrollbar select-none">
+      {sequence.map((points, i) => {
+        let cls = "w-4 h-5 shrink-0 rounded-sm flex items-center justify-center text-[9px] font-black shadow-sm transition-transform hover:scale-110 cursor-default";
         if (points >= 4) cls += " bg-orange-500 text-white";
         else if (points >= 2) cls += " bg-green-500 text-white";
         else if (points === 1) cls += " bg-blue-500 text-white";
@@ -60,6 +61,58 @@ function PerformanceBar({ sequence }: { sequence: number[] }) {
           </div>
         );
       })}
+    </div>
+  );
+}
+
+// ─── Confetti Effect ─────────────────────────────────────────────────────────
+function ConfettiEffect() {
+  const [show, setShow] = useState(true);
+
+  useEffect(() => {
+    const timer = setTimeout(() => setShow(false), 10000);
+    return () => clearTimeout(timer);
+  }, []);
+
+  const pieces = useMemo(() => Array.from({ length: 150 }).map((_, i) => ({
+    id: i,
+    x: Math.random() * 100,
+    y: -20,
+    size: Math.random() * 8 + 4,
+    color: ['#f59e0b', '#fbbf24', '#facc15', '#fef3c7', '#3b82f6', '#10b981', '#ef4444'][Math.floor(Math.random() * 7)],
+    duration: Math.random() * 3 + 2,
+    delay: Math.random() * 3,
+    rotation: Math.random() * 360,
+  })), []);
+
+  if (!show) return null;
+
+  return (
+    <div className="fixed inset-0 pointer-events-none overflow-hidden z-[100]">
+      {pieces.map(p => (
+        <motion.div
+          key={p.id}
+          initial={{ x: `${p.x}vw`, y: '-5vh', rotate: 0, opacity: 1 }}
+          animate={{
+            y: '105vh',
+            rotate: p.rotation + 720,
+            opacity: [1, 1, 0],
+          }}
+          transition={{
+            duration: p.duration,
+            delay: p.delay,
+            ease: "linear",
+            repeat: Infinity,
+          }}
+          className="absolute"
+          style={{
+            width: p.size,
+            height: p.size,
+            backgroundColor: p.color,
+            borderRadius: Math.random() > 0.5 ? '50%' : '2px',
+          }}
+        />
+      ))}
     </div>
   );
 }
@@ -133,7 +186,7 @@ function calculateTPR(playerId: number, matches: Match[], players: Player[]) {
     const opponentId = isWhite ? m.blackPlayerId : m.whitePlayerId;
     const opponent = players.find(p => p.id === opponentId);
     if (opponent) {
-      totalOpponentRating += parseInt(opponent.rating || "1200");
+      totalOpponentRating += parseInt(String(opponent.rating || "1200"));
     } else {
       totalOpponentRating += 1200; // Default
     }
@@ -172,7 +225,7 @@ function PlayerDetailsDialog({ player, matches, players }: { player: Player; mat
       const isWhite = m.whitePlayerId === player.id;
       const opponentId = isWhite ? m.blackPlayerId : m.whitePlayerId;
       const opponent = players.find(p => p.id === opponentId);
-      totalOpponentRating += parseInt(opponent?.rating || "1200");
+      totalOpponentRating += parseInt(String(opponent?.rating || "1200"));
 
       if (m.result === '1-0') isWhite ? wins++ : losses++;
       else if (m.result === '0-1') isWhite ? losses++ : wins++;
@@ -316,6 +369,7 @@ export function ArenaHeader({
   tournament: Tournament;
   playerCount: number;
   isTD: boolean;
+  onPause?: () => void;
 }) {
   const startTime = useMemo(() => {
     if (!tournament.arenaStartTime) return null;
@@ -389,14 +443,28 @@ export function ArenaHeader({
           </Dialog>
 
           {timeLeft !== null && tournament.status === 'active' && (
-            <span className={cn(
-              "font-mono font-bold text-xl tabular-nums tracking-tight",
-              phase === 'countdown' ? "text-amber-600" :
-              isLastMinute ? "text-red-600 animate-pulse" :
-              phase === 'ended' ? "text-slate-400" : "text-slate-700"
-            )}>
-              {formatTime(timeLeft)}
-            </span>
+            <div className="flex items-center gap-3">
+              <span className={cn(
+                "font-mono font-bold text-xl tabular-nums tracking-tight",
+                phase === 'countdown' ? "text-amber-600" :
+                isLastMinute ? "text-red-600 animate-pulse" :
+                phase === 'ended' ? "text-slate-400" : "text-slate-700"
+              )}>
+                {formatTime(timeLeft)}
+              </span>
+              
+              {/* TD Conclusion Trigger */}
+              {isTD && phase === 'ended' && (
+                <Dialog>
+                  <DialogTrigger asChild>
+                    <Button size="sm" className="h-8 px-4 bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-lg shadow-sm">
+                      Conclude
+                    </Button>
+                  </DialogTrigger>
+                  <ConclusionDialog tournament={tournament} />
+                </Dialog>
+              )}
+            </div>
           )}
         </div>
       </div>
@@ -406,6 +474,94 @@ export function ArenaHeader({
         {bannerText}
       </div>
     </div>
+  );
+}
+
+function ConclusionDialog({ tournament }: { tournament: Tournament }) {
+  const { toast } = useToast();
+  const [isPending, setIsPending] = useState(false);
+
+  const concludeMutation = useMutation({
+    mutationFn: async (strategy: 'force_end' | 'wait_for_ongoing') => {
+      // 1. Update strategy directly on tournament
+      await apiRequest(`/api/tournaments/${tournament.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ arenaEndStrategy: strategy })
+      });
+      
+      // 2. Call conclude with the strategy
+      return apiRequest(`/api/tournaments/${tournament.id}/arena/conclude`, {
+        method: "POST",
+        body: JSON.stringify({ strategy })
+      });
+    },
+    onSuccess: () => {
+      toast({ title: "Tournament conclusion initiated" });
+      queryClient.invalidateQueries({ queryKey: [`/api/tournaments/${tournament.id}`] });
+    },
+    onError: (error: any) => toast({ title: "Error", description: error.message, variant: "destructive" }),
+  });
+
+  return (
+    <DialogContent className="max-w-md p-0 overflow-hidden border-none shadow-2xl rounded-2xl bg-white">
+      <div className="bg-amber-500 px-6 py-8 text-white relative">
+        <div className="absolute top-4 right-4 opacity-10">
+          <Clock className="h-24 w-24 -rotate-12" />
+        </div>
+        <div className="relative z-10">
+          <Badge className="bg-white/20 text-white border-white/30 mb-2">Tournament Ended</Badge>
+          <h2 className="text-2xl font-black tracking-tight">Conclude Arena</h2>
+          <p className="text-amber-50 mt-1 text-sm opacity-90">The clock has reached zero. Choose how to finalize the results.</p>
+        </div>
+      </div>
+
+      <div className="p-6 space-y-4">
+        <div 
+          className="group p-4 rounded-xl border border-slate-200 hover:border-slate-900 transition-all cursor-pointer bg-slate-50/50 hover:bg-white"
+          onClick={() => concludeMutation.mutate('wait_for_ongoing')}
+        >
+          <div className="flex items-start gap-3">
+            <div className="p-2 bg-blue-100 text-blue-600 rounded-lg shrink-0">
+              <Clock className="h-5 w-5" />
+            </div>
+            <div>
+              <p className="font-bold text-slate-800">Wait for Ongoing Matches</p>
+              <p className="text-xs text-slate-500 mt-0.5 leading-relaxed">
+                Pairings stop immediately. The tournament will automatically conclude once the last live game is finished.
+              </p>
+              <Badge variant="secondary" className="mt-2 text-[9px] bg-blue-50 text-blue-600 border-blue-100">Recommended</Badge>
+            </div>
+          </div>
+        </div>
+
+        <div 
+          className="group p-4 rounded-xl border border-slate-200 hover:border-red-600 transition-all cursor-pointer bg-slate-50/50 hover:bg-white"
+          onClick={() => concludeMutation.mutate('force_end')}
+        >
+          <div className="flex items-start gap-3">
+            <div className="p-2 bg-red-100 text-red-600 rounded-lg shrink-0">
+              <Zap className="h-5 w-5" />
+            </div>
+            <div>
+              <p className="font-bold text-slate-800">Force End Immediately</p>
+              <p className="text-xs text-slate-500 mt-0.5 leading-relaxed">
+                The tournament ends right now. Any games still in progress will be marked as unfinished.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div className="pt-2">
+          <Button 
+            variant="ghost" 
+            className="w-full text-slate-400 text-xs font-bold hover:text-slate-600"
+            onClick={() => { /* Close dialog */ }}
+          >
+            Cancel & Return to Lobby
+          </Button>
+        </div>
+      </div>
+    </DialogContent>
   );
 }
 
@@ -633,7 +789,7 @@ export function ArenaLobby({ tournamentId, isTD, userId, onArenaStart }: ArenaUI
     </div>
   );
 
-  if (tournament?.status === 'completed') return <ArenaPodium players={players || []} />;
+  if (tournament?.status === 'completed') return <ArenaPodium players={players || []} matches={matches || []} isTD={isTD} />;
 
   return (
     <div className="space-y-4 animate-in fade-in duration-500">
@@ -645,31 +801,6 @@ export function ArenaLobby({ tournamentId, isTD, userId, onArenaStart }: ArenaUI
           playerCount={players?.length || 0}
           isTD={isTD}
         />
-      )}
-
-      {/* Time expired banner */}
-      {isExpired && tournament?.status === 'active' && (
-        <div className="flex items-center justify-between bg-amber-50 border border-amber-200 rounded-lg px-4 py-2.5">
-          <div className="flex items-center gap-2 text-amber-700">
-            <Clock className="h-4 w-4" />
-            <span className="text-sm font-semibold">Arena time expired</span>
-            <span className="text-xs text-amber-600">
-              {tournament.arenaEndStrategy === 'wait_for_ongoing' ? '— waiting for ongoing matches' : '— concluding now'}
-            </span>
-          </div>
-          {isTD && (
-            <Button
-              size="sm"
-              className="h-7 px-3 text-xs bg-amber-600 hover:bg-amber-700 text-white"
-              onClick={() => {
-                apiRequest(`/api/tournaments/${tournamentId}/arena/conclude`, { method: "POST" })
-                  .then(() => queryClient.invalidateQueries({ queryKey: [`/api/tournaments/${tournamentId}`] }));
-              }}
-            >
-              Conclude
-            </Button>
-          )}
-        </div>
       )}
 
       {/* Start Tournament CTA (registration state) */}
@@ -1135,6 +1266,7 @@ export function ArenaStandings({
               rank={page * PAGE_SIZE + idx + 1}
               isTD={isTD && tournament?.arenaPairingMode === 'manual'}
               matches={matches || []}
+              players={standings || []}
               onSelectWhite={(id) => setWhitePlayerId?.(id)}
               onSelectBlack={(id) => setBlackPlayerId?.(id)}
               selectedWhite={whitePlayerId}
@@ -1155,39 +1287,130 @@ export function ArenaStandings({
 }
 
 // ─── Podium ──────────────────────────────────────────────────────────────────
-export function ArenaPodium({ players }: { players: Player[] }) {
-  const top3 = [...players]
+export function ArenaPodium({ players, matches, isTD }: { players: Player[]; matches: Match[]; isTD?: boolean }) {
+  const top3 = useMemo(() => [...players]
     .sort((a, b) => parseFloat(b.arenaPoints || "0") - parseFloat(a.arenaPoints || "0"))
-    .slice(0, 3);
+    .slice(0, 3), [players]);
 
   if (top3.length === 0) return null;
 
   const podiumOrder = [top3[1], top3[0], top3[2]].filter(Boolean);
-  const heights = [top3[1] ? 'h-28' : 'h-0', 'h-40', top3[2] ? 'h-20' : 'h-0'];
+  const heights = [top3[1] ? 'h-32' : 'h-0', 'h-48', top3[2] ? 'h-24' : 'h-0'];
   const medals = ['🥈', '🥇', '🥉'];
-  const labels = ['2nd Place', '1st Place', '3rd Place'];
+  const colors = [
+    'from-slate-300 to-slate-400 border-slate-200', 
+    'from-amber-300 to-amber-500 border-amber-200', 
+    'from-orange-200 to-orange-400 border-orange-100'
+  ];
+  const labels = ['Silver Medalist', 'Tournament Champion', 'Bronze Medalist'];
 
   return (
-    <div className="py-16 flex flex-col items-center animate-in fade-in duration-700">
-      <h2 className="text-3xl font-black text-center mb-10 bg-gradient-to-r from-amber-500 to-yellow-400 bg-clip-text text-transparent">
-        Tournament Podium
-      </h2>
-      <div className="flex items-end justify-center gap-3 w-full max-w-xl px-4">
-        {podiumOrder.map((player, i) => (
-          <div key={player?.id} className="flex flex-col items-center flex-1">
-            <span className="text-2xl mb-2">{medals[i]}</span>
-            <p className="text-xs font-bold text-slate-600 truncate w-full text-center mb-1">{player?.firstName} {player?.lastName}</p>
-            <p className="text-lg font-black text-slate-800 mb-2">{player?.arenaPoints}</p>
-            <div className={cn("w-full rounded-t-lg flex items-end justify-center pb-2 shadow-inner",
-              i === 1 ? "bg-gradient-to-b from-amber-300 to-amber-500 " + heights[i] :
-              i === 0 ? "bg-slate-300 dark:bg-slate-600 " + heights[i] :
-              "bg-orange-200 dark:bg-orange-800 " + heights[i]
-            )}>
-              <span className="text-[10px] font-black uppercase tracking-wider opacity-60">{labels[i]}</span>
-            </div>
-          </div>
-        ))}
+    <div className="min-h-[80vh] flex flex-col items-center justify-center px-4 relative overflow-hidden bg-slate-50/50 rounded-3xl border border-slate-200/60 shadow-inner">
+      <ConfettiEffect />
+      
+      <motion.div 
+        initial={{ y: 20, opacity: 0 }}
+        animate={{ y: 0, opacity: 1 }}
+        className="text-center mb-16 relative z-10"
+      >
+        <div className="inline-flex items-center gap-2 px-3 py-1 bg-amber-100 text-amber-700 rounded-full text-[10px] font-black uppercase tracking-widest mb-4 border border-amber-200 shadow-sm">
+          <Trophy className="h-3 w-3" /> Arena Results
+        </div>
+        <h2 className="text-5xl font-black text-slate-900 tracking-tight leading-none">
+          The Podium
+        </h2>
+        <p className="text-slate-500 mt-3 font-medium">Congratulations to the tournament winners!</p>
+      </motion.div>
+
+      <div className="flex items-end justify-center gap-4 w-full max-w-4xl relative z-10">
+        {podiumOrder.map((player, i) => {
+          const originalIdx = podiumOrder.length === 3 ? (i === 1 ? 0 : i === 0 ? 1 : 2) : (top3[0].id === player?.id ? 0 : 1);
+          const tpr = calculateTPR(player.id, matches, players);
+          const sequence = calculatePerformanceSequence(player.id, matches);
+          
+          return (
+            <motion.div 
+              key={player?.id} 
+              initial={{ y: 50, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              transition={{ delay: i * 0.2 + 0.3 }}
+              className="flex flex-col items-center flex-1 max-w-[240px]"
+            >
+              <div className="relative mb-6">
+                <div className="h-16 w-16 rounded-2xl bg-white shadow-xl flex items-center justify-center border border-slate-100 relative z-10">
+                  <User className="h-8 w-8 text-slate-400" />
+                </div>
+                <div className="absolute -top-3 -right-3 h-8 w-8 bg-white rounded-full shadow-lg flex items-center justify-center text-lg z-20 border border-slate-50">
+                  {medals[originalIdx]}
+                </div>
+              </div>
+
+              <div className="text-center mb-4">
+                <p className="text-sm font-black text-slate-800 leading-tight">
+                  {player?.firstName} {player?.lastName}
+                </p>
+                <div className="flex items-center justify-center gap-2 mt-1">
+                   <Badge variant="outline" className="text-[9px] font-bold py-0 h-4 bg-white/50 border-slate-200">{player.rating} Rating</Badge>
+                   <span className="text-[10px] font-black text-blue-600 uppercase tracking-tighter">TPR: {tpr}</span>
+                </div>
+              </div>
+
+              <div className={cn(
+                "w-full rounded-2xl flex flex-col items-center justify-start py-6 shadow-xl border relative overflow-hidden",
+                "bg-gradient-to-b " + colors[originalIdx],
+                i === 1 ? "scale-110 z-10" : ""
+              )}>
+                {/* Decorative Pattern */}
+                <div className="absolute inset-0 opacity-10 pointer-events-none">
+                   <div className="absolute top-0 left-0 w-full h-full bg-[radial-gradient(circle_at_center,_var(--tw-gradient-from)_0%,_transparent_70%)]" />
+                </div>
+
+                <p className="text-4xl font-black text-slate-900 mb-1 tabular-nums drop-shadow-sm">
+                  {player?.arenaPoints}
+                </p>
+                <p className="text-[10px] font-black uppercase tracking-widest text-slate-900/60 mb-6 font-mono">Points</p>
+                
+                <div className="w-full px-4 pt-4 border-t border-black/5 flex flex-col gap-3">
+                   <div className="flex justify-between items-center bg-black/5 rounded-lg px-2.5 py-1.5">
+                      <span className="text-[9px] font-bold text-black/40 uppercase">Performance</span>
+                      <PerformanceBar sequence={sequence} />
+                   </div>
+                   <div className="text-center">
+                      <span className="text-[9px] font-black text-black/60 uppercase tracking-wider">{labels[originalIdx]}</span>
+                   </div>
+                </div>
+              </div>
+            </motion.div>
+          );
+        })}
       </div>
+
+      <motion.div 
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ delay: 1.5 }}
+        className="mt-20 flex flex-col items-center gap-4 relative z-10"
+      >
+        <div className="p-1 px-4 bg-slate-900/5 rounded-full border border-slate-200/50 backdrop-blur-sm">
+           <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">End of Tournament Summary</p>
+        </div>
+        
+        <div className="flex items-center gap-3">
+          <Button 
+            variant="outline" 
+            className="rounded-xl border-slate-200 shadow-sm font-bold text-xs h-10 px-6 hover:bg-slate-100 transition-all"
+            onClick={() => window.location.href = `/tournaments/${players[0].tournamentId}${isTD ? '/manage' : ''}`}
+          >
+            <ChevronLeft className="h-4 w-4 mr-2" /> Back to Tournament
+          </Button>
+          <Button 
+            className="rounded-xl bg-slate-900 text-white shadow-lg font-bold text-xs h-10 px-6 hover:bg-slate-800 transition-all"
+            onClick={() => window.location.href = '/tournaments'}
+          >
+            All Tournaments
+          </Button>
+        </div>
+      </motion.div>
     </div>
   );
 }

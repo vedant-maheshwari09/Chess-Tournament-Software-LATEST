@@ -5,7 +5,8 @@ import { z } from "zod";
 import { normalizePlayerName } from "./util";
 import Stripe from "stripe";
 import {
-  lookupUSCF, lookupFide, mapLocalResult, extractQueryParam, normalizeSearchParams, parseLimitParam, getGeminiConfig, normalizeCurrency, computePaymentTotals, normalizeAccountPaymentSettings, formatCurrencyAmount, describeRatingWindow, generatePairings, groupPlayersByScore, pairUpperVsLowerHalf, determineSwissColors, generateSwissPairings, generateBoardNumberSequence, RatingSource, STRIPE_SECRET_KEY, STRIPE_PUBLISHABLE_KEY, STRIPE_WEBHOOK_SECRET, stripe, PAYMENT_STATUSES, PaymentStatus, RatingLookupResult, paymentProviderEnum, paymentScopeEnum, offlineMethodEnum, updateTournamentPaymentsSchema, accountPaymentSettingsSchema, geminiDraftSchema, updateNotificationPreferencesSchema, tournamentNotificationSchema, createPaymentIntentSchema, playerRegistrationSchema, BoardNumberingSettings
+  lookupUSCF, lookupFide, mapLocalResult, extractQueryParam, normalizeSearchParams, parseLimitParam, getGeminiConfig, normalizeCurrency, computePaymentTotals, normalizeAccountPaymentSettings, formatCurrencyAmount, describeRatingWindow, generatePairings, groupPlayersByScore, pairUpperVsLowerHalf, determineSwissColors, generateSwissPairings, generateBoardNumberSequence, RatingSource, STRIPE_SECRET_KEY, STRIPE_PUBLISHABLE_KEY, STRIPE_WEBHOOK_SECRET, stripe, PAYMENT_STATUSES, PaymentStatus, RatingLookupResult, paymentProviderEnum, paymentScopeEnum, offlineMethodEnum, updateTournamentPaymentsSchema, accountPaymentSettingsSchema, geminiDraftSchema, updateNotificationPreferencesSchema, tournamentNotificationSchema, createPaymentIntentSchema, playerRegistrationSchema, BoardNumberingSettings,
+  calculateMatchupScore, getMatchFormat, isMatchDecided, advanceKnockoutWinner, spawnNextMatchupGame
 } from "./common";
 
 import { storage } from '../storage';
@@ -15,6 +16,7 @@ import { parseTournamentConfig } from "@shared/tournament-config";
 import { generateFideTrf16Report } from '../lib/fideTrf';
 import { lookupFideProfiles, searchFideDirectory } from '../lib/fideDirectory';
 import { Player, Pairing, Match, PlayerRegistration } from "@shared/schema";
+import { generateKnockoutPairings, generateDoubleEliminationPairings } from '../knockout';
 
 
 export function applyTournamentsRoutes(app: Express) {
@@ -60,7 +62,7 @@ app.get("/api/health/db", async (req, res) => {
 
       if (hasAnonKey && !hasServiceKey) {
         // Warn but try to connect anyway
-        console.warn("⚠️  Using SUPABASE_ANON_KEY instead of SUPABASE_SERVICE_ROLE_KEY. This may cause permission errors for server-side operations.");
+        console.warn("âš ï¸  Using SUPABASE_ANON_KEY instead of SUPABASE_SERVICE_ROLE_KEY. This may cause permission errors for server-side operations.");
       }
 
       // Try a simple query to test the connection
@@ -217,8 +219,8 @@ app.post("/api/tools/gemini-draft", requireAuth, async (req, res) => {
         const parts: string[] = [];
         if (item.date) parts.push(String(item.date));
         if (item.time) parts.push(String(item.time));
-        const timing = parts.length > 0 ? ` – ${parts.join(" @ ")}` : "";
-        return `• ${item.label ?? "Event"}${timing}`;
+        const timing = parts.length > 0 ? ` â€“ ${parts.join(" @ ")}` : "";
+        return `â€¢ ${item.label ?? "Event"}${timing}`;
       })
       .join("\n");
 
@@ -229,7 +231,7 @@ app.post("/api/tools/gemini-draft", requireAuth, async (req, res) => {
         if (contact.role) segments.push(contact.role);
         if (contact.phone) segments.push(contact.phone);
         if (contact.email) segments.push(contact.email);
-        return `• ${contact.name ?? "Contact"}${segments.length ? ` (${segments.join(" · ")})` : ""}`;
+        return `â€¢ ${contact.name ?? "Contact"}${segments.length ? ` (${segments.join(" Â· ")})` : ""}`;
       })
       .join("\n");
 
@@ -238,10 +240,10 @@ app.post("/api/tools/gemini-draft", requireAuth, async (req, res) => {
       .map((fee: any) => {
         const amount = formatCurrencyAmount(fee.amount, fee.currency);
         const ratingWindow = describeRatingWindow(fee.ratingMin, fee.ratingMax);
-        const ratingText = ratingWindow === "All ratings" ? "" : ` · ${ratingWindow}`;
-        const note = fee.notes ? ` — ${fee.notes}` : "";
+        const ratingText = ratingWindow === "All ratings" ? "" : ` Â· ${ratingWindow}`;
+        const note = fee.notes ? ` â€” ${fee.notes}` : "";
         const sectionName = fee.section ?? "Section";
-        return `• ${sectionName}: ${amount}${ratingText}${note}`;
+        return `â€¢ ${sectionName}: ${amount}${ratingText}${note}`;
       })
       .join("\n");
 
@@ -271,7 +273,7 @@ app.post("/api/tools/gemini-draft", requireAuth, async (req, res) => {
       highlightItems.push("Online registration is open through the player portal.");
     }
 
-    const highlightLines = highlightItems.map((item) => `• ${item}`).join("\n");
+    const highlightLines = highlightItems.map((item) => `â€¢ ${item}`).join("\n");
 
     const baseModel = (() => {
       const raw = model && model.trim().length > 0 ? model.trim() : "gemini-1.5-flash";
@@ -756,19 +758,27 @@ app.post("/api/tournaments/:id/start", requireAuth, requireRole('tournament_dire
         rounds = players.length % 2 === 0 ? players.length - 1 : players.length;
       }
 
-      // Clear existing matches and pairings for this tournament to ensure a clean start
-      console.log(`[StartTournament] Clearing existing data for tournament ${tournamentId}`);
-      try {
-        const existingMatches = await storage.getMatchesByTournament(tournamentId);
-        for (const m of existingMatches) {
-          await storage.deleteMatch(m.id);
+      // Clear existing data for a clean start
+      // For knockout, we require the bracket to be pre-generated via the manual button.
+      const existingMatches = await storage.getMatchesByTournament(tournamentId);
+      if (tournament.format === 'knockout') {
+        if (existingMatches.length === 0) {
+          return res.status(400).json({ message: "Please generate the knockout bracket before starting the tournament." });
         }
-        const existingPairings = await storage.getPairingsByTournament(tournamentId);
-        for (const p of existingPairings) {
-          await storage.deletePairing(p.id);
+        console.log(`[StartTournament] Knockout pairings already exist, skipping cleanup`);
+      } else {
+        console.log(`[StartTournament] Clearing existing data for tournament ${tournamentId}`);
+        try {
+          for (const m of existingMatches) {
+            await storage.deleteMatch(m.id);
+          }
+          const existingPairings = await storage.getPairingsByTournament(tournamentId);
+          for (const p of existingPairings) {
+            await storage.deletePairing(p.id);
+          }
+        } catch (err) {
+          console.error(`[StartTournament] Error during cleanup:`, err);
         }
-      } catch (err) {
-        console.error(`[StartTournament] Error during cleanup:`, err);
       }
 
       const updateData: any = {
@@ -898,120 +908,7 @@ app.post("/api/tournaments/:id/start", requireAuth, requireRole('tournament_dire
               });
             }
           }
-        } else if (tournament.format === "knockout" && sectionPlayers.length >= 2) {
-          console.log(`Generating Knockout bracket for ${sectionPlayers.length} players in section ${sectionKey}`);
-          
-          let sortedPlayers;
-          const config = parseTournamentConfig(tournament);
-          const seedingMethod = config.seedingMethod || 'standard';
-          const seedingSource = config.seedingSource || 'rating';
-
-          if (seedingMethod === 'random') {
-            sortedPlayers = [...sectionPlayers].sort(() => Math.random() - 0.5);
-          } else if (seedingMethod === 'manual') {
-            // Sort by manual seed (lowest number first, e.g. 1 is top seed)
-            // Players without a seed go to the bottom
-            sortedPlayers = [...sectionPlayers].sort((a, b) => {
-              const seedA = a.seed ?? 999999;
-              const seedB = b.seed ?? 999999;
-              if (seedA !== seedB) return seedA - seedB;
-              // Secondary sort by rating if seeds are same
-              return (b.rating || 0) - (a.rating || 0);
-            });
-          } else {
-            // Standard or Slaughter seeding based on chosen source
-            sortedPlayers = [...sectionPlayers].sort((a, b) => {
-              let ratingA = 0;
-              let ratingB = 0;
-              
-              switch (seedingSource) {
-                case 'uscf':
-                  ratingA = a.uscfRating || a.rating || 0;
-                  ratingB = b.uscfRating || b.rating || 0;
-                  break;
-                case 'fide':
-                  ratingA = a.fideRating || a.rating || 0;
-                  ratingB = b.fideRating || b.rating || 0;
-                  break;
-                default:
-                  ratingA = a.rating || 0;
-                  ratingB = b.rating || 0;
-              }
-              
-              return ratingB - ratingA;
-            });
-          }
-
-          const { 
-            generateKnockoutPairings: genKnockout,
-            generateDoubleEliminationPairings: genDoubleElim 
-          } = await import('../knockout');
-          
-          const isDoubleElim = tournament.isDoubleElimination;
-          const knockoutPairings = isDoubleElim 
-            ? genDoubleElim(sortedPlayers, seedingMethod as any)
-            : genKnockout(sortedPlayers, seedingMethod as any);
-
-          for (const pairing of knockoutPairings) {
-            if (pairing.isBye) {
-              await storage.createPairing({
-                tournamentId,
-                round: pairing.round,
-                playerId: pairing.whitePlayerId!,
-                opponentId: null,
-                color: null,
-                points: 1,
-                isBye: true,
-              });
-
-              // Create completed match for the bye to show in bracket
-              await storage.createMatch({
-                tournamentId,
-                round: pairing.round,
-                whitePlayerId: pairing.whitePlayerId!,
-                blackPlayerId: null,
-                board: pairing.board,
-                result: "1-0",
-                status: "completed",
-                bracketType: pairing.bracketType,
-                sectionId: sectionKey === 'default' ? null : sectionKey,
-              });
-            } else {
-              if (pairing.whitePlayerId && pairing.blackPlayerId) {
-                await storage.createPairing({
-                  tournamentId,
-                  round: pairing.round,
-                  playerId: pairing.whitePlayerId,
-                  opponentId: pairing.blackPlayerId,
-                  color: "white",
-                  points: 0,
-                  isBye: false,
-                });
-                await storage.createPairing({
-                  tournamentId,
-                  round: pairing.round,
-                  playerId: pairing.blackPlayerId,
-                  opponentId: pairing.whitePlayerId,
-                  color: "black",
-                  points: 0,
-                  isBye: false,
-                });
-              }
-
-              await storage.createMatch({
-                tournamentId,
-                round: pairing.round,
-                whitePlayerId: pairing.whitePlayerId,
-                blackPlayerId: pairing.blackPlayerId,
-                board: pairing.board,
-                result: null,
-                status: "pending",
-                bracketType: pairing.bracketType,
-                sectionId: sectionKey === 'default' ? null : sectionKey,
-              });
-            }
-          }
-        } else if (sectionPlayers.length >= 1) {
+        } else if (tournament.format !== 'knockout' && tournament.format !== 'arena' && sectionPlayers.length >= 1) {
           const numSectionMatches = Math.floor(sectionPlayers.length / 2) + (sectionPlayers.length % 2);
           const boardNumbersForSection = allBoardNumbers.slice(boardNumberOffset, boardNumberOffset + numSectionMatches);
           boardNumberOffset += numSectionMatches;
@@ -1082,6 +979,265 @@ app.post(
       }
     }
   );
+
+// Generate Knockout Bracket
+app.post("/api/tournaments/:id/generate-knockout", requireAuth, requireRole('tournament_director'), requireTournamentAccess, async (req, res) => {
+    try {
+        const tournamentId = parseInt(req.params.id);
+        const tournament = await storage.getTournament(tournamentId);
+
+        if (!tournament) {
+            return res.status(404).json({ message: "Tournament not found" });
+        }
+
+        if (tournament.status !== "draft" && tournament.status !== "upcoming" && tournament.status !== "registration") {
+            return res.status(400).json({ message: "Bracket can only be generated for draft, registration or upcoming tournaments" });
+        }
+
+        // Cleanup existing matches and pairings atomically
+        console.log(`Resetting tournament ${tournamentId} before knockout generation`);
+        await storage.resetTournament(tournamentId);
+
+        const players = await storage.getPlayersByTournament(tournamentId);
+        console.log(`Knockout generation: Current player count for tournament ${tournamentId} is ${players.length}`);
+
+        if (players.length < 2) {
+            return res.status(400).json({ message: "At least 2 players are required to generate a bracket" });
+        }
+
+        console.log(`[ROUTE-DEBUG] Initializing grouping for ${players.length} total players...`);
+
+        // Get tournament sections from config to help with mapping
+        const config = parseTournamentConfig(tournament);
+        const configSections = config.sections || [];
+        const mainSectionId = configSections.length > 0 ? configSections[0].id : null;
+        const mainSectionName = configSections.length > 0 ? configSections[0].name : null;
+        
+        console.log(`[ROUTE-DEBUG] Tournament config has ${configSections.length} sections. Main section: ${mainSectionName} (${mainSectionId})`);
+
+        // Group players by section more robustly
+        const playersBySection: Record<string, Player[]> = {};
+        
+        // Use a map to track sectionName <-> sectionId associations
+        const nameToIdMap: Record<string, string> = {};
+        const sectionNames: Record<string, string> = {};
+        configSections.forEach(s => {
+          if (s.id && s.name) {
+            nameToIdMap[s.name.toLowerCase().trim()] = s.id;
+            sectionNames[s.id] = s.name;
+          }
+        });
+        players.forEach(p => {
+          if (p.sectionId && p.sectionName) {
+            nameToIdMap[p.sectionName.toLowerCase().trim()] = p.sectionId;
+            sectionNames[p.sectionId] = p.sectionName;
+          }
+        });
+
+        players.forEach(player => {
+            let sKey: string;
+            const pSectionNameNormalized = player.sectionName?.toLowerCase().trim();
+            
+            console.log(`[DRIVE-SYNC] Mapping Player: ${player.username} (ID: ${player.id}) | SectionID: ${player.sectionId} | SectionName: ${player.sectionName}`);
+
+            if (configSections.length === 1 && mainSectionId) {
+                sKey = mainSectionId;
+                console.log(`  -> FORCED to single main section: ${sKey}`);
+            } else if (player.sectionId) {
+                sKey = player.sectionId;
+                console.log(`  -> Found existing sectionId: ${sKey}`);
+            } else if (pSectionNameNormalized && nameToIdMap[pSectionNameNormalized]) {
+                sKey = nameToIdMap[pSectionNameNormalized];
+                console.log(`  -> Normalized name match: ${pSectionNameNormalized} maps to ${sKey}`);
+            } else if (mainSectionId) {
+                sKey = mainSectionId;
+                console.log(`  -> Fallback to mainSectionId: ${sKey}`);
+            } else {
+                const anyValidId = players.find(p => p.sectionId)?.sectionId;
+                sKey = anyValidId || player.sectionId || player.sectionName || 'default';
+                console.log(`  -> Ultimate fallback: ${sKey}`);
+            }
+            
+            // Ensure sKey is tracked in sectionNames for later use
+            if (!sectionNames[sKey]) {
+                sectionNames[sKey] = player.sectionName || sKey;
+            }
+            
+            if (!playersBySection[sKey]) {
+                playersBySection[sKey] = [];
+            }
+            playersBySection[sKey].push(player);
+        });
+
+        const sectionKeys = Object.keys(playersBySection);
+        console.log(`[ROUTE-DEBUG] Found ${sectionKeys.length} sections: ${sectionKeys.join(', ')}`);
+        for (const key of sectionKeys) {
+            console.log(`[ROUTE-DEBUG] Section [${key}] has ${playersBySection[key].length} players`);
+        }
+
+        console.log(`[ROUTE-DEBUG] Found ${Object.keys(playersBySection).length} groups: ${Object.keys(playersBySection).join(', ')}`);
+
+        let globalMaxRound = 0;
+        for (const sectionKey in playersBySection) {
+            const sectionPlayers = playersBySection[sectionKey];
+            console.log(`[ROUTE-DEBUG] PROCESSING SECTION [${sectionKey}] with ${sectionPlayers.length} players.`);
+            if (sectionPlayers.length < 2) {
+              console.log(`[ROUTE-DEBUG] Skipping section [${sectionKey}] because it only has ${sectionPlayers.length} players.`);
+              continue;
+            }
+
+            console.log(`Generating Knockout bracket for ${sectionPlayers.length} players in section ${sectionKey}`);
+            
+            let sortedPlayers;
+            const config = parseTournamentConfig(tournament);
+            let seedingMethod: "rating" | "random" | "slaughter" | "manual" | "fide_world_cup" | "standard" = "fide_world_cup";
+            const seedingMethodInput = req.body.seedingMethod || tournament.seedingMethod || "Standard Knockout System(Default)";
+            
+            const inputLower = seedingMethodInput.toLowerCase();
+            if (inputLower.includes('slaughter')) {
+              seedingMethod = 'slaughter';
+            } else if (inputLower.includes('random')) {
+              seedingMethod = 'random';
+            } else if (inputLower.includes('manual')) {
+              seedingMethod = 'manual';
+            } else {
+              seedingMethod = 'fide_world_cup';
+            }
+            console.log(`[ROUTE-DEBUG] Resolved Seeding Method: ${seedingMethod} (from input: "${seedingMethodInput}")`);
+            
+            const isDoubleElim = tournament.isDoubleElimination || config.registers?.isDoubleElimination || false;
+            const seedingSource = config.seedingSource || 'rating';
+
+            if (seedingMethod === 'random') {
+              sortedPlayers = [...sectionPlayers].sort(() => Math.random() - 0.5);
+            } else if (seedingMethod === 'manual') {
+              sortedPlayers = [...sectionPlayers].sort((a, b) => {
+                const seedA = Number(a.seed) || 999999;
+                const seedB = Number(b.seed) || 999999;
+                if (seedA !== seedB) return seedA - seedB;
+                return (b.rating || 0) - (a.rating || 0);
+              });
+            } else {
+              // Standard, Slaughter, FIDE, Rating - all sorted by rating first
+              sortedPlayers = [...sectionPlayers].sort((a, b) => {
+                let ratingA = 0;
+                let ratingB = 0;
+                switch (seedingSource) {
+                  case 'uscf':
+                    ratingA = a.uscfRating || a.rating || 0;
+                    ratingB = b.uscfRating || b.rating || 0;
+                    break;
+                  case 'fide':
+                    ratingA = a.fideRating || a.rating || 0;
+                    ratingB = b.fideRating || b.rating || 0;
+                    break;
+                  default:
+                    ratingA = a.rating || 0;
+                    ratingB = b.rating || 0;
+                }
+                return ratingB - ratingA;
+              });
+            }
+            
+            console.log(`[ENGINE-V4] Input to generateKnockoutPairings: ${sortedPlayers.length} players, method: ${seedingMethod}`);
+            const knockoutPairings = isDoubleElim 
+              ? await generateDoubleEliminationPairings(sortedPlayers, seedingMethod as any)
+              : await generateKnockoutPairings(sortedPlayers, seedingMethod as any);
+
+            console.log(`[ENGINE-V4] Generated ${knockoutPairings.length} total objects for section ${sectionKey}`);
+            
+            if (knockoutPairings.length === 0) {
+              console.warn(`[ENGINE-V4] WARNING: No pairings generated for ${sortedPlayers.length} players!`);
+            }
+
+            console.log(`[DRIVE-SYNC] STARTING INSERTION: ${knockoutPairings.length} pairings for section ${sectionKey}`);
+            let sectionMatchesCreated = 0;
+            for (const pairing of knockoutPairings) {
+                try {
+                    if (pairing.round > globalMaxRound) globalMaxRound = pairing.round;
+
+                    if (pairing.isBye) {
+                        await storage.createPairing({
+                            tournamentId,
+                            round: pairing.round,
+                            playerId: pairing.whitePlayerId!,
+                            opponentId: null,
+                            color: null,
+                            points: 1,
+                            isBye: true,
+                        });
+                        await storage.createMatch({
+                            tournamentId,
+                            round: pairing.round,
+                            whitePlayerId: pairing.whitePlayerId!,
+                            blackPlayerId: null,
+                            board: pairing.board,
+                            result: "1-0",
+                            status: "completed",
+                            bracketType: pairing.bracketType,
+                            sectionId: sectionKey === 'default' ? null : sectionKey,
+                        });
+                    } else {
+                        if (pairing.whitePlayerId && pairing.blackPlayerId) {
+                            await storage.createPairing({
+                                tournamentId,
+                                round: pairing.round,
+                                playerId: pairing.whitePlayerId,
+                                opponentId: pairing.blackPlayerId,
+                                color: "white",
+                                points: 0,
+                                isBye: false,
+                            });
+                            await storage.createPairing({
+                                tournamentId,
+                                round: pairing.round,
+                                playerId: pairing.blackPlayerId,
+                                opponentId: pairing.whitePlayerId,
+                                color: "black",
+                                points: 0,
+                                isBye: false,
+                            });
+                        }
+                        await storage.createMatch({
+                            tournamentId,
+                            round: pairing.round,
+                            whitePlayerId: pairing.whitePlayerId,
+                            blackPlayerId: pairing.blackPlayerId,
+                            board: pairing.board,
+                            result: null,
+                            status: "pending",
+                            bracketType: pairing.bracketType,
+                            sectionId: sectionKey === 'default' ? null : sectionKey,
+                        });
+                    }
+                    sectionMatchesCreated++;
+                } catch (err: any) {
+                    console.error(`[DRIVE-SYNC] ERROR creating match for round ${pairing.round} board ${pairing.board}:`, err.message);
+                    throw err; 
+                }
+            }
+            console.log(`[DRIVE-SYNC] INSERTED ${sectionMatchesCreated} matches for section ${sectionKey}`);
+        }
+        // Update tournament rounds and reset currentRound to 1
+        const finalRoundsCount = Math.max(globalMaxRound, 1);
+        console.log(`[DRIVE-SYNC] FINALIZING TOURNAMENT: rounds=${finalRoundsCount}, status=active`);
+        
+        await storage.updateTournament(tournamentId, { 
+            rounds: finalRoundsCount,
+            currentRound: 1,
+            status: 'active'
+        });
+
+        res.json({ 
+            message: "Knockout bracket generated successfully",
+            rounds: finalRoundsCount,
+            status: 'active'
+        });
+    } catch (error) {
+        console.error("Generate knockout error:", error);
+        res.status(500).json({ message: "Failed to generate knockout bracket" });
+    }
+});
 
 // Generate next round
 app.post("/api/tournaments/:id/next-round", requireAuth, requireRole('tournament_director'), requireTournamentAccess, async (req, res) => {
@@ -2459,47 +2615,72 @@ app.put("/api/matches/:id", requireAuth, requireRole('tournament_director'), asy
         });
 
         // Handle Knockout Advancement
-        const tournament = await storage.getTournament(currentMatch.tournamentId);
-        if (tournament?.format === 'knockout' && (updatedMatch.result === '1-0' || updatedMatch.result === '0-1')) {
-          const winnerId = updatedMatch.result === '1-0' ? updatedMatch.whitePlayerId : updatedMatch.blackPlayerId;
-          if (winnerId) {
-            const nextRound = currentMatch.round + 1;
-            if (currentMatch.board !== null && currentMatch.board !== undefined) {
-              const nextBoard = Math.ceil(currentMatch.board / 2);
-              const isWhite = currentMatch.board % 2 !== 0;
-
-              const matches = await storage.getMatchesByTournament(tournament.id);
-              const nextMatch = matches.find(m => m.round === nextRound && m.board === nextBoard);
-
-              if (nextMatch) {
-                await storage.updateMatch(nextMatch.id, {
-                  [isWhite ? 'whitePlayerId' : 'blackPlayerId']: winnerId
-                });
-                console.log(`Advancing player ${winnerId} to Round ${nextRound}, Board ${nextBoard} as ${isWhite ? 'White' : 'Black'}`);
-              }
+        try {
+          const tournament = await storage.getTournament(currentMatch.tournamentId);
+          if (tournament && tournament.format === 'knockout') {
+            const t = tournament;
+            console.log(`[DEBUG] Handling Knockout Advancement for Tournament ${t.id}, Round ${currentMatch.round}, Board ${currentMatch.board}`);
+            
+            const allMatches = await storage.getMatchesByTournament(t.id);
+            // Include ALL games in this matchup to accurately calculate series score
+            const matchupGames = allMatches.filter(m => 
+              m.round === currentMatch.round && 
+              m.board === currentMatch.board &&
+              (m.bracketType || 'winners') === (currentMatch.bracketType || 'winners') &&
+              (m.sectionId || null) === (currentMatch.sectionId || null)
+            );
+            
+            console.log(`[DEBUG] Found ${matchupGames.length} total games for this matchup.`);
+            
+            const score = calculateMatchupScore(matchupGames);
+            const config = parseTournamentConfig(t);
+            const format = getMatchFormat(config, currentMatch.round, (currentMatch.bracketType as string) || undefined);
+            
+            console.log(`[DEBUG] Series Score: P1(${score.p1Id})=${score.p1Score}, P2(${score.p2Id})=${score.p2Score}`);
+            console.log(`[DEBUG] Checking thresholds: ${JSON.stringify(format.thresholds)}`);
+            
+            const decision = isMatchDecided(score, format, updatedMatch);
+            console.log(`[DEBUG] Decision result: ${JSON.stringify(decision)}`);
+            
+            if (decision.winnerId) {
+              console.log(`[DEBUG] Match series DECIDED. Winner: ${decision.winnerId}. Advancing...`);
+              await advanceKnockoutWinner(t.id, updatedMatch, decision.winnerId);
+            } else {
+              // Not decided, check if we need to spawn next game (up to format.games)
+              console.log(`[DEBUG] Match series NOT DECIDED. Current games: ${matchupGames.length}/${format.games || 2}. Checking for Game ${matchupGames.length + 1} spawning...`);
+              await spawnNextMatchupGame(t.id, updatedMatch, matchupGames);
             }
           }
+        } catch (error: any) {
+          console.error(`[ERROR] Knockout Advancement Logic encountered an error:`, error.message);
+          console.error(error.stack);
+          // Non-blocking error
         }
 
-        // Notify players about result change
-        const resultText = updatedMatch.result === '1-0' ? 'White won' : updatedMatch.result === '0-1' ? 'Black won' : updatedMatch.result === '1/2-1/2' ? 'Draw' : updatedMatch.result;
-        if (whitePlayerName?.userId) {
-          await storage.createNotification({
-            userId: whitePlayerName.userId,
-            title: "Match Result Updated",
-            message: `The result for your Round ${currentMatch.round} match has been recorded: ${resultText}.`,
-            type: "result_update",
-            meta: { matchId: currentMatch.id, tournamentId: currentMatch.tournamentId }
-          });
-        }
-        if (blackPlayerName?.userId) {
-          await storage.createNotification({
-            userId: blackPlayerName.userId,
-            title: "Match Result Updated",
-            message: `The result for your Round ${currentMatch.round} match has been recorded: ${resultText}.`,
-            type: "result_update",
-            meta: { matchId: currentMatch.id, tournamentId: currentMatch.tournamentId }
-          });
+        // Notify players about result change - Non-critical
+        try {
+          const resultText = updatedMatch.result === '1-0' ? 'White won' : updatedMatch.result === '0-1' ? 'Black won' : updatedMatch.result === '1/2-1/2' ? 'Draw' : updatedMatch.result;
+          
+          if (whitePlayerName?.userId) {
+            await storage.createNotification({
+              userId: whitePlayerName.userId,
+              title: "Match Result Updated",
+              message: `The result for your Round ${currentMatch.round} match against ${blackPlayerName ? `${blackPlayerName.firstName} ${blackPlayerName.lastName}` : 'Bye'} has been recorded: ${resultText}.`,
+              type: "result_update",
+              meta: { matchId: currentMatch.id, tournamentId: currentMatch.tournamentId }
+            });
+          }
+          if (blackPlayerName?.userId) {
+            await storage.createNotification({
+              userId: blackPlayerName.userId,
+              title: "Match Result Updated",
+              message: `The result for your Round ${currentMatch.round} match against ${whitePlayerName ? `${whitePlayerName.firstName} ${whitePlayerName.lastName}` : 'Bye'} has been recorded: ${resultText}.`,
+              type: "result_update",
+              meta: { matchId: currentMatch.id, tournamentId: currentMatch.tournamentId }
+            });
+          }
+        } catch (notifyErr) {
+          console.error(`[ERROR] Post-update notification failed:`, notifyErr);
         }
       }
 
@@ -2699,8 +2880,7 @@ app.post("/api/tournaments/:tournamentId/generate-pairings", requireAuth, requir
           });
         }
 
-        await storage.updateTournament(tournamentId, { currentRound: 1 });
-
+        await storage.updateTournament(tournamentId, { status: "active" });
         combinedResults.message = `Round Robin tournament started/regenerated! Generated pairings for ${Object.keys(playersBySection).length} sections.`;
         return res.json(combinedResults);
       }

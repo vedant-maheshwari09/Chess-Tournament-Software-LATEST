@@ -13,13 +13,44 @@ import { apiRequest } from "@/lib/queryClient";
 import { useMemo, useState } from "react";
 import { MatchManagementDialog } from "./match-management-dialog";
 import { useQueryClient, useQuery } from "@tanstack/react-query";
+import { calculateMatchupScore, getMatchFormat, isMatchDecided, parseTournamentConfig } from "@shared/tournament-config";
 
 interface KnockoutBracketProps {
   tournamentId: number;
   sectionId?: string;
+  initialProgressCollapsed?: boolean;
 }
 
-export default function KnockoutBracket({ tournamentId, sectionId }: KnockoutBracketProps) {
+// Utility to calculate scoring and winner for a series of games
+const getMatchupScoring = (boardMatches: Match[], tournament?: Tournament) => {
+  if (boardMatches.length === 0 || !tournament) {
+    return { player1Id: null, player2Id: null, p1Score: 0, p2Score: 0, winnerId: null, isCompleted: false, isBye: false };
+  }
+
+  const firstMatch = boardMatches[0];
+  const bracketType = firstMatch.bracketType || 'winners';
+  const config = parseTournamentConfig(tournament);
+  const format = getMatchFormat(config, firstMatch.round, bracketType as any);
+  
+  const score = calculateMatchupScore(boardMatches);
+  const decision = isMatchDecided(score, format, boardMatches[boardMatches.length - 1]);
+  const winnerId = decision.winnerId;
+  
+  const isCompleted = decision.decided;
+  const isBye = firstMatch.isBye || (!score.p2Id && score.p1Id && boardMatches.some(m => m.status === 'completed'));
+
+  return { 
+    player1Id: score.p1Id, 
+    player2Id: score.p2Id, 
+    p1Score: score.p1Score, 
+    p2Score: score.p2Score, 
+    winnerId, 
+    isCompleted, 
+    isBye 
+  };
+};
+
+export default function KnockoutBracket({ tournamentId, sectionId, initialProgressCollapsed }: KnockoutBracketProps) {
   const { user } = useAuth();
   const isTD = user?.role === 'tournament_director';
   const BASE_CELL_HEIGHT = 160;
@@ -47,7 +78,10 @@ export default function KnockoutBracket({ tournamentId, sectionId }: KnockoutBra
 
   const filteredMatches = useMemo(() => {
     if (!matches) return [];
-    return matches.filter(m => !sectionId || m.sectionId === sectionId);
+    return matches.filter(m => {
+      if (!sectionId) return true;
+      return m.sectionId === sectionId;
+    });
   }, [matches, sectionId]);
 
   const { data: tournament, isLoading: tournamentLoading, refetch: refetchTournament } = useQuery<Tournament>({
@@ -57,6 +91,7 @@ export default function KnockoutBracket({ tournamentId, sectionId }: KnockoutBra
 
   const [selectedMatch, setSelectedMatch] = useState<Match | null>(null);
   const [isManagementOpen, setIsManagementOpen] = useState(false);
+  const [isProgressExpanded, setIsProgressExpanded] = useState(!initialProgressCollapsed);
 
   const queryClient = useQueryClient();
   const refetchMatches = () => {
@@ -162,35 +197,35 @@ export default function KnockoutBracket({ tournamentId, sectionId }: KnockoutBra
   };
 
 
-  const bracketSize = Math.pow(2, Math.ceil(Math.log2(Math.max((players?.length || 0), 2))));
-  const TOTAL_BRACKET_HEIGHT = (bracketSize / 2) * BASE_CELL_HEIGHT;
+  // Calculate bracket dimensions
+  // For 10 players, we want a base of 8, so maxMatches is 4.
+  const playersCount = players?.length || 0;
+  const mainRoundSize = Math.pow(2, Math.floor(Math.log2(Math.max(playersCount, 2))));
+  const hasPrelim = playersCount > mainRoundSize;
+  const bracketSize = hasPrelim ? mainRoundSize * 2 : mainRoundSize;
   const totalRoundsCount = Math.log2(bracketSize);
+  const TOTAL_BRACKET_HEIGHT = (bracketSize / 2) * BASE_CELL_HEIGHT;
   const roundIndices = Array.from({ length: totalRoundsCount }, (_, i) => i + 1);
-  const rounds = roundIndices;
   const maxRound = totalRoundsCount;
   
-  // Calculate tournament winner
-  const getTopMatch = (r: number, b: number) => {
-    const boardMatches = (matchesByRoundAndBoard.winners[r]?.[b] || []);
-    return boardMatches[0] || null;
-  };
 
-  const finalMatch = tournament?.isDoubleElimination 
-    ? (matchesByRoundAndBoard.grand_final[1]?.[1]?.[0] || null)
-    : ((maxRound > 0) ? getTopMatch(maxRound, 1) : null);
+  const finalScoring = getMatchupScoring(
+    tournament?.isDoubleElimination 
+      ? (matchesByRoundAndBoard.grand_final[1]?.[1] || [])
+      : ((maxRound > 0) ? (matchesByRoundAndBoard.winners[maxRound]?.[1] || []) : []),
+    tournament || undefined
+  );
 
-  const isTournamentCompleted = (finalMatch as Match | null)?.status === 'completed';
-  const winnerId = isTournamentCompleted && finalMatch
-    ? ((finalMatch as any).winnerId || (finalMatch.result === '1-0' ? finalMatch.whitePlayerId : (finalMatch.result === '0-1' ? finalMatch.blackPlayerId : null))) 
-    : null;
+  const isTournamentCompleted = finalScoring.isCompleted && finalScoring.winnerId !== null;
+  const winnerId = finalScoring.winnerId;
 
-  if (rounds.length === 0) {
+  if (totalRoundsCount === 0) {
     return (
       <Card>
         <CardContent className="py-12 text-center">
           <Info className="mx-auto h-12 w-12 text-slate-300 mb-4" />
           <h3 className="text-lg font-medium text-slate-900">No Bracket Generated</h3>
-          <p className="text-slate-500 mt-2">Start the tournament to generate the knockout bracket.</p>
+          <p className="text-slate-500 mt-2">Generate the knockout bracket to begin.</p>
         </CardContent>
       </Card>
     );
@@ -213,95 +248,124 @@ export default function KnockoutBracket({ tournamentId, sectionId }: KnockoutBra
       {/* Side Profile Panel */}
       <div className="absolute top-6 right-6 z-20 w-72 flex flex-col gap-4">
         <Card className="bg-slate-800/60 backdrop-blur-2xl border-white/10 shadow-2xl overflow-hidden rounded-[1.5rem] border">
-          <CardHeader className="p-5 bg-white/5 border-b border-white/10">
+          <CardHeader 
+            className="p-5 bg-white/5 border-b border-white/10 cursor-pointer select-none group/header"
+            onClick={() => setIsProgressExpanded(!isProgressExpanded)}
+          >
             <CardTitle className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] flex items-center justify-between">
-              Live Progress
-              <div className="flex items-center gap-1.5 bg-green-500/10 px-2 py-0.5 rounded-full border border-green-500/20">
+              <div className="flex items-center gap-2">
+                <div className={cn(
+                  "p-1 rounded-md transition-colors",
+                  isProgressExpanded ? "bg-amber-500/10 text-amber-500" : "bg-slate-700/50 text-slate-400 group-hover/header:text-white"
+                )}>
+                  {isProgressExpanded ? <Minus className="h-3 w-3" /> : <Plus className="h-3 w-3" />}
+                </div>
+                Live Progress
+              </div>
+              <div className="flex items-center gap-1.5 bg-green-500/10 px-2 py-0.5 rounded-full border border-green-500/20 shadow-lg shadow-green-500/5">
                 <div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
                 <span className="text-[8px] text-green-500 font-bold">LIVE</span>
               </div>
             </CardTitle>
           </CardHeader>
-          <CardContent className="p-0">
-            <div className="divide-y divide-white/5 bg-slate-900/40">
-              {rounds.map((r, i) => {
-                // Aggregated progress across all bracket types for this round number
-                const roundMatches: Match[] = [];
-                ['winners', 'losers', 'grand_final'].forEach(type => {
-                  const boards = (matchesByRoundAndBoard as any)[type][r] || {};
-                  Object.values(boards).forEach((matches: any) => {
-                    roundMatches.push(...matches);
-                  });
-                });
+          <AnimatePresence>
+            {isProgressExpanded && (
+              <motion.div
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: "auto", opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }}
+                transition={{ duration: 0.3, ease: "easeInOut" }}
+                className="overflow-hidden"
+              >
+                <CardContent className="p-0">
+                  <div className="divide-y divide-white/5 bg-slate-900/40">
+                    {roundIndices.map((r, i) => {
+                      // Aggregated progress across all bracket types for this round number
+                      const roundMatches: Match[] = [];
+                      ['winners', 'losers', 'grand_final'].forEach(type => {
+                        const boards = (matchesByRoundAndBoard as any)[type][r] || {};
+                        Object.values(boards).forEach((matches: any) => {
+                          roundMatches.push(...matches);
+                        });
+                      });
 
-                const completed = roundMatches.filter(m => m.status === 'completed').length;
-                const total = roundMatches.length;
-                const progress = total > 0 ? (completed / total) * 100 : 0;
-                const isActive = r === (tournament?.currentRound || 0);
+                      const completed = roundMatches.filter(m => m.status === 'completed').length;
+                      const total = roundMatches.length;
+                      const progress = total > 0 ? (completed / total) * 100 : 0;
+                      const isActive = r === (tournament?.currentRound || 0);
 
-                return (
-                  <div key={r} className={cn("p-4 transition-all duration-300", isActive ? "bg-amber-500/10" : "hover:bg-white/5")}>
-                    <div className="flex items-center justify-between mb-2">
-                       <span className={cn("text-[10px] font-bold uppercase tracking-wider", isActive ? "text-amber-400" : "text-slate-400")}>
-                        {getRoundName(r, totalRoundsCount)}
-                       </span>
-                       <div className="flex items-center gap-2">
-                         <span className={cn("text-[9px] font-black tabular-nums", isActive ? "text-amber-500" : "text-slate-500")}>
-                           {completed}/{total}
-                         </span>
-                       </div>
-                    </div>
-                    <div className="h-1.5 w-full bg-white/5 rounded-full overflow-hidden ring-1 ring-white/5">
-                      <motion.div 
-                        initial={{ width: 0 }}
-                        animate={{ width: `${progress}%` }}
-                        className={cn("h-full transition-all duration-1000 relative", isActive ? "bg-amber-500 shadow-[0_0_10px_rgba(245,158,11,0.5)]" : "bg-slate-600")}
-                      >
-                        {isActive && (
-                          <motion.div 
-                            animate={{ x: ['-100%', '100%'] }}
-                            transition={{ duration: 1.5, repeat: Infinity, ease: "linear" }}
-                            className="absolute inset-0 bg-gradient-to-r from-transparent via-white/30 to-transparent"
-                          />
-                        )}
-                      </motion.div>
-                    </div>
+                      return (
+                        <div key={r} className={cn("p-4 transition-all duration-300", isActive ? "bg-amber-500/10" : "hover:bg-white/5")}>
+                          <div className="flex items-center justify-between mb-2">
+                             <span className={cn("text-[10px] font-bold uppercase tracking-wider", isActive ? "text-amber-400" : "text-slate-400")}>
+                              {getRoundName(r, totalRoundsCount)}
+                             </span>
+                             <div className="flex items-center gap-2">
+                               <span className={cn("text-[9px] font-black tabular-nums", isActive ? "text-amber-500" : "text-slate-500")}>
+                                 {completed}/{total}
+                               </span>
+                             </div>
+                          </div>
+                          <div className="h-1.5 w-full bg-white/5 rounded-full overflow-hidden ring-1 ring-white/5">
+                            <motion.div 
+                              initial={{ width: 0 }}
+                              animate={{ width: `${progress}%` }}
+                              className={cn("h-full transition-all duration-1000 relative", isActive ? "bg-amber-500 shadow-[0_0_10px_rgba(245,158,11,0.5)]" : "bg-slate-600")}
+                            >
+                              {isActive && (
+                                <motion.div 
+                                  animate={{ x: ['-100%', '100%'] }}
+                                  transition={{ duration: 1.5, repeat: Infinity, ease: "linear" }}
+                                  className="absolute inset-0 bg-gradient-to-r from-transparent via-white/30 to-transparent"
+                                />
+                              )}
+                            </motion.div>
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
-                );
-              })}
-            </div>
-            
-            {/* Integrated Legend */}
-            <div className="p-4 bg-white/5 border-t border-white/10 flex items-center justify-between">
-               <div className="flex items-center gap-3">
-                  <div className="flex items-center gap-1.5">
-                    <div className="w-2 h-2 rounded-full bg-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.5)]" />
-                    <span className="text-[9px] text-slate-400 font-bold uppercase tracking-tighter">Champion Path</span>
+                  
+                  {/* Integrated Legend */}
+                  <div className="p-4 bg-white/5 border-t border-white/10 flex items-center justify-between">
+                     <div className="flex items-center gap-3">
+                        <div className="flex items-center gap-1.5">
+                          <div className="w-2 h-2 rounded-full bg-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.5)]" />
+                          <span className="text-[9px] text-slate-400 font-bold uppercase tracking-tighter">Champion Path</span>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <div className="w-2 h-2 rounded-full bg-slate-600" />
+                          <span className="text-[9px] text-slate-400 font-bold uppercase tracking-tighter">Completed</span>
+                        </div>
+                     </div>
                   </div>
-                  <div className="flex items-center gap-1.5">
-                    <div className="w-2 h-2 rounded-full bg-slate-600" />
-                    <span className="text-[9px] text-slate-400 font-bold uppercase tracking-tighter">Completed</span>
-                  </div>
-               </div>
-            </div>
-          </CardContent>
+                </CardContent>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </Card>
       </div>
 
       <TransformWrapper
         initialScale={0.7}
-        minScale={0.1}
-        maxScale={3}
+        minScale={0.3}
+        maxScale={2.5}
         centerOnInit
         limitToBounds={false}
         panning={{ velocityDisabled: true }}
+        wheel={{ step: 0.01 }}
+        pinch={{ step: 0.01 }}
+        doubleClick={{ disabled: true }}
       >
         {(utils: any) => (
           <div className="relative w-full h-full">
             <div className="absolute bottom-6 right-6 z-20 flex items-center gap-2 bg-slate-800/80 backdrop-blur-md p-2 rounded-xl border border-white/10 shadow-2xl">
               <ZoomControls utils={utils} />
             </div>
-            <TransformComponent wrapperClass="!w-full !h-full" contentClass="flex items-center justify-center min-h-full py-40 px-60">
+            <TransformComponent 
+              wrapperClass="!w-full !h-full" 
+              contentClass="flex items-center justify-center min-h-full py-40 px-60"
+            >
               <div className="flex items-center gap-x-32">
                 <div className="flex flex-col gap-y-32">
                   {/* Winners Bracket Tree */}
@@ -328,28 +392,37 @@ export default function KnockoutBracket({ tournamentId, sectionId }: KnockoutBra
                               </Badge>
                             </div>
                             <div className="flex flex-col" style={{ height: TOTAL_BRACKET_HEIGHT }}>
-                              {boardIndices.map((boardNum) => (
-                                <div key={`slot-${roundNum}-${boardNum}`} id={`winners-match-slot-${roundNum}-${getBoardLetter(boardNum)}`} style={{ height: cellHeight }} className="flex items-center justify-center relative">
-                                  <MatchCard 
-                                    id={`winners-match-${roundNum}-${getBoardLetter(boardNum)}`}
-                                    boardMatches={matchesByRoundAndBoard.winners[roundNum]?.[boardNum] || []}
-                                    roundNum={roundNum}
-                                    boardNum={boardNum}
-                                    isLastRound={roundNum === totalRoundsCount && !tournament?.isDoubleElimination}
-                                    getBoardLetter={getBoardLetter}
-                                    getPlayerName={getPlayerName}
-                                    getPlayerRating={getPlayerRating}
-                                    cellHeight={cellHeight}
-                                    onSelect={() => {
-                                      if (isTD) {
-                                        setSelectedMatch(matchesByRoundAndBoard.winners[roundNum]?.[boardNum]?.[0] || null);
-                                        setIsManagementOpen(true);
-                                      }
-                                    }}
-                                  />
-                                </div>
-                              ))}
-                            </div>
+                               {boardIndices.map((boardNum) => {
+                                 const boardMatches = (matchesByRoundAndBoard.winners[roundNum]?.[boardNum] || []);
+                                 const hasMatch = boardMatches.length > 0;
+                                 
+                                 // All slots are shown to maintain the hardcoded 2^x structure
+                                 // Byes will now have match records and appear explicitly
+
+                                 return (
+                                   <div key={`slot-${roundNum}-${boardNum}`} id={`winners-match-slot-${roundNum}-${getBoardLetter(boardNum)}`} style={{ height: cellHeight }} className="flex items-center justify-center relative">
+                                     <MatchCard 
+                                       id={`winners-match-${roundNum}-${getBoardLetter(boardNum)}`}
+                                       boardMatches={boardMatches}
+                                       roundNum={roundNum}
+                                       boardNum={boardNum}
+                                       isLastRound={roundNum === totalRoundsCount && !tournament?.isDoubleElimination}
+                                       getBoardLetter={getBoardLetter}
+                                       getPlayerName={getPlayerName}
+                                       getPlayerRating={getPlayerRating}
+                                       cellHeight={BASE_CELL_HEIGHT}
+                                       tournament={tournament}
+                                       onSelect={() => {
+                                         if (isTD && hasMatch) {
+                                           setSelectedMatch(boardMatches[0]);
+                                           setIsManagementOpen(true);
+                                         }
+                                       }}
+                                     />
+                                   </div>
+                                 );
+                               })}
+                             </div>
                           </div>
                         );
                       })}
@@ -400,6 +473,7 @@ export default function KnockoutBracket({ tournamentId, sectionId }: KnockoutBra
                                         getPlayerRating={getPlayerRating}
                                         isLosers
                                         cellHeight={cellHeight}
+                                        tournament={tournament}
                                         onSelect={() => {
                                           if (isTD) {
                                             setSelectedMatch(matchesByRoundAndBoard.losers[roundNum]?.[boardNum]?.[0] || null);
@@ -442,6 +516,7 @@ export default function KnockoutBracket({ tournamentId, sectionId }: KnockoutBra
                           getPlayerRating={getPlayerRating}
                           cellHeight={BASE_CELL_HEIGHT}
                           className="w-96 scale-110"
+                          tournament={tournament}
                           onSelect={() => {
                             if (isTD) {
                               setSelectedMatch(matchesByRoundAndBoard.grand_final[1]?.[1]?.[0] || null);
@@ -519,6 +594,7 @@ function MatchCard({
   getBoardLetter, 
   getPlayerName, 
   getPlayerRating,
+  tournament,
   isLosers = false,
   cellHeight,
   className,
@@ -532,31 +608,30 @@ function MatchCard({
   getBoardLetter: (b: number) => string, 
   getPlayerName: (id: number | null, r: number, b: number, pos: 'white' | 'black', bracketType?: string) => string,
   getPlayerRating: (id: number | null) => number | null,
+  tournament?: Tournament,
   isLosers?: boolean,
   cellHeight: number,
   className?: string,
   onSelect?: () => void,
   id?: string
 }) {
-  const isCompleted = boardMatches.some(m => m.status === 'completed');
-  const match = boardMatches[0];
-  
-  let whiteScore = 0;
-  let blackScore = 0;
-  boardMatches.forEach(g => {
-    if (g.result === "1-0" || g.result === "1-0F") whiteScore += 1;
-    if (g.result === "0-1" || g.result === "0-1F") blackScore += 1;
-    if (g.result === "1/2-1/2") { whiteScore += 0.5; blackScore += 0.5; }
-  });
+  const { 
+    player1Id, 
+    player2Id, 
+    p1Score, 
+    p2Score, 
+    winnerId, 
+    isCompleted, 
+    isBye 
+  } = getMatchupScoring(boardMatches, tournament);
 
   const formatScore = (score: number) => {
     if (score % 1 === 0) return score.toString();
-    return (Math.floor(score) === 0 ? "" : Math.floor(score)) + "½";
+    return (Math.floor(score) === 0 ? "" : Math.floor(score)) + "\u00BD";
   };
 
-  const whiteWon = isCompleted && whiteScore > blackScore;
-  const blackWon = isCompleted && blackScore > whiteScore;
-  const isBye = boardMatches.some(m => m.isBye) || (boardMatches.length > 0 && !boardMatches[0].blackPlayerId && boardMatches[0].whitePlayerId);
+  const p1Won = winnerId === player1Id && player1Id !== null;
+  const p2Won = winnerId === player2Id && player2Id !== null;
 
   return (
     <div className={cn("relative flex items-center group/match-wrapper", className)}>
@@ -579,26 +654,28 @@ function MatchCard({
                 "w-72 overflow-hidden border-0 transition-all duration-300 relative group/match shadow-2xl",
                 "bg-[#21201d] ring-1 ring-white/10 hover:ring-amber-500/50 hover:scale-[1.02] cursor-pointer",
                 isCompleted && (isLosers ? "ring-blue-500/30" : "ring-amber-500/30"),
-                !match && "opacity-40"
+                boardMatches.length === 0 && "opacity-40"
               )}
             >
               <div className="flex flex-col">
                 <PlayerRow 
-                   name={isBye && !match?.whitePlayerId ? "BYE" : getPlayerName(match?.whitePlayerId || null, roundNum, boardNum, 'white', isLosers ? 'losers' : 'winners')}
-                   rating={getPlayerRating(match?.whitePlayerId || null)}
-                   score={formatScore(whiteScore)}
-                   won={whiteWon}
-                   isPlaceholder={!match?.whitePlayerId}
+                   name={isBye && !player1Id ? "BYE" : getPlayerName(player1Id, roundNum, boardNum, 'white', isLosers ? 'losers' : 'winners')}
+                   rating={getPlayerRating(player1Id)}
+                   score={isBye && !player1Id ? "-" : formatScore(p1Score)}
+                   won={p1Won}
+                   isPlaceholder={!player1Id}
+                   isByeSlot={isBye && !player1Id}
                 />
                 
                 <div className="h-px bg-white/5 w-full" />
                 
                 <PlayerRow 
-                   name={isBye ? "NO OPPONENT" : getPlayerName(match?.blackPlayerId || null, roundNum, boardNum, 'black', isLosers ? 'losers' : 'winners')}
-                   rating={getPlayerRating(match?.blackPlayerId || null)}
-                   score={formatScore(blackScore)}
-                   won={blackWon}
-                   isPlaceholder={!match?.blackPlayerId}
+                   name={isBye && !player2Id ? "BYE" : getPlayerName(player2Id, roundNum, boardNum, 'black', isLosers ? 'losers' : 'winners')}
+                   rating={getPlayerRating(player2Id)}
+                   score={isBye && !player2Id ? "-" : formatScore(p2Score)}
+                   won={p2Won}
+                   isPlaceholder={!player2Id}
+                   isByeSlot={isBye && !player2Id}
                 />
               </div>
             </Card>
@@ -610,44 +687,50 @@ function MatchCard({
                    <div className="p-3">
                       <div className="space-y-4">
                         {[
-                          { id: match?.whitePlayerId, name: 'white', score: whiteScore },
-                          { id: match?.blackPlayerId, name: 'black', score: blackScore }
-                        ].map((player) => (
-                          <div key={player.name} className="space-y-2">
+                          { id: player1Id, originalPos: 'white', score: p1Score },
+                          { id: player2Id, originalPos: 'black', score: p2Score }
+                        ].map((pInfo) => (
+                          <div key={pInfo.originalPos} className="space-y-2">
                              <div className="flex items-center justify-between">
                                 <div className="flex items-center gap-2">
                                   <div className={cn(
                                     "w-1.5 h-1.5 rounded-full",
-                                    player.id ? (player.name === 'white' ? "bg-white" : "bg-slate-600") : "bg-slate-800"
+                                    pInfo.id ? (pInfo.originalPos === 'white' ? "bg-white" : "bg-slate-600") : "bg-slate-800"
                                   )} />
                                   <span className="text-sm font-bold text-white truncate max-w-[140px]">
-                                    {getPlayerName(player.id || null, roundNum, boardNum, player.name as any)}
+                                    {getPlayerName(pInfo.id, roundNum, boardNum, pInfo.originalPos as any)}
                                   </span>
                                 </div>
-                                <span className="text-sm font-black text-[#81b64c]">{formatScore(player.score)}</span>
+                                <span className="text-sm font-black text-[#81b64c]">{formatScore(pInfo.score)}</span>
                              </div>
                              <div className="flex flex-wrap gap-1">
                                 {boardMatches.map((g, i) => {
                                   let res = null;
-                                  if (player.name === 'white') {
+                                  const isWhite = g.whitePlayerId === pInfo.id;
+                                  const isBlack = g.blackPlayerId === pInfo.id;
+
+                                  if (isWhite) {
                                     if (g.result === "1-0" || g.result === "1-0F") res = "1";
                                     else if (g.result === "0-1" || g.result === "0-1F") res = "0";
-                                    else if (g.result === "1/2-1/2") res = "½";
-                                  } else {
+                                    else if (g.result === "1/2-1/2") res = "\u00BD";
+                                  } else if (isBlack) {
                                     if (g.result === "0-1" || g.result === "0-1F") res = "1";
                                     else if (g.result === "1-0" || g.result === "1-0F") res = "0";
-                                    else if (g.result === "1/2-1/2") res = "½";
+                                    else if (g.result === "1/2-1/2") res = "\u00BD";
                                   }
                                   
                                   return (
-                                    <div key={i} className={cn(
-                                      "w-8 h-8 rounded flex items-center justify-center text-[12px] font-black transition-colors",
-                                      res === "1" ? "bg-[#81b64c] text-white" : 
-                                      res === "0" ? "bg-red-500/20 text-red-400" :
-                                      res === "½" ? "bg-slate-600 text-slate-300" :
-                                      "bg-slate-800/50 text-slate-600 ring-1 ring-white/5"
-                                    )}>
-                                      {res || "-"}
+                                    <div key={i} className="flex flex-col items-center gap-1">
+                                      <span className="text-[7px] font-bold text-slate-500 uppercase">G{g.gameNumber || i + 1} {isWhite ? '(W)' : isBlack ? '(B)' : ''}</span>
+                                      <div className={cn(
+                                        "w-8 h-8 rounded flex items-center justify-center text-[12px] font-black transition-colors",
+                                        res === "1" ? "bg-[#81b64c] text-white" : 
+                                        res === "0" ? "bg-red-500/20 text-red-400" :
+                                        res === "\u00BD" ? "bg-slate-600 text-slate-300" :
+                                        "bg-slate-800/50 text-slate-600 ring-1 ring-white/5"
+                                      )}>
+                                        {res || "-"}
+                                      </div>
                                     </div>
                                   );
                                 })}
@@ -707,25 +790,28 @@ function MatchCard({
   );
 }
 
-function PlayerRow({ name, rating, score, won, isPlaceholder }: any) {
+function PlayerRow({ name, rating, score, won, isPlaceholder, isByeSlot }: any) {
   return (
     <div 
       className={cn(
         "flex items-center justify-between transition-all duration-300 relative min-h-[48px] group/row",
-        won && "bg-[#81b64c]/10"
+        won && "bg-[#81b64c]/10",
+        isByeSlot && "bg-black/20"
       )}
     >
       <div className="flex items-center gap-3 px-4 py-2 min-w-0 flex-1">
         <div className={cn(
           "w-1 h-8 rounded-full shrink-0 transition-all",
-          won ? "bg-[#81b64c] shadow-[0_0_8px_rgba(129,182,76,0.6)]" : "bg-white/5"
+          won ? "bg-[#81b64c] shadow-[0_0_8px_rgba(129,182,76,0.6)]" : "bg-white/5",
+          isByeSlot && "opacity-0"
         )} />
         <div className="flex flex-col min-w-0">
           <div className="flex items-center gap-2">
             <span className={cn(
               "text-[14px] font-bold truncate tracking-tight leading-none",
               won ? "text-white" : "text-[#bababa]",
-              isPlaceholder && "text-slate-600 italic font-medium"
+              isPlaceholder && "text-slate-600 italic font-medium",
+              isByeSlot && "text-slate-700 italic tracking-widest font-black uppercase text-[10px]"
             )}>
               {name}
             </span>

@@ -85,11 +85,6 @@ export default function TournamentManagement({ tournamentId }: TournamentManagem
 
   const [boardNumbering, setBoardNumbering] = useState<BoardNumberingSettings>({});
   
-  useEffect(() => {
-    if (tournamentConfig) {
-      setBoardNumbering(tournamentConfig.boardNumbering || {});
-    }
-  }, [tournamentConfig]);
 
   const updateBoardNumbering = (update: Partial<BoardNumberingSettings>) => {
     setBoardNumbering((prev) => ({ ...prev, ...update }));
@@ -98,20 +93,38 @@ export default function TournamentManagement({ tournamentId }: TournamentManagem
   const saveBoardNumberingMutation = useMutation({
     mutationFn: async () => {
       if (!tournamentConfig || !tournament) return;
-      const newConfig = { ...tournamentConfig, boardNumbering };
-      const payload = buildTournamentPayload(newConfig, { format: tournament.format });
-      await apiRequest(`/api/tournaments/${tournamentId}`, {
-        method: "PUT",
-        body: JSON.stringify(payload),
+      const updatedConfig = {
+        ...tournamentConfig,
+        boardNumbering
+      };
+      
+      const res = await apiRequest(`/api/tournaments/${tournamentId}`, {
+        method: "PATCH",
+        body: JSON.stringify({ config: JSON.stringify(updatedConfig) })
       });
+      return res;
     },
     onSuccess: () => {
-      toast({ title: "Board numbering settings saved" });
       queryClient.invalidateQueries({ queryKey: [`/api/tournaments/${tournamentId}`] });
+      toast({ title: "Settings Saved", description: "Board numbering settings updated successfully" });
+    }
+  });
+
+
+  const generateKnockoutMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest(`/api/tournaments/${tournamentId}/generate-knockout`, {
+        method: "POST"
+      });
+      return res;
     },
-    onError: () => {
-      toast({ title: "Error saving board numbering", variant: "destructive" });
-    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [`/api/tournaments/${tournamentId}`] });
+      queryClient.invalidateQueries({ queryKey: [`/api/tournaments/${tournamentId}/pairings`] });
+      queryClient.invalidateQueries({ queryKey: [`/api/tournaments/${tournamentId}/players`] });
+      queryClient.invalidateQueries({ queryKey: [`/api/standings/${tournamentId}`] });
+      toast({ title: "Success", description: "Knockout bracket generated using current player list." });
+    }
   });
 
 
@@ -466,15 +479,15 @@ export default function TournamentManagement({ tournamentId }: TournamentManagem
           >
             <Calendar className="h-5 w-5" />
             <span className="capitalize">
-              {tournament.format === 'arena' ? 'Arena' : tournament.format === 'knockout' ? 'Brackets' : 'Rounds'}
+              {tournament.format === 'arena' ? 'Arena' : tournament.format === 'knockout' ? 'Pairings' : 'Rounds'}
             </span>
           </TabsTrigger>
           {tournament.format !== 'arena' && (
             <TabsTrigger
               value="standings"
-              className="flex-1 h-10 flex items-center justify-center gap-2 px-6 rounded-lg text-center text-sm font-bold text-slate-500 transition-all data-[state=active]:bg-white data-[state=active]:text-black data-[state=active]:shadow-sm data-[state=active]:ring-1 data-[state=active]:ring-slate-200/50"
+              className="flex-1 h-full min-h-[38px] flex items-center justify-center gap-2 px-6 rounded-lg text-center text-sm font-semibold text-slate-500 transition-all data-[state=active]:bg-white data-[state=active]:text-black data-[state=active]:shadow-sm"
             >
-              <Trophy className="h-4 w-4" />
+              <Trophy className="h-5 w-5" />
               <span className="capitalize">
                 {tournament.format === 'knockout' ? 'Bracket' : 'Standings'}
               </span>
@@ -605,7 +618,7 @@ export default function TournamentManagement({ tournamentId }: TournamentManagem
                         )}
                       </div>
                       
-                      {tournament.status === 'active' && (
+                      {tournament.status === 'active' && tournament.format !== 'knockout' && (
                         <Button
                           variant="ghost"
                           size="sm"
@@ -617,7 +630,7 @@ export default function TournamentManagement({ tournamentId }: TournamentManagem
                       )}
                     </div>
                     <div className="flex items-center gap-2">
-                      {canGenerateNextRound && (
+                      {canGenerateNextRound && tournament.format !== 'knockout' && (
                         <Button
                           size="sm"
                           onClick={() => nextRoundMutation.mutate()}
@@ -628,6 +641,7 @@ export default function TournamentManagement({ tournamentId }: TournamentManagem
                           {nextRoundMutation.isPending ? "Generating..." : "Next Round"}
                         </Button>
                       )}
+
                       <Sheet>
                         <SheetTrigger asChild>
                           <Button variant="ghost" size="sm" className="h-8 px-3 text-slate-500 hover:text-black">
@@ -682,9 +696,36 @@ export default function TournamentManagement({ tournamentId }: TournamentManagem
               <SwissStandings tournamentId={tournamentId} />
             ) : tournament.format === 'knockout' ? (
               <div className="space-y-6">
+                {(tournament.status === 'draft' || tournament.status === 'registration' || tournament.status === 'upcoming') && (
+                  <div className="flex flex-col items-center gap-4 p-6 bg-blue-50/50 rounded-xl border border-blue-100 border-dashed">
+
+
+                    <Button 
+                      variant="outline" 
+                      className="bg-white border-blue-200 text-blue-700 hover:bg-blue-50 font-bold shadow-sm h-11 px-8 rounded-lg"
+                       onClick={() => {
+                        const playerText = players.length === 1 ? "1 player" : `${players.length} players`;
+                        const hasBracket = (tournament.rounds || 0) > 0;
+                        const elimType = tournament.isDoubleElimination ? "Double Elimination" : "Single Elimination";
+                        const confirmText = hasBracket 
+                          ? `REGENERATE the ${elimType} bracket for ${playerText}? Any existing scores will be cleared.`
+                          : `Generate the ${elimType} bracket for ${playerText}?`;
+                        if (window.confirm(confirmText)) {
+                          generateKnockoutMutation.mutate();
+                        }
+                      }}
+                      disabled={generateKnockoutMutation.isPending}
+                    >
+                      <Trophy className="mr-2 h-4 w-4" />
+                      {(tournament.rounds || 0) > 0 ? "Regenerate Knockout Bracket" : "Generate Knockout Bracket"}
+                    </Button>
+                    <p className="text-xs text-slate-500 font-medium">Seeding will be based on ratings (Professional FIDE/Symmetrical sequence)</p>
+                  </div>
+                )}
                 <KnockoutBracket 
                   tournamentId={tournamentId} 
-                  sectionId={activeRoundSection === 'all' ? undefined : activeRoundSection} 
+                  sectionId={activeRoundSection === 'all' ? undefined : activeRoundSection}
+                  initialProgressCollapsed={true}
                 />
               </div>
             ) : (

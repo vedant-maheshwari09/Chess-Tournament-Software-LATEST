@@ -11,6 +11,7 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import type { Tournament, InsertTournament } from "@shared/schema";
 import { DatePicker } from "@/components/ui/date-picker";
+import { TimePicker } from "@/components/ui/time-picker";
 import { parseISO, format as formatDate } from "date-fns";
 
 interface TournamentWizardProps {
@@ -500,11 +501,11 @@ export default function TournamentWizard({ tournament, onTournamentCreated }: To
                           />
                         </div>
                         <div className="flex-1">
-                          <Input
-                            type="time"
-                            value={timing.time}
-                            onChange={(e) => updateRoundTiming(index, 'time', e.target.value)}
-                            className="h-10 border-slate-200 text-sm"
+                          <TimePicker
+                            time={timing.time}
+                            setTime={(newTime) => updateRoundTiming(index, 'time', newTime)}
+                            placeholder="Select time"
+                            className="h-10 border-slate-200"
                           />
                         </div>
                       </div>

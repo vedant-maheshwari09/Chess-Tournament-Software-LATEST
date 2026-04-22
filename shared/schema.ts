@@ -73,9 +73,10 @@ export const tournaments = pgTable("tournaments", {
   enablePairingPredictor: boolean("enable_pairing_predictor").default(false),
   chessResultsUrl: text("chess_results_url"),
   boardNumberingSettings: jsonb("board_numbering_settings"),
-  seedingMethod: text("seeding_method").default("rating"), // "rating", "random", "slaughter", "manual"
+  seedingMethod: text("seeding_method").default("fide_world_cup"), // "fide_world_cup", "random", "slaughter", "manual"
   seedingSource: text("seeding_source").default("rating"), // "rating", "uscf", "fide"
   matchWinConditions: jsonb("match_win_conditions"), // for knockout matchups
+  knockoutMatchFormat: jsonb("knockout_match_format"), // NEW: flexible match thresholds
   primaryRatingSystem: text("primary_rating_system").default("uscf"),
   isDoubleElimination: boolean("is_double_elimination").default(false),
   createdBy: integer("created_by").notNull(), // User ID of tournament director
@@ -164,6 +165,7 @@ export const matches = pgTable("matches", {
   gameNumber: integer("game_number").default(1),
   bracketType: text("bracket_type").default("winners"), // 'winners', 'losers', 'grand_final'
   sectionId: text("section_id"), // for multi-section knockout support
+  gameType: text("game_type").default("standard"), // 'standard', 'armageddon'
   winnerId: integer("winner_id"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });

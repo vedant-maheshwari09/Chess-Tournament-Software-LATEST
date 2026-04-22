@@ -53,8 +53,10 @@ import {
 import { Upload, Check, ChevronRight, Settings, X, ChevronUp, ChevronDown, Plus, CreditCard, ExternalLink, Trophy, Users, Calculator, Link, QrCode, Printer, Copy, Clock, Zap } from "lucide-react";
 import qrcode from "qrcode";
 import TournamentPagePanel from "@/components/tournament-page-panel";
+import { KnockoutFormatEditor } from "@/components/knockout-format-editor";
 import { DatePicker } from "@/components/ui/date-picker";
-import { parseISO, format as formatDate } from "date-fns";
+import { TimePicker } from "@/components/ui/time-picker";
+import { parseISO, format as formatDateFn } from "date-fns";
 
 type BuilderMode = "create" | "edit";
 type SettingsShortcutTab = "rate-tournament" | "fide" | "uscf" | "chess-results";
@@ -324,7 +326,7 @@ function BasicInformationFields({ config, onConfigChange, variant = "full" }: Ba
             <Label htmlFor="basic-start-date">Start Date</Label>
             <DatePicker
               date={config.basic.startDate ? parseISO(config.basic.startDate) : null}
-              setDate={(date) => updateBasic({ startDate: date ? formatDate(date, "yyyy-MM-dd") : null })}
+              setDate={(date) => updateBasic({ startDate: date ? formatDateFn(date, "yyyy-MM-dd") : null })}
               placeholder="Select start date"
             />
           </div>
@@ -332,7 +334,7 @@ function BasicInformationFields({ config, onConfigChange, variant = "full" }: Ba
             <Label htmlFor="basic-end-date">End Date</Label>
             <DatePicker
               date={config.basic.endDate ? parseISO(config.basic.endDate) : null}
-              setDate={(date) => updateBasic({ endDate: date ? formatDate(date, "yyyy-MM-dd") : null })}
+              setDate={(date) => updateBasic({ endDate: date ? formatDateFn(date, "yyyy-MM-dd") : null })}
               placeholder="Select end date"
             />
           </div>
@@ -462,7 +464,7 @@ function BasicInformationFields({ config, onConfigChange, variant = "full" }: Ba
           <Label htmlFor="basic-start-date">Start Date</Label>
           <DatePicker
             date={config.basic.startDate ? parseISO(config.basic.startDate) : null}
-            setDate={(date) => updateBasic({ startDate: date ? formatDate(date, "yyyy-MM-dd") : null })}
+            setDate={(date) => updateBasic({ startDate: date ? formatDateFn(date, "yyyy-MM-dd") : null })}
             placeholder="Select start date"
           />
         </div>
@@ -470,7 +472,7 @@ function BasicInformationFields({ config, onConfigChange, variant = "full" }: Ba
           <Label htmlFor="basic-end-date">End Date</Label>
           <DatePicker
             date={config.basic.endDate ? parseISO(config.basic.endDate) : null}
-            setDate={(date) => updateBasic({ endDate: date ? formatDate(date, "yyyy-MM-dd") : null })}
+            setDate={(date) => updateBasic({ endDate: date ? formatDateFn(date, "yyyy-MM-dd") : null })}
             placeholder="Select end date"
           />
         </div>
@@ -2194,14 +2196,14 @@ function StepTwo({ format, mode, config, onConfigChange, onBack: _onBack, onCanc
                           Define how participants are positioned within the tournament bracket. Standard seeding matches superior seeds against lower seeds.
                         </p>
                         <Select
-                          value={config.seedingMethod ?? "rating"}
+                          value={config.seedingMethod ?? "fide_world_cup"}
                           onValueChange={(value) => onConfigChange({ ...config, seedingMethod: value as any })}
                         >
                           <SelectTrigger className="w-full bg-white shadow-sm border-indigo-100 focus:ring-indigo-500">
                             <SelectValue placeholder="Select seeding method" />
                           </SelectTrigger>
                           <SelectContent>
-                            <SelectItem value="rating">Standard Seeding (High vs Low)</SelectItem>
+                            <SelectItem value="fide_world_cup">Standard Knockout System(Default)</SelectItem>
                             <SelectItem value="slaughter">Slaughter Seeding (Top Half vs Bottom Half)</SelectItem>
                             <SelectItem value="random">Randomized (Blind Draw)</SelectItem>
                             <SelectItem value="manual">Manual Assignment (Custom Seeds)</SelectItem>
@@ -2232,45 +2234,25 @@ function StepTwo({ format, mode, config, onConfigChange, onBack: _onBack, onCanc
                       )}
                     </div>
 
-                    <div className="border-t border-indigo-100/50 pt-6">
-                        <div>
-                          <Label className="text-[15px] font-medium text-black">Match Victory Thresholds</Label>
-                          <p className="text-[11px] text-slate-600">
-                            Define the total points required for a participant to secure a series victory in each round.
-                          </p>
-                        </div>
-
-                      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                        {Array.from({ length: config.details.rounds || 0 }).map((_, i) => {
-                          const roundNum = i + 1;
-                          const winCondition = config.details.matchWinConditions?.[roundNum] || 1;
-                          
-                          return (
-                            <div key={roundNum} className="p-3 bg-white rounded-lg border border-indigo-100 shadow-sm space-y-2">
-                              <Label className="text-[10px] font-semibold text-slate-500 uppercase tracking-widest">
-                                {roundNum === config.details.rounds ? "Final" : roundNum === config.details.rounds - 1 ? "Semifinals" : `Round ${roundNum}`}
-                              </Label>
-                              <div className="flex items-center gap-2">
-                                <Input
-                                  type="number"
-                                  step="0.5"
-                                  min="0.5"
-                                  className="h-8 text-xs font-bold border-indigo-50"
-                                  value={winCondition}
-                                  onChange={(e) => {
-                                    const val = parseFloat(e.target.value);
-                                    const nextWinConditions = { ...(config.details.matchWinConditions || {}) };
-                                    if (isNaN(val)) delete nextWinConditions[roundNum];
-                                    else nextWinConditions[roundNum] = val;
-                                    updateDetails({ matchWinConditions: nextWinConditions });
-                                  }}
-                                />
-                                <span className="text-[10px] font-semibold text-slate-400">PTS</span>
-                              </div>
-                            </div>
-                          );
-                        })}
+                    <div className="flex items-center space-x-2 border-t border-indigo-100/50 pt-6">
+                      <Switch 
+                        id="double-elim" 
+                        checked={config.registers.isDoubleElimination}
+                        onCheckedChange={(checked) => updateRegisters({ isDoubleElimination: checked })}
+                      />
+                      <div className="space-y-0.5">
+                        <Label htmlFor="double-elim" className="text-[15px] font-medium text-black">Double Elimination</Label>
+                        <p className="text-[11px] text-slate-600">
+                          Enable a losers bracket for participants who lose their first match.
+                        </p>
                       </div>
+                    </div>
+
+                    <div className="border-t border-indigo-100/50 pt-6">
+                      <KnockoutFormatEditor 
+                        config={config}
+                        onConfigChange={onConfigChange}
+                      />
                     </div>
                   </div>
                 )}
@@ -2535,7 +2517,7 @@ function StepTwo({ format, mode, config, onConfigChange, onBack: _onBack, onCanc
                               <Label className="text-xs font-semibold uppercase text-slate-500">Effective after</Label>
                               <DatePicker
                                 date={fee.effectiveAfter ? parseISO(fee.effectiveAfter) : null}
-                                setDate={(date) => handleEntryFeeDateChange(fee.id, date ? formatDate(date, "yyyy-MM-dd") : "")}
+                                setDate={(date) => handleEntryFeeDateChange(fee.id, date ? formatDateFn(date, "yyyy-MM-dd") : "")}
                                 placeholder="Pick effective date"
                               />
                             </div>
@@ -2816,16 +2798,18 @@ function StepTwo({ format, mode, config, onConfigChange, onBack: _onBack, onCanc
                         />
                       </div>
 
-                      <div className="flex items-center justify-between rounded-xl border border-slate-100 bg-slate-50/30 px-5 py-4 transition-all hover:bg-slate-50/50">
-                        <div className="space-y-0.5">
-                          <Label className="text-base font-medium text-black">Pairing Predictor</Label>
-                          <p className="text-xs text-slate-500 font-normal">Allow live simulation of upcoming pairings.</p>
+                      {config.format === "swiss" && (
+                        <div className="flex items-center justify-between rounded-xl border border-slate-100 bg-slate-50/30 px-5 py-4 transition-all hover:bg-slate-50/50">
+                          <div className="space-y-0.5">
+                            <Label className="text-base font-medium text-black">Pairing Predictor</Label>
+                            <p className="text-xs text-slate-500 font-normal">Allow live simulation of upcoming pairings.</p>
+                          </div>
+                          <Switch
+                            checked={config.registers.enablePairingPredictor}
+                            onCheckedChange={(checked) => updateRegisters({ enablePairingPredictor: checked })}
+                          />
                         </div>
-                        <Switch
-                          checked={config.registers.enablePairingPredictor}
-                          onCheckedChange={(checked) => updateRegisters({ enablePairingPredictor: checked })}
-                        />
-                      </div>
+                      )}
                     </div>
 
                     <div className="grid gap-8 md:grid-cols-2 pt-6 border-t border-slate-100">
@@ -2885,16 +2869,16 @@ function StepTwo({ format, mode, config, onConfigChange, onBack: _onBack, onCanc
                                <div className="flex-1">
                                  <DatePicker
                                    date={config.registers.registrationDeadlineDate ? parseISO(config.registers.registrationDeadlineDate) : null}
-                                   setDate={(d: Date | null) => updateRegisters({ registrationDeadlineDate: d ? formatDate(d, "yyyy-MM-dd") : "" })}
+                                   setDate={(d: Date | null) => updateRegisters({ registrationDeadlineDate: d ? formatDateFn(d, "yyyy-MM-dd") : "" })}
                                    placeholder="Select date"
                                    className="h-11 border-slate-200"
                                  />
                                </div>
                                <div className="flex-1">
-                                 <Input
-                                   type="time"
-                                   value={config.registers.registrationDeadlineTime || ""}
-                                   onChange={(e) => updateRegisters({ registrationDeadlineTime: e.target.value })}
+                                 <TimePicker
+                                   time={config.registers.registrationDeadlineTime || ""}
+                                   setTime={(time) => updateRegisters({ registrationDeadlineTime: time })}
+                                   placeholder="Select time"
                                    className="h-11 border-slate-200"
                                  />
                                </div>

@@ -38,8 +38,9 @@ export function useAuth() {
 
       if (
         message === "DATABASE_UNAVAILABLE" || 
-        status === 401 ||
-        message.startsWith("401")
+        ((status === 401 || message.startsWith("401")) && 
+         window.location.pathname !== '/login' && 
+         window.location.pathname !== '/auth')
       ) {
         console.warn("[AUTH] Clearing invalid session due to error:", message);
         localStorage.removeItem("auth_token");

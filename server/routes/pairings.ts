@@ -3,7 +3,8 @@ import type { Express } from "express";
 import { z } from "zod";
 import Stripe from "stripe";
 import {
-  lookupUSCF, lookupFide, mapLocalResult, extractQueryParam, normalizeSearchParams, parseLimitParam, getGeminiConfig, normalizeCurrency, computePaymentTotals, normalizeAccountPaymentSettings, formatCurrencyAmount, describeRatingWindow, generatePairings, groupPlayersByScore, pairUpperVsLowerHalf, determineSwissColors, generateSwissPairings, generateBoardNumberSequence, RatingSource, STRIPE_SECRET_KEY, STRIPE_PUBLISHABLE_KEY, STRIPE_WEBHOOK_SECRET, stripe, PAYMENT_STATUSES, PaymentStatus, RatingLookupResult, paymentProviderEnum, paymentScopeEnum, offlineMethodEnum, updateTournamentPaymentsSchema, accountPaymentSettingsSchema, geminiDraftSchema, updateNotificationPreferencesSchema, tournamentNotificationSchema, createPaymentIntentSchema, playerRegistrationSchema, BoardNumberingSettings
+  lookupUSCF, lookupFide, mapLocalResult, extractQueryParam, normalizeSearchParams, parseLimitParam, getGeminiConfig, normalizeCurrency, computePaymentTotals, normalizeAccountPaymentSettings, formatCurrencyAmount, describeRatingWindow, generatePairings, groupPlayersByScore, pairUpperVsLowerHalf, determineSwissColors, generateSwissPairings, generateBoardNumberSequence, RatingSource, STRIPE_SECRET_KEY, STRIPE_PUBLISHABLE_KEY, STRIPE_WEBHOOK_SECRET, stripe, PAYMENT_STATUSES, PaymentStatus, RatingLookupResult, paymentProviderEnum, paymentScopeEnum, offlineMethodEnum, updateTournamentPaymentsSchema, accountPaymentSettingsSchema, geminiDraftSchema, updateNotificationPreferencesSchema, tournamentNotificationSchema, createPaymentIntentSchema, playerRegistrationSchema, BoardNumberingSettings,
+  advanceKnockoutWinner
 } from "./common";
 
 import { storage } from '../storage';
@@ -152,110 +153,8 @@ app.get("/api/tournaments/:tournamentId/bye-requests", async (req, res) => {
       console.log(`[KnockoutAdvancement] Match ${match.id} (R${match.round} B${match.board}) winner: ${winnerIdNum}, loser: ${loserId}`);
 
       // ADVANCE WINNER
-      const currentBracket = match.bracketType || 'winners' as any;
-      const players = await storage.getPlayersByTournament(tournamentId);
-      const allMatches = await storage.getMatchesByTournament(tournamentId);
-      const sectionPlayers = players.filter((p: Player) => (p.sectionId || null) === (match.sectionId || null));
       if (tournament.format === 'knockout') {
-        const isDoubleElim = tournament.isDoubleElimination;
-        const allMatches = await storage.getMatchesByTournament(tournamentId);
-        const bracketSize = Math.pow(2, Math.ceil(Math.log2(sectionPlayers.length || 2)));
-        const totalWBRounds = Math.log2(bracketSize);
-
-        if (match.bracketType === 'winners') {
-          if (match.round === totalWBRounds) {
-            // WB Final -> Winner goes to Grand Final, Loser goes to LB Final
-            console.log(`[KnockoutAdvancement] WB Final completed. Winner ${winnerIdNum} moves to Grand Final.`);
-            const gfMatch = allMatches.find(m => m.bracketType === 'grand_final' && m.round === 1);
-            if (gfMatch) {
-              await storage.updateMatch(gfMatch.id, { whitePlayerId: winnerIdNum });
-            }
-            
-            if (isDoubleElim) {
-               // WB Final loser goes to LB Final (highest LB round)
-               const loserId = winnerIdNum === match.whitePlayerId ? match.blackPlayerId : match.whitePlayerId;
-               const finalLBRound = (totalWBRounds - 1) * 2;
-               const lbFinal = allMatches.find(m => m.bracketType === 'losers' && m.round === finalLBRound);
-               if (lbFinal) {
-                 await storage.updateMatch(lbFinal.id, { blackPlayerId: loserId });
-               }
-            }
-          } else {
-            // Regular WB advancement
-            const nextRound = match.round + 1;
-            const nextBoard = Math.ceil((match.board || 1) / 2);
-            const isWhite = (match.board || 1) % 2 === 1;
-
-            console.log(`[KnockoutAdvancement] Advancing WB winner ${winnerIdNum} to R${nextRound} B${nextBoard}`);
-            const nm = allMatches.find((m: any) => 
-              m.round === nextRound && 
-              m.board === nextBoard && 
-              m.bracketType === 'winners' &&
-              (m.sectionId || null) === (match.sectionId || null)
-            );
-
-            if (nm) {
-              await storage.updateMatch(nm.id, { [isWhite ? 'whitePlayerId' : 'blackPlayerId']: winnerIdNum });
-            }
-
-            if (isDoubleElim) {
-              // Descend loser to LB
-              const loserId = winnerIdNum === match.whitePlayerId ? match.blackPlayerId : match.whitePlayerId;
-              if (loserId) {
-                if (match.round === 1) {
-                  // Winners R1 losers go to LB R1
-                  const lbBoard = Math.ceil((match.board || 1) / 2);
-                  const isWhiteLB = (match.board || 1) % 2 === 1;
-                  const lbMatch = allMatches.find(m => m.bracketType === 'losers' && m.round === 1 && m.board === lbBoard);
-                  if (lbMatch) {
-                    await storage.updateMatch(lbMatch.id, { [isWhiteLB ? 'whitePlayerId' : 'blackPlayerId']: loserId });
-                  }
-                } else {
-                  // Winners R(n) losers go to LB round 2n-2 Phase A (which is round 2n-2)
-                  const lbRound = 2 * (match.round - 1);
-                  const lbMatch = allMatches.find(m => m.bracketType === 'losers' && m.round === lbRound && m.board === match.board);
-                  if (lbMatch) {
-                    await storage.updateMatch(lbMatch.id, { blackPlayerId: loserId });
-                  }
-                }
-              }
-            }
-          }
-        } else if (match.bracketType === 'losers') {
-          const totalLBRounds = (totalWBRounds - 1) * 2;
-          if (match.round === totalLBRounds) {
-            // LB Final -> Winner goes to Grand Final
-            console.log(`[KnockoutAdvancement] LB Final completed. Winner ${winnerIdNum} moves to Grand Final.`);
-            const gfMatch = allMatches.find(m => m.bracketType === 'grand_final' && m.round === 1);
-            if (gfMatch) {
-              await storage.updateMatch(gfMatch.id, { blackPlayerId: winnerIdNum });
-            }
-          } else {
-            // LB Advancement
-            const isPhaseA = (match.round + 1) % 2 === 1; // Round 2, 4, 6... are Phase A
-             // Pattern: R1 -> R2 (same board), R2 -> R3 (collapse), R3 -> R4 (same board), R4 -> R5 (collapse)
-            if (match.round % 2 === 1) {
-              // Phase B or R1 -> Next round is same board, winner is white (usually)
-              const nextRound = match.round + 1;
-              const nm = allMatches.find(m => m.bracketType === 'losers' && m.round === nextRound && m.board === match.board);
-              if (nm) {
-                await storage.updateMatch(nm.id, { whitePlayerId: winnerIdNum });
-              }
-            } else {
-              // Phase A -> Phase B (collapse)
-              const nextRound = match.round + 1;
-              const nextBoard = Math.ceil((match.board || 1) / 2);
-              const isWhite = (match.board || 1) % 2 === 1;
-              const nm = allMatches.find(m => m.bracketType === 'losers' && m.round === nextRound && m.board === nextBoard);
-              if (nm) {
-                await storage.updateMatch(nm.id, { [isWhite ? 'whitePlayerId' : 'blackPlayerId']: winnerIdNum });
-              }
-            }
-          }
-        } else if (match.bracketType === 'grand_final') {
-           console.log(`[KnockoutAdvancement] Grand Final completed. Tournament winner: ${winnerIdNum}`);
-           // Handle possible reset if needed (not standard here yet)
-        }
+        await advanceKnockoutWinner(tournamentId, match, winnerIdNum);
       }
 
       res.json({ message: "Winner confirmed and advanced" });

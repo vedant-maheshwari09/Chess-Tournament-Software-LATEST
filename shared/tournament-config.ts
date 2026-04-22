@@ -152,6 +152,12 @@ export interface ScoringRules {
   loss: number;
 }
 
+export type MatchWinConditionValue = number | "armageddon";
+
+export interface MatchFormat {
+  thresholds: MatchWinConditionValue[];
+}
+
 export interface ArenaScoringConfig {
   winPoints: number;
   drawPoints: number;
@@ -219,7 +225,11 @@ export interface TournamentConfig {
     scoring: ScoringRules;
     tiebreaksEnabled: boolean;
     tiebreaks: string[];
-    matchWinConditions?: Record<number, number>; // round number -> points to win
+    matchWinConditions?: Record<number, number>; // Legacy mapping
+    knockoutMatchFormat?: {
+      default: MatchFormat;
+      overrides?: Record<string, MatchFormat>;
+    };
   };
   schedule: ScheduleEvent[];
   sections: SectionDefinition[];
@@ -233,7 +243,7 @@ export interface TournamentConfig {
   contacts: ContactEntry[];
   tournamentPageContent: string;
   boardNumbering: BoardNumberingSettings;
-  seedingMethod?: "rating" | "random" | "slaughter" | "manual";
+  seedingMethod?: "random" | "slaughter" | "manual" | "fide_world_cup";
   seedingSource?: "rating" | "uscf" | "fide";
   arena?: {
     durationMinutes: number;
@@ -302,7 +312,7 @@ export function createDefaultSchedule(rounds: number): ScheduleEvent[] {
 }
 
 export function createDefaultConfig(format: Tournament["format"], mode: TournamentMode = "rated"): TournamentConfig {
-  const defaultRounds = format === "roundrobin" ? 9 : DEFAULT_SCHEDULE_ROUNDS;
+  const defaultRounds = format === "roundrobin" ? 9 : (format === "knockout" ? 0 : DEFAULT_SCHEDULE_ROUNDS);
   const defaultTimeControl: TimeControlDefinition = {
     minutes: format === "knockout" ? 25 : 90,
     addonType: "increment" satisfies TimeAddonType,
@@ -442,7 +452,7 @@ export function createDefaultConfig(format: Tournament["format"], mode: Tourname
       gaps: '',
       customSequence: '',
     },
-    seedingMethod: "rating",
+    seedingMethod: "fide_world_cup",
     seedingSource: "rating",
     arena: {
       durationMinutes: 60,
@@ -463,19 +473,50 @@ export function createDefaultConfig(format: Tournament["format"], mode: Tourname
   };
 }
 
-export function parseTournamentConfig(tournament: Tournament): TournamentConfig {
+export function parseTournamentConfig(tournament: Tournament | undefined | null): TournamentConfig {
+  if (!tournament || !tournament.roundTimings) {
+    return createDefaultConfig(tournament?.format || "swiss", "rated");
+  }
+
   const raw = tournament.roundTimings as any;
-  if (raw && typeof raw === "object" && !Array.isArray(raw) && raw.version === "v2") {
-    const parsed = raw as TournamentConfig;
-    const rawMode = (parsed as any)?.mode;
+  
+  // Normalize properties for predictable access across versions
+  if (raw.details) {
+    if (raw.details.knockout_match_format && !raw.details.knockoutMatchFormat) {
+      raw.details.knockoutMatchFormat = raw.details.knockout_match_format;
+    }
+  }
+  if (raw.schedule && !raw.roundTimings) {
+    raw.roundTimings = raw.schedule;
+  }
+
+  if (raw.version === "v2") {
+    const rawMode = (raw as any)?.mode;
     const normalizedMode: TournamentMode =
       rawMode === "online" || rawMode === "unrated" || rawMode === "rated"
         ? rawMode
         : rawMode === "casual"
         ? "unrated"
         : "rated";
+
+    return {
+      ...raw,
+      mode: normalizedMode,
+    } as TournamentConfig;
+  }
+
+  // Legacy/v1 Parsing
+  const parsed = raw;
+  const rawMode = (parsed as any)?.mode;
+  const normalizedMode: TournamentMode =
+    rawMode === "online" || rawMode === "unrated" || rawMode === "rated"
+      ? rawMode
+      : rawMode === "casual"
+      ? "unrated"
+      : "rated";
+  if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
     const normalizedTimeControls = Array.isArray(parsed.details?.timeControls)
-      ? parsed.details.timeControls.map((control) => ({
+      ? parsed.details.timeControls.map((control: any) => ({
           minutes: Number(control?.minutes) || 0,
           addonType: (control?.addonType as TimeAddonType) ?? ("none" as TimeAddonType),
           addonValue: Number(control?.addonValue) || 0,
@@ -609,7 +650,7 @@ export function parseTournamentConfig(tournament: Tournament): TournamentConfig 
       prizes: normalizedPrizes,
       payments: sanitizedPayments,
       mode: normalizedMode,
-      seedingMethod: (parsed as any)?.seedingMethod ?? tournament.seedingMethod ?? "rating",
+      seedingMethod: (parsed as any)?.seedingMethod ?? tournament.seedingMethod ?? "fide_world_cup",
       seedingSource: (parsed as any)?.seedingSource ?? "rating",
       arena: {
         durationMinutes: tournament.arenaDuration ?? parsed.arena?.durationMinutes ?? defaults.arena!.durationMinutes,
@@ -1105,4 +1146,171 @@ export function resolveEntryFeeBounds(
   const ratingMin = fee.ratingMin !== null ? fee.ratingMin : section?.ratingMin ?? null;
   const ratingMax = fee.ratingMax !== null ? fee.ratingMax : section?.ratingMax ?? null;
   return { ratingMin, ratingMax };
+}
+
+/**
+ * Calculates the cumulative score for a series of matches (a matchup).
+ * Correctly handles color swaps between games in a series.
+ * @param matches All games in the matchup series
+ * @param manualP1Id Optional: Force which player is considered P1 (Top player in bracket)
+ * @param manualP2Id Optional: Force which player is considered P2 (Bottom player in bracket)
+ */
+export function calculateMatchupScore(matches: any[], manualP1Id?: number | null, manualP2Id?: number | null) {
+  if (matches.length === 0) return { p1Score: 0, p2Score: 0, p1Id: manualP1Id || 0, p2Id: manualP2Id || 0 };
+  
+  // Define P1 and P2 based on the very first game of the series if not provided
+  const sortedMatches = [...matches].sort((a, b) => (a.gameNumber || 1) - (b.gameNumber || 1));
+  const first = sortedMatches[0];
+  const p1Id = manualP1Id !== undefined ? manualP1Id : first.whitePlayerId;
+  const p2Id = manualP2Id !== undefined ? manualP2Id : first.blackPlayerId;
+  
+  let p1Score = 0;
+  let p2Score = 0;
+  
+  for (const m of sortedMatches) {
+    if (!m.result || m.result === '*' || m.result === 'P') continue;
+    
+    let w = 0, b = 0;
+    if (m.result === '1-0' || m.result === '1-0F') w = 1;
+    else if (m.result === '0-1' || m.result === '0-1F') b = 1;
+    else if (m.result === '1/2-1/2') { w = 0.5; b = 0.5; }
+    
+    // Attribute points to the correct player regardless of which color they played in THIS game
+    if (m.whitePlayerId === p1Id) {
+      p1Score += w;
+      p2Score += b;
+    } else if (m.whitePlayerId === p2Id) {
+      p2Score += w;
+      p1Score += b;
+    } else if (m.blackPlayerId === p1Id) {
+      // In case whitePlayerId was p2Id or something else
+      p1Score += b;
+      p2Score += w;
+    } else if (m.blackPlayerId === p2Id) {
+      p2Score += b;
+      p1Score += w;
+    }
+  }
+  
+  return { p1Score, p2Score, p1Id, p2Id };
+}
+
+/**
+ * Retrieves the match format (thresholds, games) for a specific round/bracket.
+ */
+export function getMatchFormat(config: TournamentConfig, round: number, bracketType?: string): MatchFormat & { games?: number } {
+  const knockoutFormat = config.details.knockoutMatchFormat;
+  const defaultFormat: MatchFormat & { games?: number } = { 
+    thresholds: [1.5],
+    games: 2
+  };
+  
+  let matchedFormat: MatchFormat | undefined;
+
+  if (knockoutFormat) {
+    const overrides = knockoutFormat.overrides || {};
+    const bracket = bracketType || 'winners';
+    
+    // Priority keys for matching overrides
+    const possibleKeys = [
+      `${bracket}_round_${round}`,
+      `round_${round}`,
+      String(round),
+      `Round ${round}`,
+      round === config.details.rounds ? "Finals" : "",
+      round === (config.details.rounds || 0) - 1 ? "Semifinals" : "",
+      round === (config.details.rounds || 0) - 2 ? "Quarterfinals" : ""
+    ].filter(Boolean);
+
+    for (const key of possibleKeys) {
+      if (overrides[key]) {
+        matchedFormat = overrides[key];
+        break;
+      }
+    }
+    
+    if (!matchedFormat && knockoutFormat.default) {
+      matchedFormat = knockoutFormat.default;
+    }
+  }
+
+  // Legacy fallback to simple mapping
+  if (!matchedFormat && config.details.matchWinConditions) {
+    const legacyValue = config.details.matchWinConditions[round] || config.details.matchWinConditions[String(round)];
+    if (legacyValue) {
+      matchedFormat = {
+        thresholds: [Number(legacyValue)]
+      };
+    }
+  }
+
+  const finalFormat = (matchedFormat ? { ...defaultFormat, ...matchedFormat } : defaultFormat) as MatchFormat & { games?: number };
+  
+  // Normalize thresholds to be an array
+  if (finalFormat.thresholds && !Array.isArray(finalFormat.thresholds)) {
+    finalFormat.thresholds = [finalFormat.thresholds as any];
+  }
+  
+  // If games is not explicitly provided, calculate a sensible default based on thresholds.
+  // For a threshold of T, you need at least T*2 games to allow for a T-T tie.
+  // e.g., T=1.5 -> 3 games (allows 1.5-1.5 tie), T=2.5 -> 5 games (allows 2.5-2.5 tie)
+  if (finalFormat.games === undefined) {
+    const numericThresholds = finalFormat.thresholds.filter(t => typeof t === 'number') as number[];
+    if (numericThresholds.length > 0) {
+      const maxThreshold = Math.max(...numericThresholds);
+      finalFormat.games = Math.floor(maxThreshold * 2);
+    } else {
+      finalFormat.games = 2;
+    }
+  }
+
+  return finalFormat;
+}
+
+/**
+ * Determines if a match series is decided based on the current score and format.
+ */
+export function isMatchDecided(
+  score: { p1Score: number; p2Score: number; p1Id: number | null; p2Id: number | null },
+  format: MatchFormat,
+  lastMatch: any
+): { decided: boolean; winnerId: number | null } {
+  const thresholds = format.thresholds || [1.5];
+  
+  for (const threshold of thresholds) {
+    if (threshold === "armageddon") {
+      // Armageddon always decides the match if it has a result
+      if (!lastMatch || !lastMatch.result || lastMatch.result === '*' || lastMatch.result === 'P') {
+        return { decided: false, winnerId: null };
+      }
+
+      if (lastMatch.result === '1-0' || lastMatch.result === '1-0F') return { decided: true, winnerId: lastMatch.whitePlayerId };
+      if (lastMatch.result === '0-1' || lastMatch.result === '0-1F') return { decided: true, winnerId: lastMatch.blackPlayerId };
+      if (lastMatch.result === '1/2-1/2') {
+        // In Armageddon, draw = black wins
+        return { decided: true, winnerId: lastMatch.blackPlayerId };
+      }
+      return { decided: false, winnerId: null };
+    }
+    
+    const t = Number(threshold);
+    
+    // Standard threshold check
+    if (score.p1Score >= t && score.p2Score < t) {
+      return { decided: true, winnerId: score.p1Id };
+    }
+    if (score.p2Score >= t && score.p1Score < t) {
+      return { decided: true, winnerId: score.p2Id };
+    }
+    
+    if (score.p1Score >= t && score.p2Score >= t) {
+      // Tie at this threshold, continue to next stage if available
+      continue;
+    }
+    
+    // Threshold not yet reached by either player, and no tie yet
+    return { decided: false, winnerId: null };
+  }
+  
+  return { decided: false, winnerId: null };
 }

@@ -11,6 +11,7 @@ import type { Match, Player } from "@shared/schema";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ArrowLeftRight } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
+import { calculateMatchupScore, getMatchFormat, parseTournamentConfig } from "@shared/tournament-config";
 
 interface MatchManagementDialogProps {
   match: Match | null;
@@ -20,6 +21,7 @@ interface MatchManagementDialogProps {
   allMatches: Match[];
   isTD: boolean;
   tournamentId: number;
+  format?: string;
   onMatchUpdated: () => void;
 }
 
@@ -31,6 +33,7 @@ export function MatchManagementDialog({
   allMatches, 
   isTD, 
   tournamentId, 
+  format,
   onMatchUpdated 
 }: MatchManagementDialogProps) {
   const { toast } = useToast();
@@ -150,8 +153,17 @@ export function MatchManagementDialog({
     )
     .sort((a, b) => (a.gameNumber || 0) - (b.gameNumber || 0));
 
-  const whitePlayer = players.find(p => p.id === match.whitePlayerId);
-  const blackPlayer = players.find(p => p.id === match.blackPlayerId);
+  // Consistently define P1 and P2 based on the FIRST game of the series
+  // This ensures they match the Top/Bottom slots in the bracket UI
+  const { p1Id, p2Id, p1Score, p2Score } = calculateMatchupScore(seriesGames);
+  
+  const p1Player = players.find(p => p.id === p1Id);
+  const p2Player = players.find(p => p.id === p2Id);
+
+  const formatScore = (score: number) => {
+    if (score % 1 === 0) return score.toString();
+    return (Math.floor(score) === 0 ? "" : Math.floor(score)) + "\u00BD";
+  };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -175,15 +187,17 @@ export function MatchManagementDialog({
           </div>
 
           <div className="grid grid-cols-2 gap-4 mt-6">
-             <div className="p-4 rounded-xl bg-white/5 border border-white/5 flex flex-col items-center text-center">
+             <div className="p-4 rounded-xl bg-white/5 border border-white/5 flex flex-col items-center text-center relative group">
                 <div className="w-10 h-10 rounded-full bg-slate-700 flex items-center justify-center text-xs font-bold mb-3 border border-white/10">P1</div>
-                <span className="text-sm font-bold text-slate-200">{whitePlayer ? `${whitePlayer.firstName} ${whitePlayer.lastName}` : "TBD"}</span>
+                <span className="text-sm font-bold text-slate-200">{p1Player ? `${p1Player.firstName} ${p1Player.lastName}` : "TBD"}</span>
                 <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest mt-1">PLAYER 1</span>
+                <div className="mt-3 text-2xl font-black text-amber-500">{formatScore(p1Score)}</div>
              </div>
-             <div className="p-4 rounded-xl bg-white/5 border border-white/5 flex flex-col items-center text-center">
+             <div className="p-4 rounded-xl bg-white/5 border border-white/5 flex flex-col items-center text-center relative group">
                 <div className="w-10 h-10 rounded-full bg-slate-900 flex items-center justify-center text-xs font-bold mb-3 border border-white/10">P2</div>
-                <span className="text-sm font-bold text-slate-200">{blackPlayer ? `${blackPlayer.firstName} ${blackPlayer.lastName}` : "TBD"}</span>
+                <span className="text-sm font-bold text-slate-200">{p2Player ? `${p2Player.firstName} ${p2Player.lastName}` : "TBD"}</span>
                 <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest mt-1">PLAYER 2</span>
+                <div className="mt-3 text-2xl font-black text-amber-500">{formatScore(p2Score)}</div>
              </div>
           </div>
         </DialogHeader>
@@ -195,7 +209,7 @@ export function MatchManagementDialog({
                   <History className="h-3 w-3" />
                   Series History
                 </h4>
-                {isTD && (
+                {isTD && format !== 'knockout' && (
                    <div className="flex items-center gap-2">
                      <Button 
                       variant="ghost" 
@@ -275,27 +289,27 @@ export function MatchManagementDialog({
               </div>
            </div>
 
-           {isTD && !match.result && match.whitePlayerId && match.blackPlayerId && (
+           {isTD && !match.result && p1Id && p2Id && (
               <div className="space-y-3 pt-4 border-t border-white/5">
                  <h4 className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em] text-center mb-4">Advance Player</h4>
                  <div className="grid grid-cols-2 gap-3">
                     <Button 
                      variant="outline"
                      className="h-12 border-white/10 bg-white/5 hover:bg-amber-500/10 hover:border-amber-500/50 text-slate-200 group/btn"
-                     onClick={() => confirmWinnerMutation.mutate(match.whitePlayerId!)}
+                     onClick={() => confirmWinnerMutation.mutate(p1Id)}
                      disabled={confirmWinnerMutation.isPending}
                     >
                       <CheckCircle2 className="h-4 w-4 mr-2 text-slate-500 group-hover/btn:text-amber-500" />
-                      Player 1 Wins
+                      P1 Wins
                     </Button>
                     <Button 
                      variant="outline"
                      className="h-12 border-white/10 bg-white/5 hover:bg-amber-500/10 hover:border-amber-500/50 text-slate-200 group/btn"
-                     onClick={() => confirmWinnerMutation.mutate(match.blackPlayerId!)}
+                     onClick={() => confirmWinnerMutation.mutate(p2Id)}
                      disabled={confirmWinnerMutation.isPending}
                     >
                       <CheckCircle2 className="h-4 w-4 mr-2 text-slate-500 group-hover/btn:text-amber-500" />
-                      Player 2 Wins
+                      P2 Wins
                     </Button>
                  </div>
               </div>
@@ -303,7 +317,7 @@ export function MatchManagementDialog({
         </div>
 
         <DialogFooter className="p-4 bg-slate-800/30 border-t border-white/10 flex sm:justify-between items-center px-6">
-           {isTD && (
+           {isTD && format !== 'knockout' && (
              <Button 
                variant="ghost" 
                size="sm"

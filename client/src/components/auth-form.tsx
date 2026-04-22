@@ -455,6 +455,26 @@ export default function AuthForm() {
               <Button type="submit" className="w-full" disabled={isLoggingIn}>
                 {isLoggingIn ? "Signing in..." : "Sign In"}
               </Button>
+              <Button 
+                type="button" 
+                variant="outline" 
+                className="w-full mt-2 border-dashed border-primary/50" 
+                onClick={async () => {
+                  try {
+                    const res = await apiRequest("/api/auth/bypass", { method: "POST" });
+                    if (res.token) {
+                      localStorage.setItem("auth_token", res.token);
+                      queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
+                      setLocation("/");
+                      toast({ title: "Bypass Successful", description: `Logged in as ${res.user.username}` });
+                    }
+                  } catch (err) {
+                    toast({ title: "Bypass Failed", description: "Bypass user might not exist", variant: "destructive" });
+                  }
+                }}
+              >
+                Developer Bypass (mommies)
+              </Button>
               <div className="flex justify-between text-sm">
                 <Button variant="link" size="sm" onClick={() => setAuthMode('forgot-username')}>
                   Forgot username?

@@ -152,7 +152,7 @@ export function applyArenaRoutes(app: Router) {
       const updated = await storage.updateTournament(tournamentId, { 
         status: 'active', 
         arenaPairingMode: 'automatic',
-        arenaStartTime: arenaStartTimeStr
+        arenaStartTime: new Date()
       });
 
       console.log(`[ArenaRoute] Tournament ${tournamentId} activated. Triggering first pairing pass...`);
@@ -396,9 +396,35 @@ export function applyArenaRoutes(app: Router) {
   app.post("/api/tournaments/:id/arena/conclude", requireAuth, requireRole('tournament_director'), requireTournamentAccess, async (req, res) => {
     try {
       const tournamentId = parseInt(req.params.id);
+      const { strategy } = req.body; // 'force_end' or 'wait_for_ongoing'
+      
       stopAutoPairingLoop(tournamentId);
-      await storage.updateTournament(tournamentId, { status: 'completed' });
-      res.json({ status: 'completed' });
+
+      if (strategy === 'force_end') {
+        // Immediately end and mark in-progress matches as unfinished result (*)
+        const matches = await storage.getMatchesByTournament(tournamentId);
+        for (const m of matches) {
+          if (['playing', 'in_progress', 'pending'].includes(m.status)) {
+            await storage.updateMatch(m.id, { status: 'completed', result: '*' });
+          }
+        }
+        await storage.updateTournament(tournamentId, { status: 'completed' });
+        return res.json({ status: 'completed' });
+      } else {
+        // wait_for_ongoing
+        await storage.updateTournament(tournamentId, { arenaEndStrategy: 'wait_for_ongoing' });
+        
+        // Check if we can end immediately (no active matches)
+        const matches = await storage.getMatchesByTournament(tournamentId);
+        const activeMatches = matches.filter(m => ['playing', 'in_progress', 'pending'].includes(m.status));
+        
+        if (activeMatches.length === 0) {
+          await storage.updateTournament(tournamentId, { status: 'completed' });
+          return res.json({ status: 'completed' });
+        }
+        
+        return res.json({ status: 'active', message: "Waiting for ongoing matches" });
+      }
     } catch (error) {
       res.status(500).json({ message: "Failed to conclude tournament" });
     }

@@ -11,7 +11,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import type { Match, Player, Pairing, Tournament } from "@shared/schema";
 import { parseTournamentConfig } from "@/lib/tournament-config";
-import type { SectionDefinition } from "@shared/tournament-config";
+import { calculateMatchupScore, type SectionDefinition } from "@shared/tournament-config";
 import { HEAD_TO_HEAD_RESULT_OPTIONS, BYE_RESULT_OPTIONS, getPointsForResult } from "@shared/match-results";
 import { MatchManagementDialog } from "./match-management-dialog";
 import { Swords } from "lucide-react";
@@ -39,6 +39,7 @@ export default function SwissPairings({ tournamentId, activeSection, showExportC
   } | null>(null);
   const [selectedMatchForManagement, setSelectedMatchForManagement] = useState<Match | null>(null);
   const [expandedSeries, setExpandedSeries] = useState<Set<number>>(new Set());
+  const [finishConfirmation, setFinishConfirmation] = useState("");
   const { toast } = useToast();
   const { user } = useAuth();
 
@@ -1014,6 +1015,15 @@ export default function SwissPairings({ tournamentId, activeSection, showExportC
                       <AlertDialogTitle>Finish Tournament Early?</AlertDialogTitle>
                       <AlertDialogDescription>
                         Completing now will finalize standings through Round {currentRound}. This action cannot be undone.
+                        <div className="mt-4 p-3 bg-slate-50 rounded-lg border border-slate-200">
+                          <p className="text-sm font-bold text-slate-800 mb-2">Type "FINISH" to confirm:</p>
+                          <input 
+                            type="text" 
+                            className="w-full h-10 px-3 rounded-md border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-black"
+                            placeholder="Type FINISH"
+                            onChange={(e) => setFinishConfirmation(e.target.value)}
+                          />
+                        </div>
                       </AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter>
@@ -1021,6 +1031,7 @@ export default function SwissPairings({ tournamentId, activeSection, showExportC
                       <AlertDialogAction
                         onClick={() => finishTournamentMutation.mutate()}
                         className="bg-blue-600 hover:bg-blue-700"
+                        disabled={finishConfirmation !== "FINISH"}
                       >
                         Finish Tournament
                       </AlertDialogAction>
@@ -1269,13 +1280,7 @@ export default function SwissPairings({ tournamentId, activeSection, showExportC
                                 m.sectionId === match.sectionId
                               ).sort((a,b) => (a.gameNumber || 0) - (b.gameNumber || 0));
                               
-                              let wScore = 0;
-                              let bScore = 0;
-                              seriesGames.forEach(g => {
-                                if (g.result === "1-0" || g.result === "1-0F") wScore += 1;
-                                if (g.result === "0-1" || g.result === "0-1F") bScore += 1;
-                                if (g.result === "1/2-1/2") { wScore += 0.5; bScore += 0.5; }
-                              });
+                              const { p1Score, p2Score, p1Id, p2Id } = calculateMatchupScore(seriesGames);
 
                               const formatScore = (num: number) => {
                                 if (num % 1 === 0) return num.toString();
@@ -1297,15 +1302,15 @@ export default function SwissPairings({ tournamentId, activeSection, showExportC
                                     <td className="whitespace-nowrap px-6 py-4">
                                        <div className="flex flex-col gap-1.5">
                                           <div className="flex items-center gap-2">
-                                             <div className={`w-1.5 h-1.5 rounded-full ${match.result === '1-0' ? 'bg-green-500' : 'bg-slate-200'}`} />
-                                             <span className={`text-sm ${match.result === '1-0' ? 'text-slate-900 font-bold' : 'text-slate-700'}`}>
-                                                {match.whitePlayerId ? getPlayerName(match.whitePlayerId) : getPendingPlayerLabel(match.round, match.board || 1, 'white')}
+                                             <div className={`w-1.5 h-1.5 rounded-full ${p1Score > p2Score ? 'bg-green-500' : 'bg-slate-200'}`} />
+                                             <span className={`text-sm ${p1Score > p2Score ? 'text-slate-900 font-bold' : 'text-slate-700'}`}>
+                                                {p1Id ? getPlayerName(p1Id) : getPendingPlayerLabel(match.round, match.board || 1, 'white')}
                                              </span>
                                           </div>
                                           <div className="flex items-center gap-2">
-                                             <div className={`w-1.5 h-1.5 rounded-full ${match.result === '0-1' ? 'bg-green-500' : 'bg-slate-200'}`} />
-                                             <span className={`text-sm ${match.result === '0-1' ? 'text-slate-900 font-bold' : 'text-slate-700'}`}>
-                                                {match.blackPlayerId ? getPlayerName(match.blackPlayerId) : getPendingPlayerLabel(match.round, match.board || 1, 'black')}
+                                             <div className={`w-1.5 h-1.5 rounded-full ${p2Score > p1Score ? 'bg-green-500' : 'bg-slate-200'}`} />
+                                             <span className={`text-sm ${p2Score > p1Score ? 'text-slate-900 font-bold' : 'text-slate-700'}`}>
+                                                {p2Id ? getPlayerName(p2Id) : getPendingPlayerLabel(match.round, match.board || 1, 'black')}
                                              </span>
                                           </div>
                                        </div>
@@ -1313,7 +1318,7 @@ export default function SwissPairings({ tournamentId, activeSection, showExportC
                                     <td className="whitespace-nowrap px-6 py-4 text-center">
                                         <div className="inline-flex items-center justify-center h-10 px-4 rounded bg-[#f1f1f1] border border-[#e1e1e1] shadow-sm">
                                            <span className="text-base font-bold text-slate-900 tracking-tight">
-                                             {formatScore(wScore)} - {formatScore(bScore)}
+                                             {formatScore(p1Score)} - {formatScore(p2Score)}
                                            </span>
                                         </div>
                                         <div className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">Games: {seriesGames.length}</div>
@@ -1540,6 +1545,7 @@ export default function SwissPairings({ tournamentId, activeSection, showExportC
         allMatches={allMatches || []}
         isTD={isTournamentDirector}
         tournamentId={tournamentId}
+        format={tournament?.format}
         onMatchUpdated={() => {
           queryClient.invalidateQueries({ queryKey: [`/api/tournaments/${tournamentId}/matches`] });
           queryClient.invalidateQueries({ queryKey: [`/api/tournaments/${tournamentId}/players`] });

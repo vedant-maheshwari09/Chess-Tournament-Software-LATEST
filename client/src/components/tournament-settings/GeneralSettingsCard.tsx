@@ -11,10 +11,11 @@ interface GeneralSettingsCardProps {
     enablePairingPredictor: boolean;
     isDoubleElimination: boolean;
   };
+  format?: string;
   onChange: (update: Partial<GeneralSettingsCardProps['value']>) => void;
 }
 
-export function GeneralSettingsCard({ value, onChange }: GeneralSettingsCardProps) {
+export function GeneralSettingsCard({ value, onChange, format }: GeneralSettingsCardProps) {
   return (
     <Card>
       <CardHeader>
@@ -66,14 +67,16 @@ export function GeneralSettingsCard({ value, onChange }: GeneralSettingsCardProp
             onCheckedChange={(checked) => onChange({ isDoubleElimination: checked })}
           />
         </div>
-        <div className="flex items-center justify-between">
-          <Label htmlFor="enablePairingPredictor">Enable Pairing Predictor</Label>
-          <Switch
-            id="enablePairingPredictor"
-            checked={value.enablePairingPredictor}
-            onCheckedChange={(checked) => onChange({ enablePairingPredictor: checked })}
-          />
-        </div>
+        {format === "swiss" && (
+          <div className="flex items-center justify-between">
+            <Label htmlFor="enablePairingPredictor">Enable Pairing Predictor</Label>
+            <Switch
+              id="enablePairingPredictor"
+              checked={value.enablePairingPredictor}
+              onCheckedChange={(checked) => onChange({ enablePairingPredictor: checked })}
+            />
+          </div>
+        )}
       </CardContent>
     </Card>
   );

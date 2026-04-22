@@ -101,7 +101,7 @@ export default function TournamentDirectorDashboard() {
       );
     } else if (tournament.status === "completed") {
       actions.push(
-        <Link key="view" href={`/tournaments/${tournament.id}`}>
+        <Link key="view" href={`/tournaments/${tournament.id}/manage`}>
           <Button variant="outline" size="sm">
             View Results
           </Button>

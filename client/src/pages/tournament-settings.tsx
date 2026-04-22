@@ -525,7 +525,11 @@ export default function TournamentSettingsPage({ tournamentId, section }: Tourna
           <div className="flex-1 space-y-6 pb-12">
           {currentSection === "general" && (
             <div className="space-y-6">
-              <GeneralSettingsCard value={config.registers} onChange={updateRegisters} />
+              <GeneralSettingsCard 
+                value={config.registers} 
+                onChange={updateRegisters} 
+                format={tournament?.format} 
+              />
             </div>
           )}
 

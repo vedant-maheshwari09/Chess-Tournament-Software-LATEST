@@ -34,7 +34,11 @@ export async function apiRequest(
 
     if (res.status === 401) {
       localStorage.removeItem("auth_token");
-      window.location.href = '/login';
+      // Don't redirect if we are already trying to fetch the current user
+      // or if we are on the login page, as it creates a redirect loop.
+      if (!url.includes('/api/auth/me') && window.location.pathname !== '/login' && window.location.pathname !== '/auth') {
+        window.location.href = '/login';
+      }
       throw new Error("Session expired. Please log in again.");
     }
 
