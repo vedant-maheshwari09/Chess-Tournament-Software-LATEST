@@ -271,9 +271,6 @@ async function streamUSCFFileIntoDb(filePath: string, type: "blitz" | "quick") {
   db!.exec('COMMIT');
 }
 
-function log(message: string, context: string = "system") {
-  console.log(`${new Date().toLocaleTimeString()} [${context}] ${message}`);
-}
 
 async function buildFideIndex() {
   assertFileExists(FIDE_FILE, "FIDE player list file not found");
