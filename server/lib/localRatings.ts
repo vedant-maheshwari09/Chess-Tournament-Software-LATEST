@@ -19,6 +19,9 @@ const DEFAULT_ROOT_CANDIDATES = Array.from(
   ),
 );
 
+// Helper to yield event loop during long-running sync tasks
+const yieldLoop = () => new Promise(resolve => setImmediate(resolve));
+
 function resolveDataPath(relativePath: string, envKey?: string) {
   const envValue = envKey ? process.env[envKey]?.trim() : undefined;
   if (envValue) {
@@ -159,6 +162,11 @@ async function initializeDb() {
       normalized_full_name TEXT,
       normalized_last_first TEXT
     );
+    CREATE VIRTUAL TABLE IF NOT EXISTS uscf_fts USING fts5(
+      content='uscf',
+      id UNINDEXED,
+      search_vector
+    );
     CREATE TABLE IF NOT EXISTS fide (
       id TEXT PRIMARY KEY,
       name TEXT,
@@ -175,6 +183,11 @@ async function initializeDb() {
       search_vector TEXT,
       normalized_full_name TEXT,
       normalized_last_first TEXT
+    );
+    CREATE VIRTUAL TABLE IF NOT EXISTS fide_fts USING fts5(
+      content='fide',
+      id UNINDEXED,
+      search_vector
     );
   `);
 
@@ -219,6 +232,7 @@ async function buildUscfIndex() {
 
   db!.exec('BEGIN TRANSACTION');
   db!.exec('DELETE FROM uscf');
+  db!.exec('DELETE FROM uscf_fts');
   db!.exec('COMMIT');
 
   await streamUSCFFileIntoDb(blitzPath, "blitz");
@@ -254,6 +268,8 @@ async function streamUSCFFileIntoDb(filePath: string, type: "blitz" | "quick") {
       normalized_last_first = excluded.normalized_last_first
   `);
 
+  const insertFts = db!.prepare(`INSERT INTO uscf_fts (rowid, search_vector) VALUES (?, ?)`);
+
   db!.exec('BEGIN TRANSACTION');
   let count = 0;
   for await (const rawLine of reader) {
@@ -279,7 +295,7 @@ async function streamUSCFFileIntoDb(filePath: string, type: "blitz" | "quick") {
     const quickValue = type === "quick" ? (record.extraRating?.value || ratingValue) : null;
     const quickRaw = type === "quick" ? (record.extraRating?.raw || ratingRaw) : null;
 
-    upsert.run(
+    const info = upsert.run(
       record.id, record.name, record.state || null, record.expiration || null,
       ratingValue, ratingRaw,
       quickValue, quickRaw,
@@ -288,11 +304,17 @@ async function streamUSCFFileIntoDb(filePath: string, type: "blitz" | "quick") {
       type, type, type, type, type, type
     );
 
+    // Update FTS index
+    if (info.changes > 0) {
+      insertFts.run(info.lastInsertRowid, searchVector);
+    }
+
     count++;
     if (count % 5000 === 0) {
       db!.exec('COMMIT');
-      db!.exec('BEGIN TRANSACTION');
       log(`Processed ${count} USCF ${type} records...`, "ratings");
+      await yieldLoop(); // Yield to process other requests
+      db!.exec('BEGIN TRANSACTION');
     }
   }
   db!.exec('COMMIT');
@@ -304,6 +326,7 @@ async function buildFideIndex() {
   
   db!.exec('BEGIN TRANSACTION');
   db!.exec('DELETE FROM fide');
+  db!.exec('DELETE FROM fide_fts');
   const insert = db!.prepare(`
     INSERT INTO fide (
       id, name, federation, sex, title, 
@@ -314,11 +337,14 @@ async function buildFideIndex() {
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
+  const insertFts = db!.prepare(`INSERT INTO fide_fts (rowid, search_vector) VALUES (?, ?)`);
+
   const reader = readline.createInterface({
     input: createReadStream(FIDE_FILE),
     crlfDelay: Infinity,
   });
 
+  let count = 0;
   let isFirstLine = true;
   for await (const rawLine of reader) {
     if (isFirstLine) {
@@ -341,13 +367,25 @@ async function buildFideIndex() {
 
     const searchVector = Array.from(tokenSet).join(" ");
 
-    insert.run(
+    const info = insert.run(
       parsed.id, parsed.name, parsed.federation || null, parsed.sex || null, parsed.title || null,
       parsed.rating?.value || null, parsed.rating?.raw || null,
       parsed.rapidRating?.value || null, parsed.rapidRating?.raw || null,
       parsed.blitzRating?.value || null, parsed.blitzRating?.raw || null,
       parsed.birthYear || null, searchVector, normalizedFullName, normalizedLastFirst
     );
+
+    if (info.changes > 0) {
+      insertFts.run(info.lastInsertRowid, searchVector);
+    }
+
+    count++;
+    if (count % 5000 === 0) {
+      db!.exec('COMMIT');
+      log(`Processed ${count} FIDE records...`, "ratings");
+      await yieldLoop();
+      db!.exec('BEGIN TRANSACTION');
+    }
   }
   db!.exec('COMMIT');
 }
@@ -438,16 +476,17 @@ export async function searchUSCF(input: SearchInput, limit = 25): Promise<LocalR
   const { query, tokens } = resolveSearchInput(input);
   if (!hasSufficientInput(query) || !tokens.length) return [];
   
-  let sql = 'SELECT * FROM uscf WHERE 1=1';
-  const params: any[] = [];
-  for (const token of tokens) {
-    sql += ` AND search_vector LIKE ?`;
-    params.push(`%${token}%`);
-  }
-  sql += ' LIMIT 200';
+  const ftsMatch = tokens.map(t => `${t}*`).join(' AND ');
+  
+  const sql = `
+    SELECT u.* FROM uscf u
+    JOIN uscf_fts f ON u.rowid = f.rowid
+    WHERE f.search_vector MATCH ?
+    LIMIT 200
+  `;
   
   const stmt = db!.prepare(sql);
-  const rows = stmt.all(...params) as any[];
+  const rows = stmt.all(ftsMatch) as any[];
   
   const queryNormalized = normalizeForSearch(query);
   const matches = rows.map(row => ({
@@ -479,16 +518,17 @@ export async function searchFide(input: SearchInput, limit = 25): Promise<LocalR
   const { query, tokens } = resolveSearchInput(input);
   if (!hasSufficientInput(query) || !tokens.length) return [];
   
-  let sql = 'SELECT * FROM fide WHERE 1=1';
-  const params: any[] = [];
-  for (const token of tokens) {
-    sql += ` AND search_vector LIKE ?`;
-    params.push(`%${token}%`);
-  }
-  sql += ' LIMIT 200';
+  const ftsMatch = tokens.map(t => `${t}*`).join(' AND ');
+  
+  const sql = `
+    SELECT f.* FROM fide f
+    JOIN fide_fts fts ON f.rowid = fts.rowid
+    WHERE fts.search_vector MATCH ?
+    LIMIT 200
+  `;
   
   const stmt = db!.prepare(sql);
-  const rows = stmt.all(...params) as any[];
+  const rows = stmt.all(ftsMatch) as any[];
   
   const queryNormalized = normalizeForSearch(query);
   const matches = rows.map(row => ({
