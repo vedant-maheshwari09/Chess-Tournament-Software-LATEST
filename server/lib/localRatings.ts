@@ -1,47 +1,9 @@
-import { createReadStream, existsSync, statSync } from "fs";
+import { createReadStream, existsSync, statSync, createWriteStream, unlink } from "fs";
 import path from "path";
 import readline from "readline";
 import { fileURLToPath } from "url";
 import Database from "better-sqlite3";
-
-type ExtraRatingType = "quick" | "blitz" | "rapid";
-
-export interface RatingField {
-  value?: string;
-  raw?: string;
-}
-
-export interface LocalRatingResult {
-  id: string;
-  name: string;
-  rating?: RatingField;
-  quickRating?: RatingField;
-  blitzRating?: RatingField;
-  rapidRating?: RatingField;
-  location?: string;
-  title?: string;
-  federation?: string;
-  sex?: string;
-  birthYear?: string;
-  metadata?: Record<string, string | undefined>;
-}
-
-export interface LocalSearchParams {
-  term?: string;
-  firstName?: string;
-  lastName?: string;
-  id?: string;
-}
-
-interface USCFMutableEntry {
-  id: string;
-  name: string;
-  state?: string;
-  expiration?: string;
-  rating?: RatingField;
-  quickRating?: RatingField;
-  blitzRating?: RatingField;
-}
+import https from "https";
 
 const MODULE_DIR = path.dirname(fileURLToPath(import.meta.url));
 const DEFAULT_ROOT_CANDIDATES = Array.from(
@@ -74,22 +36,76 @@ function resolveDataPath(relativePath: string, envKey?: string) {
   return path.resolve(fallbackRoot, relativePath);
 }
 
-const USCF_BLITZ_FILE = resolveDataPath("GDB2510T.TXT", "USCF_BLITZ_FILE");
-const USCF_QUICK_FILE = resolveDataPath("GDQ2510T.TXT", "USCF_QUICK_FILE");
-const FIDE_FILE = resolveDataPath("players_list-fide-oct-2025.txt", "FIDE_PLAYER_LIST_FILE");
+const USCF_BLITZ_FILE = "GDB2510T.TXT";
+const USCF_QUICK_FILE = "GDQ2510T.TXT";
+const FIDE_FILE = "players_list-fide-oct-2025.txt";
 const DB_PATH = resolveDataPath("ratings_cache.sqlite", "RATINGS_CACHE_DB_FILE");
 
 let db: Database.Database | null = null;
 let initPromise: Promise<void> | null = null;
 
+function log(message: string, context: string = "system") {
+  console.log(`${new Date().toISOString()} [localRatings] [${context}] ${message}`);
+}
+
+async function downloadFile(url: string, dest: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    log(`Downloading ${url} to ${dest}...`);
+    const file = createWriteStream(dest);
+    https.get(url, (response) => {
+      if (response.statusCode !== 200) {
+        reject(new Error(`Failed to download: ${response.statusCode} ${response.statusMessage}`));
+        return;
+      }
+      response.pipe(file);
+      file.on("finish", () => {
+        file.close();
+        log(`Download complete: ${dest}`);
+        resolve();
+      });
+    }).on("error", (err) => {
+      unlink(dest, () => {});
+      reject(err);
+    });
+  });
+}
+
+export async function ensureDataFiles(): Promise<void> {
+  const filesToVerify = [
+    { name: USCF_BLITZ_FILE, envUrl: "USCF_BLITZ_URL" },
+    { name: USCF_QUICK_FILE, envUrl: "USCF_QUICK_URL" },
+    { name: FIDE_FILE, envUrl: "FIDE_PLAYER_LIST_URL" },
+  ];
+
+  for (const item of filesToVerify) {
+    const filePath = path.resolve(process.cwd(), item.name);
+    if (!existsSync(filePath)) {
+      const url = process.env[item.envUrl];
+      if (url) {
+        try {
+          await downloadFile(url, filePath);
+        } catch (error) {
+          log(`Error downloading ${item.name}: ${error instanceof Error ? error.message : String(error)}`);
+        }
+      } else {
+        log(`Warning: ${item.name} is missing and ${item.envUrl} is not set.`);
+      }
+    }
+  }
+}
+
 export async function preloadRatingData() {
   if (!initPromise) {
-    initPromise = initializeDb();
+    initPromise = (async () => {
+      await ensureDataFiles();
+      await initializeDb();
+    })();
   }
   return initPromise;
 }
 
-function getMtime(filePath: string) {
+function getMtime(fileName: string) {
+  const filePath = path.resolve(process.cwd(), fileName);
   if (!existsSync(filePath)) return null;
   return statSync(filePath).mtimeMs;
 }
@@ -150,38 +166,36 @@ async function initializeDb() {
 
   if (currentUscfMeta?.value !== expectedUscfMeta) {
     if (uscfBlitzMtime && uscfQuickMtime) {
-      console.log("Rebuilding USCF database index...");
+      log("Rebuilding USCF database index...", "ratings");
       await buildUscfIndex();
       setMeta.run('uscf_mtime', expectedUscfMeta);
-      console.log("USCF index build complete.");
+      log("USCF index build complete.", "ratings");
     }
   }
 
   if (currentFideMeta?.value !== expectedFideMeta) {
     if (fideMtime) {
-      console.log("Rebuilding FIDE database index...");
+      log("Rebuilding FIDE database index...", "ratings");
       await buildFideIndex();
       setMeta.run('fide_mtime', expectedFideMeta);
-      console.log("FIDE index build complete.");
+      log("FIDE index build complete.", "ratings");
     }
   }
 }
 
 async function buildUscfIndex() {
-  assertFileExists(USCF_BLITZ_FILE, "USCF blitz ratings file not found");
-  assertFileExists(USCF_QUICK_FILE, "USCF quick ratings file not found");
+  const blitzPath = path.resolve(process.cwd(), USCF_BLITZ_FILE);
+  const quickPath = path.resolve(process.cwd(), USCF_QUICK_FILE);
+  
+  assertFileExists(blitzPath, "USCF blitz ratings file not found");
+  assertFileExists(quickPath, "USCF quick ratings file not found");
 
   db!.exec('BEGIN TRANSACTION');
   db!.exec('DELETE FROM uscf');
   db!.exec('COMMIT');
 
-  // Stream each file and upsert into the database
-  log("Streaming USCF blitz ratings...", "ratings");
-  await streamUSCFFileIntoDb(USCF_BLITZ_FILE, "blitz");
-  log("Streaming USCF quick ratings...", "ratings");
-  await streamUSCFFileIntoDb(USCF_QUICK_FILE, "quick");
-  
-  log("USCF index build complete.");
+  await streamUSCFFileIntoDb(blitzPath, "blitz");
+  await streamUSCFFileIntoDb(quickPath, "quick");
 }
 
 async function streamUSCFFileIntoDb(filePath: string, type: "blitz" | "quick") {
@@ -251,6 +265,7 @@ async function streamUSCFFileIntoDb(filePath: string, type: "blitz" | "quick") {
     if (count % 5000 === 0) {
       db!.exec('COMMIT');
       db!.exec('BEGIN TRANSACTION');
+      log(`Processed ${count} USCF ${type} records...`, "ratings");
     }
   }
   db!.exec('COMMIT');
