@@ -27,18 +27,22 @@ This plan focuses on **Render**, which allows you to deploy your full stack for 
 
 ## 4. How to Deploy to Render
 
-### Step 1: Create a New Web Service
-1. Log in to [dashboard.render.com](https://dashboard.render.com/).
-2. Click **"New +"** > **"Web Service"**.
-3. Connect your GitHub repository.
+## 4. Phase 2: Render Deployment
+Now that the code is stable and pushed, follow these steps in the Render Dashboard:
 
-### Step 2: Configure Build & Runtime
-*   **Name**: `chess-tournament-manager` (or your choice)
-*   **Runtime**: `Node`
-*   **Build Command**: `npm install && npm run build`
-*   **Start Command**: `npm start`
+1. **Create Web Service**:
+   - Connect your GitHub repository.
+   - Select the `main` branch.
+2. **Configure Environment**:
+   - **Build Command**: `npm install && npm run build`
+   - **Start Command**: `npm start`
+   - Add the variables listed in the "Environment Variables" section below.
+3. **Database URL**:
+   - Ensure the `DATABASE_URL` uses the "Transaction" mode connection string from Supabase (usually port 6543) for better performance on Render.
+4. **Deploy**:
+   - Click "Create Web Service".
 
-### Step 3: Environment Variables
+### Environment Variables
 Go to the **"Environment"** tab and add:
 - `PORT`: `5010`
 - `DATABASE_URL`: (From Supabase)

@@ -98,14 +98,7 @@ app.use((req, res, next) => {
 });
 
 (async () => {
-  log("Pre-loading rating data...", "express");
-  await preloadRatingData();
-  log("Rating data loaded.", "express");
-
   const server = await registerRoutes(app);
-
-  // Restart auto-pairing loops for any arena tournaments that were active before server restart
-  await bootstrapArenaPairing();
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
     const status = err.status || err.statusCode || 500;
@@ -151,8 +144,21 @@ app.use((req, res, next) => {
   server.listen({
     port,
     host: "0.0.0.0",
-  }, () => {
+  }, async () => {
     log(`serving on port ${port}`);
+    
+    // Background initialization after port is bound
+    try {
+      log("Pre-loading rating data...", "express");
+      await preloadRatingData();
+      log("Rating data loaded.", "express");
+
+      // Restart auto-pairing loops for any arena tournaments that were active before server restart
+      log("Bootstrapping arena pairings...", "express");
+      await bootstrapArenaPairing();
+      log("Arena pairings bootstrapped.", "express");
+    } catch (err) {
+      log(`Post-startup initialization failed: ${err}`, "express");
+    }
   });
 })();
- 

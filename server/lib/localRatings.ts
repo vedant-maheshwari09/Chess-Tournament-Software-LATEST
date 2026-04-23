@@ -171,13 +171,26 @@ async function buildUscfIndex() {
   assertFileExists(USCF_BLITZ_FILE, "USCF blitz ratings file not found");
   assertFileExists(USCF_QUICK_FILE, "USCF quick ratings file not found");
 
-  const map = new Map<string, USCFMutableEntry>();
-  await parseUSCFFile(USCF_BLITZ_FILE, map, "blitz");
-  await parseUSCFFile(USCF_QUICK_FILE, map, "quick");
-
   db!.exec('BEGIN TRANSACTION');
   db!.exec('DELETE FROM uscf');
-  const insert = db!.prepare(`
+  db!.exec('COMMIT');
+
+  // Stream each file and upsert into the database
+  log("Streaming USCF blitz ratings...", "ratings");
+  await streamUSCFFileIntoDb(USCF_BLITZ_FILE, "blitz");
+  log("Streaming USCF quick ratings...", "ratings");
+  await streamUSCFFileIntoDb(USCF_QUICK_FILE, "quick");
+  
+  log("USCF index build complete.");
+}
+
+async function streamUSCFFileIntoDb(filePath: string, type: "blitz" | "quick") {
+  const reader = readline.createInterface({
+    input: createReadStream(filePath),
+    crlfDelay: Infinity,
+  });
+
+  const upsert = db!.prepare(`
     INSERT INTO uscf (
       id, name, state, expiration, 
       rating_value, rating_raw, 
@@ -185,28 +198,66 @@ async function buildUscfIndex() {
       blitz_rating_value, blitz_rating_raw,
       search_vector, normalized_full_name, normalized_last_first
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET
+      name = COALESCE(excluded.name, uscf.name),
+      state = COALESCE(excluded.state, uscf.state),
+      expiration = COALESCE(excluded.expiration, uscf.expiration),
+      rating_value = CASE WHEN ? = 'blitz' THEN excluded.rating_value ELSE uscf.rating_value END,
+      rating_raw = CASE WHEN ? = 'blitz' THEN excluded.rating_raw ELSE uscf.rating_raw END,
+      blitz_rating_value = CASE WHEN ? = 'blitz' THEN excluded.blitz_rating_value ELSE uscf.blitz_rating_value END,
+      blitz_rating_raw = CASE WHEN ? = 'blitz' THEN excluded.blitz_rating_raw ELSE uscf.blitz_rating_raw END,
+      quick_rating_value = CASE WHEN ? = 'quick' THEN excluded.quick_rating_value ELSE uscf.quick_rating_value END,
+      quick_rating_raw = CASE WHEN ? = 'quick' THEN excluded.quick_rating_raw ELSE uscf.quick_rating_raw END,
+      search_vector = excluded.search_vector,
+      normalized_full_name = excluded.normalized_full_name,
+      normalized_last_first = excluded.normalized_last_first
   `);
 
-  for (const entry of Array.from(map.values())) {
-    const normalizedFullName = normalizeForSearch(toFirstLast(entry.name));
-    const normalizedLastFirst = normalizeForSearch(entry.name.replace(",", " "));
+  db!.exec('BEGIN TRANSACTION');
+  let count = 0;
+  for await (const rawLine of reader) {
+    const line = rawLine.replace(/\r/g, "");
+    if (!line.trim()) continue;
+    const record = parseUSCFLine(line);
+    if (!record) continue;
+
+    const normalizedFullName = normalizeForSearch(toFirstLast(record.name));
+    const normalizedLastFirst = normalizeForSearch(record.name.replace(",", " "));
     const tokenSet = new Set<string>();
     addTokens(tokenSet, normalizedFullName);
     addTokens(tokenSet, normalizedLastFirst);
-    addTokens(tokenSet, entry.id);
-    if (entry.state) addTokens(tokenSet, entry.state);
+    addTokens(tokenSet, record.id);
+    if (record.state) addTokens(tokenSet, record.state);
 
     const searchVector = Array.from(tokenSet).join(" ");
     
-    insert.run(
-      entry.id, entry.name, entry.state || null, entry.expiration || null,
-      entry.rating?.value || null, entry.rating?.raw || null,
-      entry.quickRating?.value || null, entry.quickRating?.raw || null,
-      entry.blitzRating?.value || null, entry.blitzRating?.raw || null,
-      searchVector, normalizedFullName, normalizedLastFirst
+    const ratingValue = record.rating?.value || null;
+    const ratingRaw = record.rating?.raw || null;
+    const blitzValue = type === "blitz" ? (record.extraRating?.value || ratingValue) : null;
+    const blitzRaw = type === "blitz" ? (record.extraRating?.raw || ratingRaw) : null;
+    const quickValue = type === "quick" ? (record.extraRating?.value || ratingValue) : null;
+    const quickRaw = type === "quick" ? (record.extraRating?.raw || ratingRaw) : null;
+
+    upsert.run(
+      record.id, record.name, record.state || null, record.expiration || null,
+      ratingValue, ratingRaw,
+      quickValue, quickRaw,
+      blitzValue, blitzRaw,
+      searchVector, normalizedFullName, normalizedLastFirst,
+      type, type, type, type, type, type
     );
+
+    count++;
+    if (count % 5000 === 0) {
+      db!.exec('COMMIT');
+      db!.exec('BEGIN TRANSACTION');
+    }
   }
   db!.exec('COMMIT');
+}
+
+function log(message: string, context: string = "system") {
+  console.log(`${new Date().toLocaleTimeString()} [${context}] ${message}`);
 }
 
 async function buildFideIndex() {
@@ -262,41 +313,6 @@ async function buildFideIndex() {
   db!.exec('COMMIT');
 }
 
-async function parseUSCFFile(filePath: string, map: Map<string, USCFMutableEntry>, extraType: ExtraRatingType) {
-  const reader = readline.createInterface({
-    input: createReadStream(filePath),
-    crlfDelay: Infinity,
-  });
-
-  for await (const rawLine of reader) {
-    const line = rawLine.replace(/\r/g, "");
-    if (!line.trim()) continue;
-    const record = parseUSCFLine(line);
-    if (!record) continue;
-
-    const current = map.get(record.id) ?? {
-      id: record.id,
-      name: record.name,
-      state: record.state,
-      expiration: record.expiration,
-    };
-
-    if (!current.name && record.name) current.name = record.name;
-    if (!current.state && record.state) current.state = record.state;
-    if (!current.expiration && record.expiration) current.expiration = record.expiration;
-    if (!current.rating && record.rating) current.rating = record.rating;
-
-    if (record.extraRating) {
-      if (extraType === "quick") {
-        current.quickRating = record.extraRating;
-      } else if (extraType === "blitz") {
-        current.blitzRating = record.extraRating;
-      }
-    }
-
-    map.set(record.id, current);
-  }
-}
 
 function parseUSCFLine(line: string) {
   const parts = line.split("\t").map((part) => part.trim());
