@@ -162,9 +162,7 @@ async function initializeDb() {
       normalized_full_name TEXT,
       normalized_last_first TEXT
     );
-    CREATE VIRTUAL TABLE IF NOT EXISTS uscf_fts USING fts5(
-      content='uscf',
-      id UNINDEXED,
+    CREATE VIRTUAL TABLE IF NOT EXISTS uscf_idx USING fts5(
       search_vector
     );
     CREATE TABLE IF NOT EXISTS fide (
@@ -184,9 +182,7 @@ async function initializeDb() {
       normalized_full_name TEXT,
       normalized_last_first TEXT
     );
-    CREATE VIRTUAL TABLE IF NOT EXISTS fide_fts USING fts5(
-      content='fide',
-      id UNINDEXED,
+    CREATE VIRTUAL TABLE IF NOT EXISTS fide_idx USING fts5(
       search_vector
     );
   `);
@@ -232,7 +228,7 @@ async function buildUscfIndex() {
 
   db!.exec('BEGIN TRANSACTION');
   db!.exec('DELETE FROM uscf');
-  db!.exec('DELETE FROM uscf_fts');
+  db!.exec('DELETE FROM uscf_idx');
   db!.exec('COMMIT');
 
   await streamUSCFFileIntoDb(blitzPath, "blitz");
@@ -268,7 +264,7 @@ async function streamUSCFFileIntoDb(filePath: string, type: "blitz" | "quick") {
       normalized_last_first = excluded.normalized_last_first
   `);
 
-  const insertFts = db!.prepare(`INSERT INTO uscf_fts (rowid, search_vector) VALUES (?, ?)`);
+  const insertFts = db!.prepare(`INSERT INTO uscf_idx (rowid, search_vector) VALUES (?, ?)`);
 
   db!.exec('BEGIN TRANSACTION');
   let count = 0;
@@ -326,7 +322,7 @@ async function buildFideIndex() {
   
   db!.exec('BEGIN TRANSACTION');
   db!.exec('DELETE FROM fide');
-  db!.exec('DELETE FROM fide_fts');
+  db!.exec('DELETE FROM fide_idx');
   const insert = db!.prepare(`
     INSERT INTO fide (
       id, name, federation, sex, title, 
@@ -337,7 +333,7 @@ async function buildFideIndex() {
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
-  const insertFts = db!.prepare(`INSERT INTO fide_fts (rowid, search_vector) VALUES (?, ?)`);
+  const insertFts = db!.prepare(`INSERT INTO fide_idx (rowid, search_vector) VALUES (?, ?)`);
 
   const reader = readline.createInterface({
     input: createReadStream(FIDE_FILE),
@@ -477,16 +473,18 @@ export async function searchUSCF(input: SearchInput, limit = 25): Promise<LocalR
   if (!hasSufficientInput(query) || !tokens.length) return [];
   
   const ftsMatch = tokens.map(t => `${t}*`).join(' AND ');
+  log(`[search] USCF query: "${query}", ftsMatch: "${ftsMatch}"`, "search");
   
   const sql = `
     SELECT u.* FROM uscf u
-    JOIN uscf_fts f ON u.rowid = f.rowid
+    JOIN uscf_idx f ON u.rowid = f.rowid
     WHERE f.search_vector MATCH ?
     LIMIT 200
   `;
   
   const stmt = db!.prepare(sql);
   const rows = stmt.all(ftsMatch) as any[];
+  log(`[search] USCF found ${rows.length} raw results`, "search");
   
   const queryNormalized = normalizeForSearch(query);
   const matches = rows.map(row => ({
@@ -519,16 +517,18 @@ export async function searchFide(input: SearchInput, limit = 25): Promise<LocalR
   if (!hasSufficientInput(query) || !tokens.length) return [];
   
   const ftsMatch = tokens.map(t => `${t}*`).join(' AND ');
+  log(`[search] FIDE query: "${query}", ftsMatch: "${ftsMatch}"`, "search");
   
   const sql = `
     SELECT f.* FROM fide f
-    JOIN fide_fts fts ON f.rowid = fts.rowid
+    JOIN fide_idx fts ON f.rowid = fts.rowid
     WHERE fts.search_vector MATCH ?
     LIMIT 200
   `;
   
   const stmt = db!.prepare(sql);
   const rows = stmt.all(ftsMatch) as any[];
+  log(`[search] FIDE found ${rows.length} raw results`, "search");
   
   const queryNormalized = normalizeForSearch(query);
   const matches = rows.map(row => ({
