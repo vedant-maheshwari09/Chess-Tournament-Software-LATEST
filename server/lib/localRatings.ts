@@ -78,23 +78,57 @@ function log(message: string, context: string = "system") {
   console.log(`${new Date().toISOString()} [localRatings] [${context}] ${message}`);
 }
 
-async function downloadFile(url: string, dest: string): Promise<void> {
+async function downloadFile(url: string, dest: string, redirects = 5): Promise<void> {
+  const tempDest = `${dest}.tmp`;
   return new Promise((resolve, reject) => {
-    log(`Downloading ${url} to ${dest}...`);
-    const file = createWriteStream(dest);
+    if (redirects < 0) {
+      reject(new Error("Too many redirects"));
+      return;
+    }
+
     https.get(url, (response) => {
-      if (response.statusCode !== 200) {
-        reject(new Error(`Failed to download: ${response.statusCode} ${response.statusMessage}`));
+      const { statusCode } = response;
+      const contentType = response.headers["content-type"];
+      
+      // Handle redirects (301, 302, 307, 308)
+      if (statusCode && statusCode >= 300 && statusCode < 400 && response.headers.location) {
+        log(`Following redirect to ${response.headers.location}...`);
+        downloadFile(response.headers.location, dest, redirects - 1)
+          .then(resolve)
+          .catch(reject);
         return;
       }
+
+      if (statusCode !== 200) {
+        reject(new Error(`Failed to download: ${statusCode} ${response.statusMessage}`));
+        return;
+      }
+
+      log(`Downloading to temp file: ${tempDest} (Type: ${contentType})`);
+      const file = createWriteStream(tempDest);
       response.pipe(file);
       file.on("finish", () => {
         file.close();
-        log(`Download complete: ${dest}`);
-        resolve();
+        try {
+          if (statSync(tempDest).size === 0) {
+            unlinkSync(tempDest);
+            reject(new Error("Downloaded file is empty"));
+            return;
+          }
+          // Atomic rename
+          renameSync(tempDest, dest);
+          log(`Download complete and verified: ${dest}`);
+          resolve();
+        } catch (err) {
+          reject(err);
+        }
+      });
+      file.on("error", (err) => {
+        if (existsSync(tempDest)) unlinkSync(tempDest);
+        reject(err);
       });
     }).on("error", (err) => {
-      unlink(dest, () => {});
+      if (existsSync(tempDest)) unlinkSync(tempDest);
       reject(err);
     });
   });
@@ -116,9 +150,11 @@ export async function ensureDataFiles(): Promise<void> {
           await downloadFile(url, filePath);
         } catch (error) {
           log(`Error downloading ${item.name}: ${error instanceof Error ? error.message : String(error)}`);
+          throw error; // Rethrow to stop initialization
         }
       } else {
         log(`Warning: ${item.name} is missing and ${item.envUrl} is not set.`);
+        throw new Error(`Missing required rating file: ${item.name}`);
       }
     }
   }
@@ -127,8 +163,13 @@ export async function ensureDataFiles(): Promise<void> {
 export async function preloadRatingData() {
   if (!initPromise) {
     initPromise = (async () => {
+    try {
       await ensureDataFiles();
       await initializeDb();
+      log("Rating data preloaded successfully.", "system");
+    } catch (err) {
+      log(`Failed to preload rating data: ${err instanceof Error ? err.message : String(err)}`, "system");
+    }
     })();
   }
   return initPromise;
@@ -203,18 +244,28 @@ async function initializeDb() {
   if (currentUscfMeta?.value !== expectedUscfMeta) {
     if (uscfBlitzMtime && uscfQuickMtime) {
       log("Rebuilding USCF database index...", "ratings");
-      await buildUscfIndex();
-      setMeta.run('uscf_mtime', expectedUscfMeta);
-      log("USCF index build complete.", "ratings");
+      try {
+        await buildUscfIndex();
+        setMeta.run('uscf_mtime', expectedUscfMeta);
+        log("USCF index build complete.", "ratings");
+      } catch (err) {
+        log(`USCF index build failed: ${err instanceof Error ? err.message : String(err)}`, "ratings");
+        throw err;
+      }
     }
   }
 
   if (currentFideMeta?.value !== expectedFideMeta) {
     if (fideMtime) {
       log("Rebuilding FIDE database index...", "ratings");
-      await buildFideIndex();
-      setMeta.run('fide_mtime', expectedFideMeta);
-      log("FIDE index build complete.", "ratings");
+      try {
+        await buildFideIndex();
+        setMeta.run('fide_mtime', expectedFideMeta);
+        log("FIDE index build complete.", "ratings");
+      } catch (err) {
+        log(`FIDE index build failed: ${err instanceof Error ? err.message : String(err)}`, "ratings");
+        throw err;
+      }
     }
   }
 }
@@ -314,6 +365,10 @@ async function streamUSCFFileIntoDb(filePath: string, type: "blitz" | "quick") {
     }
   }
   db!.exec('COMMIT');
+  if (count === 0) {
+    throw new Error(`No records processed for USCF ${type} file: ${filePath}`);
+  }
+  log(`Finished USCF ${type} indexing. ${count} records processed.`, "ratings");
 }
 
 
@@ -384,6 +439,10 @@ async function buildFideIndex() {
     }
   }
   db!.exec('COMMIT');
+  if (count === 0) {
+    throw new Error(`No records processed for FIDE file`);
+  }
+  log(`Finished FIDE indexing. ${count} records processed.`, "ratings");
 }
 
 
