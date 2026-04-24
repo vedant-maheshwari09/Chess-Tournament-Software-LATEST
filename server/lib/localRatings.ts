@@ -264,7 +264,7 @@ async function streamUSCFFileIntoDb(filePath: string, type: "blitz" | "quick") {
       normalized_last_first = excluded.normalized_last_first
   `);
 
-  const insertFts = db!.prepare(`INSERT INTO uscf_idx (rowid, search_vector) VALUES (?, ?)`);
+  const insertFts = db!.prepare(`INSERT OR REPLACE INTO uscf_idx (rowid, search_vector) VALUES (?, ?)`);
 
   db!.exec('BEGIN TRANSACTION');
   let count = 0;
