@@ -1922,7 +1922,7 @@ export default function TournamentRegistrationFormPage({ tournamentId }: Tournam
                     </div>
                   </div>
                   <div className="border-t border-gray-100 bg-gray-50/50 px-5 py-3 text-center text-xs text-gray-500">
-                    Registration powered by Kingside · Confirmation sent after director review
+                    Registration powered by Rook · Confirmation sent after director review
                   </div>
                 </div>
               </form>

@@ -47,12 +47,13 @@ function HeroCarousel() {
         <img
           key={index}
           src={src}
-          alt={`Kingside Interface ${index + 1}`}
+          alt={`Rook Interface ${index + 1}`}
           className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-700 ease-in-out ${
             index === currentIndex ? "opacity-100" : "opacity-0"
           }`}
         />
       ))}
+      {/* Dot indicators */}
       <div className="absolute bottom-4 left-0 right-0 flex justify-center gap-2 z-10">
         {CAROUSEL_IMAGES.map((_, index) => (
           <button
@@ -74,22 +75,22 @@ export default function LandingPage() {
     <div className="bg-white font-sans text-gray-900 min-h-screen selection:bg-green-100 selection:text-green-900">
       {/* Navigation */}
       <nav className="fixed top-0 w-full z-50 bg-white/90 backdrop-blur-md border-b border-gray-100">
-        <div className="flex justify-between items-center w-full px-6 md:px-12 py-4 max-w-7xl mx-auto">
+        <div className="flex justify-between items-center w-full px-6 md:px-12 py-3 max-w-7xl mx-auto">
           <div className="flex items-center gap-3">
-            <div className="w-14 h-14 flex items-center justify-center">
-              <img src="/logo.png" alt="Kingside Logo" className="w-full h-full object-contain" />
+            <div className="w-20 h-20 flex items-center justify-center">
+              <img src="/logo.png" alt="Rook Logo" className="w-full h-full object-contain" />
             </div>
-            <span className="text-2xl font-bold tracking-tight text-gray-900">Kingside</span>
+            <span className="text-2xl font-bold tracking-tight text-gray-900">Rook</span>
           </div>
-          <div className="flex items-center gap-6">
+          <div className="flex items-center gap-4">
             <Link href="/login">
-              <button className="text-gray-600 hover:text-gray-900 font-medium transition-colors hidden sm:block text-sm">
-                Log in
+              <button className="text-gray-600 hover:text-gray-900 font-medium transition-colors hidden sm:block text-sm px-4 py-2 rounded-lg hover:bg-gray-50">
+                Sign in
               </button>
             </Link>
             <Link href="/register">
-              <button className="bg-gray-900 hover:bg-black text-white px-5 py-2 rounded-lg font-medium text-sm transition-colors shadow-sm">
-                Sign up
+              <button className="bg-gray-900 hover:bg-black text-white px-5 py-2.5 rounded-lg font-medium text-sm transition-colors shadow-sm">
+                Get Started
               </button>
             </Link>
           </div>
@@ -97,19 +98,19 @@ export default function LandingPage() {
       </nav>
 
       {/* Hero Section */}
-      <main className="pt-32 pb-20 px-6 max-w-7xl mx-auto">
+      <main className="pt-36 pb-20 px-6 max-w-7xl mx-auto">
         <div className="grid lg:grid-cols-[1fr_1fr] gap-16 items-center">
           <div className="max-w-2xl">
             <h1 className="text-5xl md:text-6xl font-bold text-gray-900 mb-6 leading-[1.1] tracking-tight">
               The modern engine for chess tournaments.
             </h1>
             <p className="text-lg text-gray-600 mb-10 leading-relaxed">
-              Kingside replaces messy spreadsheets and outdated software with a clean, reliable platform. Automate pairings, chat with players, and process entries—all in one place.
+              Rook replaces messy spreadsheets and outdated software with a clean, reliable platform. Automate pairings, chat with players, and process entries—all in one place.
             </p>
             <div className="flex flex-col sm:flex-row gap-4">
               <Link href="/register">
                 <button className="bg-blue-600 hover:bg-blue-700 text-white px-8 py-3.5 rounded-lg font-medium text-base transition-colors shadow-sm w-full sm:w-auto flex justify-center items-center gap-2">
-                  Create a Tournament <ChevronRight className="w-4 h-4" />
+                  Get Started <ChevronRight className="w-4 h-4" />
                 </button>
               </Link>
             </div>
@@ -147,6 +148,20 @@ export default function LandingPage() {
                 <li className="flex items-start gap-4">
                   <HandwrittenCheck />
                   <div>
+                    <strong className="text-gray-900 block mb-1">Pairing Predictor</strong>
+                    <p className="text-gray-600 text-sm leading-relaxed">Anticipate upcoming matchups based on current standings and Swiss pairing rules before the round begins.</p>
+                  </div>
+                </li>
+                <li className="flex items-start gap-4">
+                  <HandwrittenCheck />
+                  <div>
+                    <strong className="text-gray-900 block mb-1">Registration Management</strong>
+                    <p className="text-gray-600 text-sm leading-relaxed">Seamlessly collect player entries, handle waitlists, track payments, and organize multi-section events with an intuitive form builder.</p>
+                  </div>
+                </li>
+                <li className="flex items-start gap-4">
+                  <HandwrittenCheck />
+                  <div>
                     <strong className="text-gray-900 block mb-1">Built-in Messaging</strong>
                     <p className="text-gray-600 text-sm leading-relaxed">Communicate directly with players. Broadcast announcements or message individuals about missing fees or late arrivals.</p>
                   </div>
@@ -154,7 +169,7 @@ export default function LandingPage() {
                 <li className="flex items-start gap-4">
                   <HandwrittenCheck />
                   <div>
-                    <strong className="text-gray-900 block mb-1">Live Database Sync</strong>
+                    <strong className="text-gray-900 block mb-1">Live USCF & FIDE Sync</strong>
                     <p className="text-gray-600 text-sm leading-relaxed">Direct integration with USCF and FIDE databases. Fetch ratings automatically when adding players for perfect seeding.</p>
                   </div>
                 </li>
@@ -170,20 +185,6 @@ export default function LandingPage() {
                   <div>
                     <strong className="text-gray-900 block mb-1">One-Click Publishing</strong>
                     <p className="text-gray-600 text-sm leading-relaxed">Publish pairings and standings to the live public portal instantly. No more printing paper and taping it to the wall.</p>
-                  </div>
-                </li>
-                <li className="flex items-start gap-4">
-                  <HandwrittenCheck />
-                  <div>
-                    <strong className="text-gray-900 block mb-1">Pairing Predictor</strong>
-                    <p className="text-gray-600 text-sm leading-relaxed">Anticipate upcoming matchups based on current standings and Swiss pairing rules before the round begins.</p>
-                  </div>
-                </li>
-                <li className="flex items-start gap-4">
-                  <HandwrittenCheck />
-                  <div>
-                    <strong className="text-gray-900 block mb-1">Registration Management</strong>
-                    <p className="text-gray-600 text-sm leading-relaxed">Seamlessly collect player entries, track payments, and organize sections with an intuitive online form.</p>
                   </div>
                 </li>
               </ul>
@@ -207,7 +208,7 @@ export default function LandingPage() {
                   <HandwrittenCheck />
                   <div>
                     <strong className="text-gray-900 block mb-1">Instant Pairing Alerts</strong>
-                    <p className="text-gray-600 text-sm leading-relaxed">Receive push notifications or SMS alerts with your table number, opponent, and assigned color the moment pairings are published.</p>
+                    <p className="text-gray-600 text-sm leading-relaxed">Receive notifications with your table number, opponent, and assigned color the moment pairings drop.</p>
                   </div>
                 </li>
                 <li className="flex items-start gap-4">
@@ -234,8 +235,15 @@ export default function LandingPage() {
                 <li className="flex items-start gap-4">
                   <HandwrittenCheck />
                   <div>
-                    <strong className="text-gray-900 block mb-1">Player Database</strong>
-                    <p className="text-gray-600 text-sm leading-relaxed">Store lifetime match history, Elo ratings, and performance stats across all tournaments you participate in.</p>
+                    <strong className="text-gray-900 block mb-1">Player Database & History</strong>
+                    <p className="text-gray-600 text-sm leading-relaxed">Store lifetime match history, Elo ratings, and performance stats across every tournament you participate in.</p>
+                  </div>
+                </li>
+                <li className="flex items-start gap-4">
+                  <HandwrittenCheck />
+                  <div>
+                    <strong className="text-gray-900 block mb-1">Online Registration</strong>
+                    <p className="text-gray-600 text-sm leading-relaxed">Browse and register for open events, pay entry fees online, and receive confirmation — all without emailing a director.</p>
                   </div>
                 </li>
               </ul>
@@ -249,7 +257,7 @@ export default function LandingPage() {
         <div className="max-w-7xl mx-auto">
           <div className="mb-12">
             <h2 className="text-3xl font-bold text-gray-900 mb-4 tracking-tight">Flexible formats.</h2>
-            <p className="text-lg text-gray-600">The Kingside pairing engine supports standard and custom tournament structures.</p>
+            <p className="text-lg text-gray-600">The Rook pairing engine supports standard and custom tournament structures.</p>
           </div>
           
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
@@ -291,22 +299,22 @@ export default function LandingPage() {
           <div className="flex flex-col gap-4">
             <span className="text-xl font-bold text-white flex items-center gap-3">
               <div className="w-10 h-10 bg-white rounded flex items-center justify-center p-1">
-                <img src="/logo.png" alt="Kingside Logo" className="w-full h-full object-contain" />
+                <img src="/logo.png" alt="Rook Logo" className="w-full h-full object-contain" />
               </div>
-              Kingside
+              Rook
             </span>
             <p className="text-sm max-w-sm">The modern operating system for competitive play. Build, manage, and scale your chess events.</p>
           </div>
           <div className="flex gap-4">
              <Link href="/register">
                 <button className="bg-white text-gray-900 hover:bg-gray-100 px-6 py-2.5 rounded-lg font-medium text-sm transition-colors">
-                    Start an Event
+                    Get Started
                 </button>
              </Link>
           </div>
         </div>
         <div className="max-w-7xl mx-auto px-6 md:px-12 mt-8 text-sm flex flex-col sm:flex-row justify-between items-center text-gray-500">
-          <p>© 2026 Kingside. All rights reserved.</p>
+          <p>© 2026 Rook. All rights reserved.</p>
           <div className="flex gap-6 mt-4 sm:mt-0">
             <a href="#" className="hover:text-gray-300 transition-colors">Privacy</a>
             <a href="#" className="hover:text-gray-300 transition-colors">Terms</a>
