@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Trophy, Medal, Award, Crown, Download } from "lucide-react";
+import { Trophy, Medal, Award, Download } from "lucide-react";
 import type { Player, Match, Tournament } from "@shared/schema";
 
 interface RoundRobinCrosstableProps {
@@ -192,7 +192,7 @@ export default function RoundRobinCrosstable({ tournamentId }: RoundRobinCrossta
     
     // Same player - show crown (king) symbol
     if (playerStanding.player.id === opponent.player.id) {
-      return <Crown className="h-4 w-4 text-blue-500" />;
+      return <img src="/logo.png" alt="Logo" className="h-4 w-4 object-contain mx-auto" />;
     }
 
     const result = playerStanding.results[opponent.player.id];
@@ -312,7 +312,7 @@ export default function RoundRobinCrosstable({ tournamentId }: RoundRobinCrossta
         {/* Legend */}
         <div className="mt-4 flex items-center gap-6 text-sm text-gray-600">
           <div className="flex items-center gap-2">
-            <Crown className="h-4 w-4 text-blue-500" />
+            <img src="/logo.png" alt="Logo" className="h-4 w-4 object-contain" />
             <span>Own position</span>
           </div>
           <div className="flex items-center gap-2">

@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
-import { Play, RefreshCw, Crown as Chess, RotateCcw, Printer, Download, ChevronDown, ChevronUp } from "lucide-react";
+import { Play, RefreshCw, RotateCcw, Printer, Download, ChevronDown, ChevronUp } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -835,7 +835,7 @@ export default function SwissPairings({ tournamentId, activeSection, showExportC
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
             <CardTitle className="flex items-center gap-2">
-              <Chess className="h-5 w-5" />
+              <img src="/logo.png" alt="Logo" className="h-5 w-5 object-contain" />
               Round {currentRound} Pairings
             </CardTitle>
             <p className="mt-1 text-sm text-gray-600">
@@ -1030,7 +1030,7 @@ export default function SwissPairings({ tournamentId, activeSection, showExportC
                       className="border-blue-600 text-blue-600 hover:bg-blue-50"
                       size="sm"
                     >
-                      <Chess className="mr-1 h-4 w-4" />
+                      <img src="/logo.png" alt="Logo" className="mr-1 h-4 w-4 object-contain" />
                       {finishTournamentMutation.isPending ? "Finishing..." : "Finish Tournament"}
                     </Button>
                   </AlertDialogTrigger>

@@ -20,6 +20,8 @@ import TournamentRegistrationFormPage from "@/pages/tournament-registration-form
 import TournamentPaymentSetupPage from "@/pages/tournament-payment-setup";
 import TournamentReportsPage from "@/pages/tournament-reports";
 
+import LandingPage from "@/pages/landing-page";
+
 function AuthenticatedApp() {
   const { user, isLoading } = useAuth();
 
@@ -35,7 +37,16 @@ function AuthenticatedApp() {
   }
 
   if (!user) {
-    return <AuthForm />;
+    return (
+      <Switch>
+        <Route path="/" component={LandingPage} />
+        <Route path="/login" component={AuthForm} />
+        <Route path="/register" component={AuthForm} />
+        <Route>
+          <AuthForm />
+        </Route>
+      </Switch>
+    );
   }
 
   return (
