@@ -68,7 +68,7 @@ export default function TournamentCreation() {
           <div className="flex justify-between items-center h-16">
             <div className="flex items-center">
               <Trophy className="h-8 w-8 text-primary mr-3" />
-              <h1 className="text-xl font-bold text-gray-900">Arbita</h1>
+              <h1 className="text-xl font-bold text-gray-900">Kingside</h1>
             </div>
             <Link href="/">
               <Button variant="ghost" className="text-gray-600 hover:text-gray-900">

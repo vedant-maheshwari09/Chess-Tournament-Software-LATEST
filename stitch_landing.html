@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Strategist | Architectural Chess Management</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            "colors": {
+                    "surface-container-low": "#eff4ff",
+                    "surface-tint": "#006399",
+                    "inverse-surface": "#213145",
+                    "on-tertiary-fixed-variant": "#693c00",
+                    "surface": "#f8f9ff",
+                    "primary-container": "#1da1f2",
+                    "on-secondary-fixed": "#111c2d",
+                    "surface-dim": "#cbdbf5",
+                    "secondary-container": "#d5e0f8",
+                    "error": "#ba1a1a",
+                    "primary-fixed": "#cde5ff",
+                    "on-surface": "#0b1c30",
+                    "on-background": "#0b1c30",
+                    "background": "#f8f9ff",
+                    "primary-fixed-dim": "#95ccff",
+                    "outline-variant": "#bec7d3",
+                    "on-surface-variant": "#3f4851",
+                    "surface-container": "#e5eeff",
+                    "on-tertiary": "#ffffff",
+                    "on-error": "#ffffff",
+                    "secondary-fixed": "#d8e3fb",
+                    "on-tertiary-fixed": "#2c1600",
+                    "on-primary-fixed-variant": "#004a75",
+                    "secondary": "#545f73",
+                    "on-secondary": "#ffffff",
+                    "on-secondary-fixed-variant": "#3c475a",
+                    "tertiary-container": "#de8500",
+                    "on-primary-container": "#003554",
+                    "tertiary-fixed-dim": "#ffb86e",
+                    "on-secondary-container": "#586377",
+                    "surface-variant": "#d3e4fe",
+                    "secondary-fixed-dim": "#bcc7de",
+                    "surface-container-lowest": "#ffffff",
+                    "inverse-primary": "#95ccff",
+                    "surface-bright": "#f8f9ff",
+                    "primary": "#006399",
+                    "on-primary-fixed": "#001d32",
+                    "on-tertiary-container": "#4c2a00",
+                    "outline": "#6f7882",
+                    "on-error-container": "#93000a",
+                    "tertiary": "#8a5100",
+                    "tertiary-fixed": "#ffdcbd",
+                    "inverse-on-surface": "#eaf1ff",
+                    "surface-container-high": "#dce9ff",
+                    "on-primary": "#ffffff",
+                    "error-container": "#ffdad6",
+                    "surface-container-highest": "#d3e4fe"
+            },
+            "borderRadius": {
+                    "DEFAULT": "0.125rem",
+                    "lg": "0.25rem",
+                    "xl": "0.5rem",
+                    "full": "0.75rem"
+            },
+            "fontFamily": {
+                    "headline": ["Inter"],
+                    "display": ["Inter"],
+                    "body": ["Inter"],
+                    "label": ["Inter"]
+            }
+          },
+        },
+      }
+    </script>
+<style>
+        .glass {
+            background: rgba(211, 228, 254, 0.6);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+        }
+        .text-gradient {
+            background: linear-gradient(135deg, #006399 0%, #1DA1F2 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        .shadow-ambient {
+            box-shadow: 0px 12px 32px 0px rgba(11, 28, 48, 0.06);
+        }
+        .scale-98-on-click:active {
+            transform: scale(0.98);
+        }
+        .chess-pattern {
+            background-color: #f8f9ff;
+            background-image: radial-gradient(#d3e4fe 1px, transparent 1px);
+            background-size: 40px 40px;
+        }
+    </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="bg-surface font-body text-on-surface">
+<!-- TopAppBar -->
+<nav class="fixed top-0 w-full z-50 bg-white/60 dark:bg-slate-950/60 backdrop-blur-[20px] shadow-[0px_12px_32px_0px_rgba(11,28,48,0.06)]">
+<div class="flex justify-between items-center w-full px-8 py-4 max-w-7xl mx-auto">
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined text-[#006399]" style="font-variation-settings: 'FILL' 1;">chess</span>
+<span class="text-2xl font-black tracking-tighter text-[#006399] dark:text-[#1DA1F2]">STRATEGIST</span>
+</div>
+<div class="hidden md:flex items-center gap-8">
+<a class="text-[#1DA1F2] font-bold border-b-2 border-[#1DA1F2] pb-1 font-['Inter']" href="#">Features</a>
+<a class="text-[#545F73] dark:text-slate-400 font-medium hover:text-[#1DA1F2] transition-all duration-300 font-['Inter']" href="#">Standings</a>
+<a class="text-[#545F73] dark:text-slate-400 font-medium hover:text-[#1DA1F2] transition-all duration-300 font-['Inter']" href="#">Brackets</a>
+</div>
+<button class="bg-primary-container text-on-primary-container px-6 py-2.5 rounded-md font-semibold scale-98-on-click duration-200 shadow-ambient">
+                Request Demo
+            </button>
+</div>
+</nav>
+<!-- Hero Section -->
+<main class="pt-32 pb-20 px-6 chess-pattern overflow-hidden">
+<div class="max-w-7xl mx-auto grid lg:grid-cols-2 gap-12 items-center">
+<div class="relative z-10">
+<div class="inline-block px-4 py-1.5 mb-6 bg-surface-container-high rounded-full">
+<span class="text-label text-primary font-bold tracking-widest uppercase text-[0.6875rem]">The Gold Standard for Directors</span>
+</div>
+<h1 class="text-[3.5rem] leading-[1.1] font-bold text-on-surface mb-6 tracking-tight">
+                    The Architectural <span class="text-gradient">Standard</span> for Competitive Play
+                </h1>
+<p class="text-[1rem] text-secondary mb-10 max-w-lg leading-relaxed">
+                    Master the board with precision automation. From elite Grandmaster invitationals to local club tournaments, handle pairings and standings with mathematical certainty.
+                </p>
+<div class="flex flex-col sm:flex-row gap-4">
+<button class="bg-primary-container text-on-primary-container px-8 py-4 rounded-md font-bold text-lg scale-98-on-click shadow-ambient hover:brightness-105 transition-all">
+                        Get Started
+                    </button>
+<button class="bg-surface-container-high text-primary px-8 py-4 rounded-md font-bold text-lg scale-98-on-click hover:bg-surface-container transition-all">
+                        View Live Demo
+                    </button>
+</div>
+</div>
+<div class="relative">
+<div class="absolute -top-10 -left-10 text-[10rem] font-black text-surface-container opacity-40 select-none pointer-events-none">01</div>
+<div class="glass p-4 rounded-xl shadow-ambient rotate-2 relative z-20 overflow-hidden border border-white/20">
+<img alt="Chess board" class="rounded-lg w-full h-[400px] object-cover" data-alt="Modern close-up of a high-end wooden chess board with polished pieces and soft cinematic lighting focusing on a central move" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDzZNJtaZVd3zuZci0MtTdj-dUS4qnntKUbM0N9TIaPLbav_HSBc_UEhAfUSpx6ErA7c7MNIh-78abdgO05ylksKvi6lZZ1Lh957n_QWL4HlxQKsvvZi960M2RwEQhcDxsmsDChLEOIsCzqo8Oaf1ypjsflk2Phw3LZwAI_3Nq4g_NbXNc3m4EoGQ2pgDfJ6Qej2YoLbr861AmBLasl5wZ6wTj4j12X93MsG97bDUpfUk-1TPNLPbaK_ceGmaOUPMWv3LnY8h2bij0"/>
+<div class="absolute bottom-8 right-8 glass p-6 rounded-xl border border-white/30 shadow-lg">
+<div class="flex items-center gap-4">
+<div class="w-12 h-12 bg-primary-container rounded-full flex items-center justify-center text-white">
+<span class="material-symbols-outlined">timer</span>
+</div>
+<div>
+<p class="text-xs font-bold text-primary uppercase">Active Match</p>
+<p class="text-xl font-bold font-mono">14:52.04</p>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</main>
+<!-- Features Bento Grid -->
+<section class="py-24 bg-surface px-6">
+<div class="max-w-7xl mx-auto">
+<div class="mb-16">
+<h2 class="text-3xl font-semibold text-on-surface mb-4">Precision-Engineered Features</h2>
+<div class="w-20 h-1 bg-primary-container"></div>
+</div>
+<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+<!-- Feature 1 -->
+<div class="bg-surface-container-lowest p-8 rounded-xl shadow-ambient hover:-translate-y-2 transition-all duration-300 group">
+<div class="w-14 h-14 rounded-xl bg-surface-container-low flex items-center justify-center mb-6 group-hover:bg-primary-container group-hover:text-white transition-colors">
+<span class="material-symbols-outlined text-3xl">grid_view</span>
+</div>
+<h3 class="text-[1rem] font-semibold text-on-surface mb-3">Swiss &amp; Round-Robin</h3>
+<p class="text-sm text-secondary leading-relaxed">
+                        Flawless execution of complex pairing algorithms. Fully compliant with international standards.
+                    </p>
+</div>
+<!-- Feature 2 -->
+<div class="bg-surface-container-low p-8 rounded-xl hover:-translate-y-2 transition-all duration-300 group">
+<div class="w-14 h-14 rounded-xl bg-surface-container-lowest flex items-center justify-center mb-6 group-hover:bg-primary-container group-hover:text-white transition-colors">
+<span class="material-symbols-outlined text-3xl">monitoring</span>
+</div>
+<h3 class="text-[1rem] font-semibold text-on-surface mb-3">Real-time Standings</h3>
+<p class="text-sm text-secondary leading-relaxed">
+                        Instant live updates across all devices. Keep players and spectators engaged with zero lag.
+                    </p>
+</div>
+<!-- Feature 3 -->
+<div class="bg-surface-container-lowest p-8 rounded-xl shadow-ambient hover:-translate-y-2 transition-all duration-300 group">
+<div class="w-14 h-14 rounded-xl bg-surface-container-low flex items-center justify-center mb-6 group-hover:bg-primary-container group-hover:text-white transition-colors">
+<span class="material-symbols-outlined text-3xl">auto_fix</span>
+</div>
+<h3 class="text-[1rem] font-semibold text-on-surface mb-3">Automated Pairings</h3>
+<p class="text-sm text-secondary leading-relaxed">
+                        One-click pairing generation. Handled with surgical precision based on tie-break rules.
+                    </p>
+</div>
+<!-- Feature 4 -->
+<div class="bg-surface-container-low p-8 rounded-xl hover:-translate-y-2 transition-all duration-300 group">
+<div class="w-14 h-14 rounded-xl bg-surface-container-lowest flex items-center justify-center mb-6 group-hover:bg-primary-container group-hover:text-white transition-colors">
+<span class="material-symbols-outlined text-3xl">handshake</span>
+</div>
+<h3 class="text-[1rem] font-semibold text-on-surface mb-3">USCF/FIDE Integration</h3>
+<p class="text-sm text-secondary leading-relaxed">
+                        Direct rating report submissions and player database lookups in seconds.
+                    </p>
+</div>
+</div>
+</div>
+</section>
+<!-- Testimonials -->
+<section class="py-24 bg-surface-container-low px-6">
+<div class="max-w-7xl mx-auto">
+<div class="text-center mb-16">
+<h2 class="text-3xl font-semibold text-on-surface">Trusted by Grandmasters</h2>
+</div>
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+<!-- Testimonial 1 -->
+<div class="bg-white p-10 rounded-xl shadow-ambient relative">
+<div class="absolute -top-4 left-10">
+<span class="material-symbols-outlined text-primary-container text-4xl">format_quote</span>
+</div>
+<p class="text-secondary italic mb-8 leading-relaxed">
+                        "The level of precision in the automated pairings is unmatched. It has reduced our tournament preparation time by over 70%."
+                    </p>
+<div class="flex items-center gap-4">
+<img alt="Director Portrait" class="w-12 h-12 rounded-full object-cover" data-alt="Professional headshot of a middle-aged male tournament director in a sharp suit with a confident smile" src="https://lh3.googleusercontent.com/aida-public/AB6AXuC0y1uUaUBLSie8fa3fxQq_pVtvLnc7zfIeApkb5pg74e9c377kmYk_MzgzK4xbDuTgBlkcgBo0JsVjlDTqKFfAUwtJhaBqrNbjLS-OyIxzRlSihNc8FTq7UIq1vKTU4bX5e_FCg2Vigsz0nXxMvSBa1uMWCdQdmr9-xtxt0CXSABrZo3O_dH_hYQhaXgyLhxaV7oBIws8gA2bkP3vheUJFBtvKWvYG24-lAIgPZGLZe_Mw1FJJZDggnN-LG1akh-KGIIUTGbIn6Hk"/>
+<div>
+<h4 class="font-bold text-on-surface">Alexander Vance</h4>
+<p class="text-xs text-primary font-semibold uppercase tracking-tighter">FIDE International Arbiter</p>
+</div>
+</div>
+</div>
+<!-- Testimonial 2 -->
+<div class="bg-white p-10 rounded-xl shadow-ambient relative">
+<div class="absolute -top-4 left-10">
+<span class="material-symbols-outlined text-primary-container text-4xl">format_quote</span>
+</div>
+<p class="text-secondary italic mb-8 leading-relaxed">
+                        "Finally, a software that respects the architectural beauty of the game. The UI is as sophisticated as the strategies on the board."
+                    </p>
+<div class="flex items-center gap-4">
+<img alt="Director Portrait" class="w-12 h-12 rounded-full object-cover" data-alt="Professional headshot of a female chess professional in a modern office, looking focused and authoritative" src="https://lh3.googleusercontent.com/aida-public/AB6AXuB6L7AhKPUfJyS1MwLpmfxaswv8AKKNWb5WVAPXv1uDZYI0avuD9BcQc-bmukvrbH3FNSkYg8ue6f9lISQY58ByB2h96LPAvRqRbmqsxbPccnmjgeNpeHywOvcxZ_VTppzC7_GXNUm0gTtDKZ4cKA1WDXAdUtTE0b4C7c6nnQ5TcjbHCOHvWZURvXuKphPEdTLxaFzK-azbLAqvy0Qpo-a7gM1EQ27Yy6GuPAChIwIC0WNRlaGOKMSlvam5EUCLt_kxMNEBi8nuAB8"/>
+<div>
+<h4 class="font-bold text-on-surface">Elena Sokolov</h4>
+<p class="text-xs text-primary font-semibold uppercase tracking-tighter">National Tournament Director</p>
+</div>
+</div>
+</div>
+<!-- Testimonial 3 -->
+<div class="bg-white p-10 rounded-xl shadow-ambient relative">
+<div class="absolute -top-4 left-10">
+<span class="material-symbols-outlined text-primary-container text-4xl">format_quote</span>
+</div>
+<p class="text-secondary italic mb-8 leading-relaxed">
+                        "The real-time standings feature transformed our regional championship. Parents and players were glued to their phones."
+                    </p>
+<div class="flex items-center gap-4">
+<img alt="Director Portrait" class="w-12 h-12 rounded-full object-cover" data-alt="Close up portrait of a senior man with grey hair and glasses, looking wise and professional" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCxGfrZKPruFvrSSxVPq_f_JH52p8LnxgkXujR1BcxBmNXQtdnNybeE4esrAKnblA9ZZj89sjtYST_0uJoeqrzgobiLCKbRRq3WVkRkuduCaFfUdKpbZLySUGFOlzk4ljlDFnPfXsst4RiJn-yngmn0kPRZugXc8EqexmK8drMimcYIKsygVSLcMjOIbh8vbNCSLm1iTgVLyCkthXXcK2-nVGkW0Yh9Y510jg0D0GgYHrKetDdct5MDP7K2-wiKEkD8MdysQvw4wCE"/>
+<div>
+<h4 class="font-bold text-on-surface">Marcus Thorne</h4>
+<p class="text-xs text-primary font-semibold uppercase tracking-tighter">Elite Club Founder</p>
+</div>
+</div>
+</div>
+</div>
+</div>
+</section>
+<!-- Footer -->
+<footer class="bg-[#EFF4FF] dark:bg-slate-900 w-full py-12">
+<div class="w-full grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8 px-12 max-w-7xl mx-auto">
+<div class="flex flex-col gap-4">
+<span class="text-lg font-bold text-[#545F73] dark:text-slate-200">STRATEGIST</span>
+<p class="text-[#545F73] dark:text-slate-400 font-['Inter'] text-[0.875rem]">Master the Board with architectural precision.</p>
+</div>
+<div class="flex flex-col gap-3">
+<h5 class="font-bold text-on-surface mb-2">Platform</h5>
+<a class="text-[#545F73] dark:text-slate-400 hover:text-[#1DA1F2] transition-colors font-['Inter'] text-[0.875rem]" href="#">Features</a>
+<a class="text-[#545F73] dark:text-slate-400 hover:text-[#1DA1F2] transition-colors font-['Inter'] text-[0.875rem]" href="#">Live Standings</a>
+<a class="text-[#545F73] dark:text-slate-400 hover:text-[#1DA1F2] transition-colors font-['Inter'] text-[0.875rem]" href="#">Global Brackets</a>
+</div>
+<div class="flex flex-col gap-3">
+<h5 class="font-bold text-on-surface mb-2">Company</h5>
+<a class="text-[#545F73] dark:text-slate-400 hover:text-[#1DA1F2] transition-colors font-['Inter'] text-[0.875rem]" href="#">Security</a>
+<a class="text-[#545F73] dark:text-slate-400 hover:text-[#1DA1F2] transition-colors font-['Inter'] text-[0.875rem]" href="#">Contact</a>
+</div>
+<div class="flex flex-col gap-4">
+<h5 class="font-bold text-on-surface mb-2">Stay Updated</h5>
+<div class="flex gap-2">
+<input class="bg-surface-container-lowest border-none rounded-md px-4 py-2 text-sm w-full focus:ring-2 focus:ring-primary-container" placeholder="Email" type="email"/>
+<button class="bg-primary text-white p-2 rounded-md"><span class="material-symbols-outlined">send</span></button>
+</div>
+</div>
+</div>
+<div class="max-w-7xl mx-auto px-12 mt-12 pt-8 border-t border-outline-variant/10 text-center">
+<p class="text-[#545F73] dark:text-slate-400 font-['Inter'] text-[0.875rem]">© 2024 The Architectural Strategist. Master the Board.</p>
+</div>
+</footer>
+</body></html>
