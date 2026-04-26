@@ -131,7 +131,7 @@ export default function TournamentDirectorDashboard() {
     return (
       <div className="grid gap-3">
         {items.map((tournament) => (
-          <Card key={tournament.id} className="hover:shadow-md transition-shadow">
+          <Card key={tournament.id} className="hover:shadow-md transition-all duration-200 hover:-translate-y-0.5 border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/50">
             <CardContent className="flex flex-wrap items-center justify-between gap-4 p-5">
               <div className="space-y-1">
                 <h3 className="text-lg font-semibold">{tournament.name}</h3>
@@ -208,8 +208,8 @@ export default function TournamentDirectorDashboard() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
-      <div className="bg-white dark:bg-gray-800 shadow">
+    <div className="min-h-screen bg-transparent">
+      <div className="bg-white/80 dark:bg-gray-800/80 backdrop-blur-md shadow">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 text-center md:text-left py-6">
             <div className="space-y-1">

@@ -101,7 +101,7 @@ export default function TournamentReportsPage({ tournamentId, type }: Tournament
 
   if (tournamentLoading || !tournament || !config) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-slate-50">
+      <div className="flex min-h-screen items-center justify-center bg-transparent">
         <div className="flex items-center gap-3 text-slate-500">
           <Loader2 className="h-5 w-5 animate-spin" />
           Loading report data...
@@ -111,7 +111,7 @@ export default function TournamentReportsPage({ tournamentId, type }: Tournament
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 pb-20 print:bg-white print:pb-0">
+    <div className="min-h-screen bg-transparent pb-20 print:bg-white print:pb-0">
       <div className="mx-auto max-w-5xl space-y-8 p-6 print:p-0 print:max-w-none">
         <div className="flex items-center justify-between print:hidden">
           <Button

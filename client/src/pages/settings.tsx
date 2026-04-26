@@ -222,7 +222,7 @@ export default function SettingsPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900 py-10">
+    <div className="min-h-screen bg-transparent py-10">
       <div className="max-w-4xl mx-auto px-4 space-y-6">
 
 

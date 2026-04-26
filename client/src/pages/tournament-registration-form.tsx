@@ -253,7 +253,7 @@ type SectionOption = Pick<SectionDefinition, "name" | "ratingMin" | "ratingMax">
 const DEBUG_LOG = (title: string, data?: any, level: 'info' | 'warn' | 'error' = 'info') => {
   const timestamp = new Date().toLocaleTimeString();
   const prefix = `[REG_FLOW][${timestamp}] ${title}`;
-  
+
   if (data !== undefined && typeof data === 'object' && data !== null) {
     // If it's an object, we log it descriptive first, then stringified for copy-pasting
     console.groupCollapsed(prefix);
@@ -484,7 +484,7 @@ export default function TournamentRegistrationFormPage({ tournamentId }: Tournam
         const names = (reg.playerName || "").split(" ");
         const firstName = names[0] || "";
         const lastName = names.slice(1).join(" ") || "";
-        
+
         const vals: RegistrationFormValues = {
           ...DEFAULT_FORM_VALUES,
           lookupMode: "manual",
@@ -514,7 +514,7 @@ export default function TournamentRegistrationFormPage({ tournamentId }: Tournam
           byePreference: (reg.byePreference as any) || "none",
           byeRounds: Array.isArray(reg.byeRounds) ? reg.byeRounds : [],
         };
-        
+
         return {
           id: reg.id?.toString() || `existing-${idx}`,
           values: vals
@@ -685,7 +685,7 @@ export default function TournamentRegistrationFormPage({ tournamentId }: Tournam
         title: "Registration submitted",
         description: "Your registration request has been sent to the tournament director.",
       });
-      
+
       // Optimistically insert our newly created 'pending' registration to prevent UI reverting to an outdated cached 'approved' state
       queryClient.setQueryData<PlayerRegistration[]>(["/api/my-registrations"], (old) => {
         if (!old) return [data];
@@ -901,11 +901,11 @@ export default function TournamentRegistrationFormPage({ tournamentId }: Tournam
       paymentSubmitRef.current = null;
       setClientSecret(null);
       paymentIntentRequestKeyRef.current = null;
-      
+
       // Navigate to remove 'edit=true' so the success screen (Pending) shows correctly
       const newUrl = window.location.pathname;
       window.history.replaceState({}, '', newUrl);
-      
+
       setCurrentStep(3);
     },
     onError: (error: Error) => {
@@ -918,11 +918,11 @@ export default function TournamentRegistrationFormPage({ tournamentId }: Tournam
   });
 
   const handleFinalSubmit = useCallback(async () => {
-    DEBUG_LOG("Final submit triggered", { 
-      currentStep, 
-      multiPlayerAllowed, 
+    DEBUG_LOG("Final submit triggered", {
+      currentStep,
+      multiPlayerAllowed,
       rosterSize: playerDrafts.length,
-      currentForm: form.getValues() 
+      currentForm: form.getValues()
     });
 
     const valid = await form.trigger(undefined, { shouldFocus: true });
@@ -942,12 +942,12 @@ export default function TournamentRegistrationFormPage({ tournamentId }: Tournam
     }
 
     const values = form.getValues();
-    
+
     // In multi-player mode, if there's a roster, we MUST include the current form's values (if filled)
     // as the final entry in the batch, unless it's already in the roster (editing case).
     if (multiPlayerAllowed && (playerDrafts.length > 0 || editingDraftId)) {
       DEBUG_LOG("Processing multi-player batch submission");
-      
+
       // Payment fields from the final step should propagate to all entries if they are tied to a shared intent
       const paymentOverride = {
         paymentIntentId: values.paymentIntentId,
@@ -961,12 +961,12 @@ export default function TournamentRegistrationFormPage({ tournamentId }: Tournam
 
       // Construct the list of ALL players the user intends to register
       let list: RegistrationFormValues[] = [];
-      
+
       if (editingDraftId) {
         // We are editing a specific player from the roster
-        list = playerDrafts.map((entry) => 
-          entry.id === editingDraftId 
-            ? { ...values, ...paymentOverride } 
+        list = playerDrafts.map((entry) =>
+          entry.id === editingDraftId
+            ? { ...values, ...paymentOverride }
             : { ...entry.values, ...paymentOverride }
         );
       } else {
@@ -1045,7 +1045,7 @@ export default function TournamentRegistrationFormPage({ tournamentId }: Tournam
 
   if (existingRegistration && !isEditing) {
     return (
-      <div className="min-h-screen bg-[#f7f6f3]">
+      <div className="min-h-screen bg-transparent">
         <div className="border-b border-gray-200 bg-white">
           <div className="mx-auto flex max-w-4xl flex-col gap-3 px-4 py-5 sm:px-6 lg:px-8">
             <div className="flex items-center gap-3">
@@ -1194,7 +1194,7 @@ export default function TournamentRegistrationFormPage({ tournamentId }: Tournam
             typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
               ? crypto.randomUUID()
               : `player-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-          
+
           DEBUG_LOG(`Saving current form to roster as new draft entry (ID: ${draftId})`);
           setPlayerDrafts((prev) => [...prev, { id: draftId, values: currentValues }]);
           setEditingDraftId(draftId);
@@ -1241,7 +1241,7 @@ export default function TournamentRegistrationFormPage({ tournamentId }: Tournam
       // we don't need to validate or save the current state - just go back to Step 1
       const currentValues = form.getValues();
       const isEmpty = !currentValues.firstName?.trim() && !currentValues.lastName?.trim();
-      
+
       if (currentStep === 3 && isEmpty) {
         DEBUG_LOG("Add Player clicked on Step 3 with empty form. Skipping validation and returning to Step 1.");
         setCurrentStep(1);
@@ -1356,7 +1356,7 @@ export default function TournamentRegistrationFormPage({ tournamentId }: Tournam
 
   const handleRemoveDraft = async (draftId: string) => {
     DEBUG_LOG(`Checking if draft ${draftId} needs permanent deletion from database`);
-    
+
     // Check if this is a real database registration (numeric ID)
     const numericId = parseInt(draftId, 10);
     const isRealRegistration = !isNaN(numericId);
@@ -1373,7 +1373,7 @@ export default function TournamentRegistrationFormPage({ tournamentId }: Tournam
           title: "Registration removed",
           description: "The player has been permanently removed from the tournament.",
         });
-        
+
         // Refresh the registrations query so existingRegistrations list remains accurate
         queryClient.invalidateQueries({ queryKey: ["/api/my-registrations"] });
       } catch (error: any) {
@@ -1399,7 +1399,7 @@ export default function TournamentRegistrationFormPage({ tournamentId }: Tournam
         sectionChoice: "",
       });
     }
-    
+
     const updatedDrafts = playerDrafts.filter((entry) => entry.id !== draftId);
     setPlayerDrafts(updatedDrafts);
 
@@ -1425,7 +1425,7 @@ export default function TournamentRegistrationFormPage({ tournamentId }: Tournam
   };
 
   return (
-    <div className="min-h-screen bg-[#f7f6f3]">
+    <div className="min-h-screen bg-transparent">
       {/* ===== Main Content ===== */}
       <div className="mx-auto max-w-4xl px-4 py-8 sm:px-6 lg:px-8">
         <div className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
@@ -1652,11 +1652,11 @@ export default function TournamentRegistrationFormPage({ tournamentId }: Tournam
                       if (!multiPlayerAllowed) {
                         return [{ id: 'single', values: currentVals }];
                       }
-                      
+
                       // In multi-player mode:
                       // 1. Start with the roster
                       let list = [...playerDrafts];
-                      
+
                       if (editingDraftId) {
                         // 2a. If editing, replace that entry with current form values
                         list = list.map(d => d.id === editingDraftId ? { ...d, values: currentVals } : d);
@@ -1667,134 +1667,157 @@ export default function TournamentRegistrationFormPage({ tournamentId }: Tournam
                           list.push({ id: 'current-form', values: currentVals });
                         }
                       }
-                      
+
                       return list.length > 0 ? list : [{ id: 'placeholder', values: currentVals }];
                     })();
                     const displayValues = displayDrafts.map(e => e.values);
-                    
+
                     return (
-                    <>
-                      {displayValues.length > 0 && (
-                        <div className="mb-6 overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
-                          <div className="flex items-center gap-4 border-b border-gray-100 bg-gray-50/50 px-6 py-4">
-                            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-white border border-gray-200 shadow-sm">
-                              <CreditCard className="h-5 w-5 text-gray-600" />
+                      <>
+                        {displayValues.length > 0 && (
+                          <div className="mb-6 overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
+                            <div className="flex items-center gap-4 border-b border-gray-100 bg-gray-50/50 px-6 py-4">
+                              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-white border border-gray-200 shadow-sm">
+                                <CreditCard className="h-5 w-5 text-gray-600" />
+                              </div>
+                              <div className="min-w-0 flex-1">
+                                <h3 className="text-base font-semibold leading-tight text-gray-900">Registration Summary</h3>
+                                <p className="text-sm text-gray-500">
+                                  {displayDrafts.length} player{displayDrafts.length !== 1 ? "s" : ""} included
+                                </p>
+                              </div>
+                              {((multiPlayerAllowed || (existingRegistrations && existingRegistrations.length > 0)) &&
+                                displayValues.length < (config?.registers?.playerLimit ?? 10)) && (
+                                  <button
+                                    type="button"
+                                    id="add-player-button-summary"
+                                    onClick={handleAddAnotherPlayer}
+                                    className="inline-flex h-8 items-center gap-1.5 rounded-md border border-gray-200 bg-white px-3 text-xs font-medium text-gray-600 shadow-sm transition hover:bg-gray-50 active:scale-95"
+                                  >
+                                    <Plus className="h-3 w-3" />
+                                    Add Player
+                                  </button>
+                                )}
                             </div>
-                            <div className="min-w-0 flex-1">
-                              <h3 className="text-base font-semibold leading-tight text-gray-900">Registration Summary</h3>
-                              <p className="text-sm text-gray-500">
-                                {displayDrafts.length} player{displayDrafts.length !== 1 ? "s" : ""} included
-                              </p>
-                            </div>
-                            {((multiPlayerAllowed || (existingRegistrations && existingRegistrations.length > 0)) && 
-                              displayValues.length < (config?.registers?.playerLimit ?? 10)) && (
-                              <button
-                                type="button"
-                                id="add-player-button-summary"
-                                onClick={handleAddAnotherPlayer}
-                                className="inline-flex h-8 items-center gap-1.5 rounded-md border border-gray-200 bg-white px-3 text-xs font-medium text-gray-600 shadow-sm transition hover:bg-gray-50 active:scale-95"
-                              >
-                                <Plus className="h-3 w-3" />
-                                Add Player
-                              </button>
-                            )}
-                          </div>
 
-                          <div className="divide-y divide-slate-100">
-                            {displayDrafts.map((entry, index) => {
-                              const values = entry.values;
-                              const name = `${values.firstName} ${values.lastName}`.trim() || `Player ${index + 1}`;
-                              const entryFee = entryFees.find((fee) => fee.id === values.entryFeeId) ?? null;
-                              const contribution = parseContribution(values.processingContribution);
-                              const totals = computePaymentTotals(entryFee, contribution, paymentSettings);
-                              const isDraft = entry.id !== 'edit-draft';
+                            <div className="divide-y divide-slate-100">
+                              {displayDrafts.map((entry, index) => {
+                                const values = entry.values;
+                                const name = `${values.firstName} ${values.lastName}`.trim() || `Player ${index + 1}`;
+                                const entryFee = entryFees.find((fee) => fee.id === values.entryFeeId) ?? null;
+                                const contribution = parseContribution(values.processingContribution);
+                                const totals = computePaymentTotals(entryFee, contribution, paymentSettings);
+                                const isDraft = entry.id !== 'edit-draft';
 
-                              return (
-                                <div key={entry.id} className="flex items-center justify-between px-6 py-4 transition hover:bg-slate-50/50">
-                                  <div className="flex min-w-0 flex-1 items-center gap-4">
-                                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-blue-50 text-xs font-bold text-blue-700 shadow-sm ring-1 ring-blue-100/50">
-                                      {getInitials(values.firstName ?? "", values.lastName ?? "") || (index + 1)}
-                                    </div>
-                                    <div className="min-w-0 flex-1">
-                                      <div className="flex items-center gap-2">
-                                        <p className="truncate text-sm font-semibold text-slate-900">{name}</p>
-                                        <span className={cn(
-                                          "rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide",
-                                          (registerMutation.isSuccess || groupRegisterMutation.isSuccess)
-                                            ? "bg-amber-100 text-amber-700 border border-amber-200"
-                                            : "bg-blue-100 text-blue-700 border border-blue-200"
-                                        )}>
-                                          {(registerMutation.isSuccess || groupRegisterMutation.isSuccess) ? "Pending Approval" : "Ready to Submit"}
-                                        </span>
+                                return (
+                                  <div key={entry.id} className="flex items-center justify-between px-6 py-4 transition hover:bg-slate-50/50">
+                                    <div className="flex min-w-0 flex-1 items-center gap-4">
+                                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-blue-50 text-xs font-bold text-blue-700 shadow-sm ring-1 ring-blue-100/50">
+                                        {getInitials(values.firstName ?? "", values.lastName ?? "") || (index + 1)}
                                       </div>
-                                      <p className="flex items-center gap-2 truncate text-xs text-slate-500">
-                                        <span className="font-medium text-slate-700">{entryFee?.section || values.sectionChoice || "Section TBA"}</span>
-                                        <span className="text-slate-300">|</span>
-                                        <span>
-                                          {(() => {
-                                            const rating = derivePlayerRating(values.ratingProvider, values.uscfRating, values.fideRating, config.details.primaryRatingSystem);
-                                            const label = values.ratingProvider === 'fide' ? 'FIDE' : values.ratingProvider === 'uscf' ? 'USCF' : (config.details.primaryRatingSystem === 'fide' ? 'FIDE' : 'USCF');
-                                            return rating ? `${label} ${rating}` : "Unrated";
-                                          })()}
+                                      <div className="min-w-0 flex-1">
+                                        <div className="flex items-center gap-2">
+                                          <p className="truncate text-sm font-semibold text-slate-900">{name}</p>
+                                          <span className={cn(
+                                            "rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide",
+                                            (registerMutation.isSuccess || groupRegisterMutation.isSuccess)
+                                              ? "bg-amber-100 text-amber-700 border border-amber-200"
+                                              : "bg-blue-100 text-blue-700 border border-blue-200"
+                                          )}>
+                                            {(registerMutation.isSuccess || groupRegisterMutation.isSuccess) ? "Pending Approval" : "Ready to Submit"}
+                                          </span>
+                                        </div>
+                                        <p className="flex items-center gap-2 truncate text-xs text-slate-500">
+                                          <span className="font-medium text-slate-700">{entryFee?.section || values.sectionChoice || "Section TBA"}</span>
+                                          <span className="text-slate-300">|</span>
+                                          <span>
+                                            {(() => {
+                                              const rating = derivePlayerRating(values.ratingProvider, values.uscfRating, values.fideRating, config.details.primaryRatingSystem);
+                                              const label = values.ratingProvider === 'fide' ? 'FIDE' : values.ratingProvider === 'uscf' ? 'USCF' : (config.details.primaryRatingSystem === 'fide' ? 'FIDE' : 'USCF');
+                                              return rating ? `${label} ${rating}` : "Unrated";
+                                            })()}
+                                          </span>
+                                        </p>
+                                      </div>
+                                    </div>
+                                    <div className="ml-4 flex items-center gap-4">
+                                      <div className="text-right">
+                                        <span className="block text-sm font-bold text-blue-700">
+                                          {formatCurrency(totals.total, totals.currency)}
                                         </span>
-                                      </p>
-                                    </div>
-                                  </div>
-                                  <div className="ml-4 flex items-center gap-4">
-                                    <div className="text-right">
-                                      <span className="block text-sm font-bold text-blue-700">
-                                        {formatCurrency(totals.total, totals.currency)}
-                                      </span>
-                                      {totals.feeAmount > 0 && (
-                                        <span className="text-[10px] text-slate-400">Incl. {formatCurrency(totals.feeAmount, totals.currency)} fee</span>
-                                      )}
-                                    </div>
-                                    <div className="flex items-center gap-1.5 border-l border-slate-100 pl-4">
-                                      <button
-                                        type="button"
-                                        onClick={() => isDraft ? handleEditDraft(entry.id) : setCurrentStep(1)}
-                                        className="rounded p-1.5 text-slate-400 transition hover:bg-white hover:text-blue-600 hover:shadow-sm"
-                                        title="Edit player"
-                                      >
-                                        <Pencil className="h-3.5 w-3.5" />
-                                      </button>
-                                      {isDraft && (
+                                        {totals.feeAmount > 0 && (
+                                          <span className="text-[10px] text-slate-400">Incl. {formatCurrency(totals.feeAmount, totals.currency)} fee</span>
+                                        )}
+                                      </div>
+                                      <div className="flex items-center gap-1.5 border-l border-slate-100 pl-4">
                                         <button
                                           type="button"
-                                          onClick={() => handleRemoveDraft(entry.id)}
-                                          className="rounded p-1.5 text-slate-400 transition hover:bg-white hover:text-red-600 hover:shadow-sm"
-                                          title="Remove player"
+                                          onClick={() => isDraft ? handleEditDraft(entry.id) : setCurrentStep(1)}
+                                          className="rounded p-1.5 text-slate-400 transition hover:bg-white hover:text-blue-600 hover:shadow-sm"
+                                          title="Edit player"
                                         >
-                                          <Trash2 className="h-3.5 w-3.5" />
+                                          <Pencil className="h-3.5 w-3.5" />
                                         </button>
-                                      )}
+                                        {isDraft && (
+                                          <button
+                                            type="button"
+                                            onClick={() => handleRemoveDraft(entry.id)}
+                                            className="rounded p-1.5 text-slate-400 transition hover:bg-white hover:text-red-600 hover:shadow-sm"
+                                            title="Remove player"
+                                          >
+                                            <Trash2 className="h-3.5 w-3.5" />
+                                          </button>
+                                        )}
+                                      </div>
                                     </div>
                                   </div>
-                                </div>
-                              );
-                            })}
+                                );
+                              })}
+                            </div>
+
+                            <div className="flex items-center justify-between border-t border-gray-200 bg-gray-50 px-6 py-4">
+                              <span className="text-sm font-medium text-gray-900">Combined registration total</span>
+                              <span className="text-lg font-bold text-blue-700">
+                                {formatCurrency(
+                                  displayDrafts.reduce((sum, entry) => {
+                                    const fee = entryFees.find((f) => f.id === entry.values.entryFeeId) ?? null;
+                                    const contribution = parseContribution(entry.values.processingContribution);
+                                    const totals = computePaymentTotals(fee, contribution, paymentSettings);
+                                    return sum + totals.total;
+                                  }, 0),
+                                  groupPaymentTotals.currency
+                                )}
+                              </span>
+                            </div>
                           </div>
-
-                          <div className="flex items-center justify-between border-t border-gray-200 bg-gray-50 px-6 py-4">
-                            <span className="text-sm font-medium text-gray-900">Combined registration total</span>
-                            <span className="text-lg font-bold text-blue-700">
-                              {formatCurrency(
-                                displayDrafts.reduce((sum, entry) => {
-                                  const fee = entryFees.find((f) => f.id === entry.values.entryFeeId) ?? null;
-                                  const contribution = parseContribution(entry.values.processingContribution);
-                                  const totals = computePaymentTotals(fee, contribution, paymentSettings);
-                                  return sum + totals.total;
-                                }, 0),
-                                groupPaymentTotals.currency
-                              )}
-                            </span>
-                          </div>
-                        </div>
-                      )}
+                        )}
 
 
-                      {canProcessOnline && clientSecret && stripePromise ? (
-                        <Elements key={clientSecret} stripe={stripePromise} options={{ clientSecret }}>
+                        {canProcessOnline && clientSecret && stripePromise ? (
+                          <Elements key={clientSecret} stripe={stripePromise} options={{ clientSecret }}>
+                            <StepThree
+                              paymentDetails={config?.registers?.paymentDetails}
+                              paymentSettings={paymentSettings ?? null}
+                              paymentTotals={groupPaymentTotals}
+                              playerDrafts={playerDrafts}
+                              onEditDraft={handleEditDraft}
+                              onRemoveDraft={handleRemoveDraft}
+                              selectedEntryFee={selectedEntryFee}
+                              sections={sections}
+                              requiresPayment={requiresPayment}
+                              onlineConfigured={Boolean(canProcessOnline)}
+                              clientSecret={clientSecret}
+                              registerPaymentHandler={setPaymentSubmitHandler}
+                              setPaymentBusy={setIsPaymentBusy}
+                              onPaymentElementReady={setIsPaymentElementReady}
+                              paymentIntentLoading={createPaymentIntent.isPending}
+                              paymentIntentError={paymentIntentErrorMessage}
+                              canAcceptOnlinePayment={true}
+                              tournamentId={tournamentId}
+                              retryPaymentIntent={ensurePaymentIntent}
+                            />
+                          </Elements>
+                        ) : (
                           <StepThree
                             paymentDetails={config?.registers?.paymentDetails}
                             paymentSettings={paymentSettings ?? null}
@@ -1812,35 +1835,12 @@ export default function TournamentRegistrationFormPage({ tournamentId }: Tournam
                             onPaymentElementReady={setIsPaymentElementReady}
                             paymentIntentLoading={createPaymentIntent.isPending}
                             paymentIntentError={paymentIntentErrorMessage}
-                            canAcceptOnlinePayment={true}
+                            canAcceptOnlinePayment={false}
                             tournamentId={tournamentId}
                             retryPaymentIntent={ensurePaymentIntent}
                           />
-                        </Elements>
-                      ) : (
-                        <StepThree
-                          paymentDetails={config?.registers?.paymentDetails}
-                          paymentSettings={paymentSettings ?? null}
-                          paymentTotals={groupPaymentTotals}
-                          playerDrafts={playerDrafts}
-                          onEditDraft={handleEditDraft}
-                          onRemoveDraft={handleRemoveDraft}
-                          selectedEntryFee={selectedEntryFee}
-                          sections={sections}
-                          requiresPayment={requiresPayment}
-                          onlineConfigured={Boolean(canProcessOnline)}
-                          clientSecret={clientSecret}
-                          registerPaymentHandler={setPaymentSubmitHandler}
-                          setPaymentBusy={setIsPaymentBusy}
-                          onPaymentElementReady={setIsPaymentElementReady}
-                          paymentIntentLoading={createPaymentIntent.isPending}
-                          paymentIntentError={paymentIntentErrorMessage}
-                          canAcceptOnlinePayment={false}
-                          tournamentId={tournamentId}
-                          retryPaymentIntent={ensurePaymentIntent}
-                        />
-                      )}
-                    </>
+                        )}
+                      </>
                     );
                   })()}
                 </div>
@@ -3374,7 +3374,7 @@ function derivePlayerRating(
   if (provider === "fide") {
     return Number.isFinite(parsedFide) ? parsedFide : null;
   }
-  
+
   // Fallback when provider is "none" or undefined
   if (primarySystem === "fide") {
     if (Number.isFinite(parsedFide)) return parsedFide;

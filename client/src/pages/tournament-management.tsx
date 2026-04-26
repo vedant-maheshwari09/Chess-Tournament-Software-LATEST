@@ -287,7 +287,7 @@ export default function TournamentManagement({ tournamentId }: TournamentManagem
   };
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="min-h-screen bg-transparent">
       <div className="mx-auto max-w-7xl space-y-6 p-6">
 
         {/* Tournament Header */}

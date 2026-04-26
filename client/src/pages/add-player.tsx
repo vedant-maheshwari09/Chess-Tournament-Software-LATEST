@@ -666,7 +666,7 @@ export default function AddPlayerPage({ tournamentId, playerId }: AddPlayerPageP
 
   if (tournamentLoading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-slate-50">
+      <div className="flex min-h-screen items-center justify-center bg-transparent">
         <div className="text-center">
           <div className="mx-auto h-12 w-12 animate-spin rounded-full border-b-2 border-indigo-600" />
           <p className="mt-4 text-sm text-muted-foreground">Loading tournament…</p>
@@ -680,7 +680,7 @@ export default function AddPlayerPage({ tournamentId, playerId }: AddPlayerPageP
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 py-10">
+    <div className="min-h-screen bg-transparent py-10">
       <div className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-4">
 
 

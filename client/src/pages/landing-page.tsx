@@ -5,7 +5,7 @@ import {
   Users,
   Crown,
   ChevronRight,
-  Network,
+  LayoutGrid,
   RotateCw,
   Zap,
 } from "lucide-react";
@@ -74,7 +74,7 @@ function HeroCarousel() {
 
 const FORMATS = [
   {
-    icon: <Network className="w-6 h-6 text-blue-600" />,
+    icon: <LayoutGrid className="w-6 h-6 text-blue-600" />,
     name: "Swiss System",
     desc: "The open-event standard. Finds a winner without eliminating players.",
     features: [
@@ -85,7 +85,7 @@ const FORMATS = [
     ],
   },
   {
-    icon: <RotateCw className="w-6 h-6 text-indigo-600" />,
+    icon: <Users className="w-6 h-6 text-indigo-600" />,
     name: "Round Robin",
     desc: "Perfect for invitationals. Every player faces the entire field.",
     features: [
@@ -121,47 +121,9 @@ const FORMATS = [
 
 export default function LandingPage() {
   return (
-    <div className="bg-white font-sans text-gray-900 min-h-screen selection:bg-green-100 selection:text-green-900 relative">
-      <style>{`
-        @keyframes drift {
-          from { background-position: 0 0; }
-          to { background-position: 40px 40px; }
-        }
-        @keyframes drift-slow {
-          from { background-position: 0 0; }
-          to { background-position: -60px 60px; }
-        }
-        .animate-drift {
-          animation: drift 20s linear infinite;
-        }
-        .animate-drift-slow {
-          animation: drift-slow 40s linear infinite;
-        }
-      `}</style>
-
-      {/* Animated Background */}
-      <div className="fixed inset-0 -z-10 pointer-events-none overflow-hidden">
-        {/* Layer 1: Small Dots */}
-        <div 
-          className="absolute inset-0 opacity-[0.3] animate-drift"
-          style={{
-            backgroundImage: `radial-gradient(circle, #cbd5e1 1.5px, transparent 1.5px)`,
-            backgroundSize: '40px 40px',
-          }}
-        />
-        {/* Layer 2: Larger, Fainter Dots */}
-        <div 
-          className="absolute inset-0 opacity-[0.15] animate-drift-slow"
-          style={{
-            backgroundImage: `radial-gradient(circle, #94a3b8 2px, transparent 2px)`,
-            backgroundSize: '80px 80px',
-          }}
-        />
-        <div className="absolute inset-0 bg-gradient-to-b from-transparent via-white/40 to-white" />
-      </div>
-
+    <div className="bg-transparent font-sans text-gray-900 min-h-screen selection:bg-green-100 selection:text-green-900 relative">
       {/* Navigation */}
-      <nav className="fixed top-0 w-full z-50 bg-white/90 backdrop-blur-md border-b border-gray-100">
+      <nav className="fixed top-0 w-full z-50 bg-white/80 backdrop-blur-md border-b border-gray-100">
         <div className="flex justify-between items-center w-full px-6 md:px-12 py-3 max-w-7xl mx-auto">
           <div className="flex items-center gap-2">
             <img src="/logo.png" alt="ChessSoftware Logo" className="w-12 h-12 object-contain" />
@@ -184,7 +146,7 @@ export default function LandingPage() {
             <h1 className="text-5xl md:text-6xl font-bold text-gray-900 mb-6 leading-[1.1] tracking-tight">
               The modern engine for chess tournaments.
             </h1>
-            <p className="text-lg text-gray-500 mb-10 leading-relaxed">
+            <p className="text-xl text-gray-500 mb-10 leading-relaxed">
               ChessSoftware replaces messy spreadsheets and outdated software with a clean, reliable platform. Automate pairings, communicate with players, and process entries — all in one place.
             </p>
             <div className="flex flex-wrap gap-4">
@@ -205,16 +167,16 @@ export default function LandingPage() {
       <section className="py-20 border-t border-gray-100 px-6">
         <div className="max-w-7xl mx-auto">
           <div className="mb-10">
-            <h2 className="text-3xl font-bold text-gray-900 mb-2 tracking-tight">Flexible formats.</h2>
-            <p className="text-lg text-gray-500">The ChessSoftware engine supports every standard tournament structure.</p>
+            <h2 className="text-4xl font-bold text-gray-900 mb-4 tracking-tight">Flexible formats.</h2>
+            <p className="text-xl text-gray-500">The ChessSoftware engine supports every standard tournament structure.</p>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
             {FORMATS.map((f) => (
-              <div key={f.name} className="p-7 rounded-xl border border-gray-200 bg-gray-50/50 hover:bg-gray-100/60 transition-colors flex flex-col gap-4">
+              <div key={f.name} className="p-7 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 transition-colors flex flex-col gap-4 shadow-sm">
                 <div>
                   <div className="mb-3">{f.icon}</div>
-                  <h4 className="font-bold text-gray-900 text-lg mb-1">{f.name}</h4>
+                  <h4 className="font-bold text-gray-900 text-xl mb-1">{f.name}</h4>
                   <p className="text-sm text-gray-500 leading-relaxed">{f.desc}</p>
                 </div>
                 <ul className="space-y-2 border-t border-gray-200 pt-4">
@@ -236,8 +198,8 @@ export default function LandingPage() {
         <div className="max-w-7xl mx-auto">
 
           <div className="text-center mb-14 max-w-xl mx-auto">
-            <h2 className="text-3xl font-bold text-gray-900 mb-3 tracking-tight">Built for every role.</h2>
-            <p className="text-gray-500 text-lg">Purpose-built tools for directors, players, and everyone on the platform.</p>
+            <h2 className="text-4xl font-bold text-gray-900 mb-4 tracking-tight">Built for every role.</h2>
+            <p className="text-gray-500 text-xl">Purpose-built tools for directors, players, and everyone on the platform.</p>
           </div>
 
           <div className="grid md:grid-cols-2 gap-6">

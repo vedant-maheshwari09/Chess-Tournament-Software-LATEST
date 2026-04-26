@@ -126,7 +126,7 @@ export default function TournamentView({ tournamentId }: TournamentViewProps) {
 
   if (tournamentLoading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-slate-50 dark:bg-slate-950">
+      <div className="flex min-h-screen items-center justify-center bg-transparent">
         <div className="text-center">
           <div className="mx-auto h-12 w-12 animate-spin rounded-full border-b-2 border-indigo-600" />
           <p className="mt-4 text-slate-600 dark:text-slate-400 font-medium">Loading tournament...</p>
@@ -137,7 +137,7 @@ export default function TournamentView({ tournamentId }: TournamentViewProps) {
 
   if (!tournament) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-slate-50 dark:bg-slate-950">
+      <div className="flex min-h-screen items-center justify-center bg-transparent">
         <Card className="w-full max-w-md border-none shadow-xl">
           <CardContent className="pt-8 pb-8 text-center">
             <Trophy className="mx-auto mb-6 h-16 w-16 text-slate-200" />
@@ -153,7 +153,7 @@ export default function TournamentView({ tournamentId }: TournamentViewProps) {
   const canManageTournament = Boolean(user && user.role === "tournament_director");
 
   return (
-    <div className="min-h-screen bg-slate-50/50 pb-12 dark:bg-slate-950">
+    <div className="min-h-screen bg-transparent pb-12">
       <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8 space-y-8">
         {/* Navigation */}
         <div className="flex items-center justify-between">
@@ -315,10 +315,10 @@ export default function TournamentView({ tournamentId }: TournamentViewProps) {
                         ))}
                       </div>
                     )}
-                    <SwissPairings 
-                      tournamentId={tournamentId} 
-                      activeSection={activeRoundSection} 
-                      showExportControls={false} 
+                    <SwissPairings
+                      tournamentId={tournamentId}
+                      activeSection={activeRoundSection}
+                      showExportControls={false}
                     />
                   </div>
                 )}

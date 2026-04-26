@@ -417,7 +417,7 @@ export default function TournamentSettingsPage({ tournamentId, section }: Tourna
 
   if (authLoading || tournamentLoading || !config || !baseline) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-slate-50">
+      <div className="flex min-h-screen items-center justify-center bg-transparent">
         <div className="flex items-center gap-3 text-slate-500">
           <Loader2 className="h-5 w-5 animate-spin" />
           Loading tournament settings...
@@ -459,7 +459,7 @@ export default function TournamentSettingsPage({ tournamentId, section }: Tourna
   };
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="min-h-screen bg-transparent">
       <div className="mx-auto max-w-6xl space-y-6 p-6">
         <Button
           variant="link"

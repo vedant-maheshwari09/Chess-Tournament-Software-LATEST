@@ -295,14 +295,6 @@ export default function PlayerDashboard() {
     [sectionsRaw, comparator]
   );
 
-  const getFormatIcon = (format: string) => {
-    switch (format) {
-      case 'swiss': return '🏆';
-      case 'roundrobin': return '🔄';
-      case 'knockout': return '⚔️';
-      default: return '🎯';
-    }
-  };
 
   const getFormatName = (format: string) => {
     switch (format) {
@@ -339,8 +331,8 @@ export default function PlayerDashboard() {
     const isPendingStar = pendingStarId === tournament.id && toggleStar.isPending;
 
     const rowClass = isStarred
-      ? "border-b border-slate-200 bg-blue-50/60 transition last:border-b-0 hover:bg-blue-100/60 dark:bg-blue-900/20 dark:hover:bg-blue-900/30"
-      : "border-b border-slate-200 bg-white transition last:border-b-0 hover:bg-slate-50 dark:bg-slate-800/60 dark:hover:bg-slate-700/60";
+      ? "border-b border-slate-200 bg-blue-50/60 transition-colors duration-200 last:border-b-0 hover:bg-blue-100/60 dark:border-slate-800 dark:bg-blue-900/20 dark:hover:bg-blue-900/40"
+      : "border-b border-slate-200 bg-white transition-colors duration-200 last:border-b-0 hover:bg-slate-50 dark:border-slate-800 dark:bg-transparent dark:hover:bg-slate-800/40";
 
     return (
       <tr key={tournament.id} className={rowClass}>
@@ -374,7 +366,6 @@ export default function PlayerDashboard() {
         <td className="px-4 py-4 align-middle">
           <div className="space-y-1">
             <div className="flex items-center gap-2 font-semibold text-slate-900 dark:text-slate-100">
-              <span>{getFormatIcon(tournament.format)}</span>
               <span>{tournament.name}</span>
             </div>
             <div className="text-xs text-slate-500">{getFormatName(tournament.format)}</div>
@@ -420,8 +411,8 @@ export default function PlayerDashboard() {
           ) : (
             <div className="overflow-x-auto">
               <table className="min-w-[960px] w-full border-collapse overflow-hidden rounded-xl">
-                <thead className="bg-slate-50">
-                  <tr className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                <thead className="bg-slate-50 dark:bg-slate-800/50">
+                  <tr className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
                     <th className="px-4 py-3 text-center">Favorite</th>
                     <th className="px-4 py-3 text-left">Tournament Name</th>
                     <th className="px-4 py-3 text-center">State</th>
@@ -454,8 +445,8 @@ export default function PlayerDashboard() {
 
   // Show tournament list (View button navigates to /tournaments/:id)
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
-      <div className="bg-white dark:bg-gray-800 shadow">
+    <div className="min-h-screen bg-transparent">
+      <div className="bg-white/80 dark:bg-gray-800/80 backdrop-blur-md shadow">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
           <div className="flex flex-col md:flex-row md:items-center justify-between py-6 gap-6 text-center md:text-left">
             <div className="space-y-1">
