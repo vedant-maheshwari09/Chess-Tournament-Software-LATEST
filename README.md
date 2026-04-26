@@ -51,7 +51,7 @@ The platform supports four primary tournament formats, each with specialized pai
 
 ---
 
-## 🏗 Project Structure
+## Project Structure
 
 ```text
 .
