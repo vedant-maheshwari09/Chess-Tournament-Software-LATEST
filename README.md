@@ -1,4 +1,4 @@
-# ♟️ Chess Tournament Manager
+# Chess Tournament Manager
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![TypeScript](https://img.shields.io/badge/TypeScript-007ACC?style=flat&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
@@ -7,15 +7,15 @@
 
 A modern, full-stack platform designed for chess organizers, tournament directors, and players. This software streamlines the process of managing chess tournaments, from registration and seeding to real-time pairings and result reporting.
 
-## 🚀 Key Features
+## Key Features
 
-### 🏆 Multiple Tournament Formats
+### Multiple Tournament Formats
 
 The platform supports four primary tournament formats, each with specialized pairing and scoring logic:
 
 #### **1. Swiss System (Standard & Professional)**
 - **Pairing Engine**: Implements a professional Swiss pairing algorithm that adheres to USCF and FIDE principles.
-- **Round 1 Logic**: Sorts players by rating and splits the field into upper and lower halves. The top of the upper half is paired against the top of the lower half (Seeded Pairing).
+- **Round Logic**: Sorts players by rating and splits the field into upper and lower halves. The top of the upper half is paired against the top of the lower half (Seeded Pairing).
 - **Subsequent Rounds**: Grouping players by tournament points (score groups). Within each group, the "Upper vs Lower" method is applied while strictly avoiding repeat pairings.
 - **Color Balancing**: Ensures no player receives the same color more than twice in a row, maintaining a `colorDelta` near zero for all participants.
 - **Bye Management**: Automatically handles odd numbers of players by assigning a full-point or half-point bye to the lowest-ranked player in the lowest score group who hasn't already received one.
@@ -43,7 +43,7 @@ The platform supports four primary tournament formats, each with specialized pai
 - **Fair Color Assignment**: Uses Berger Tables or the Circle Algorithm to ensure an equal distribution of White and Black games across the tournament.
 - **Round Management**: Simple round advancement that moves through the pre-defined pairing matrix.
 
-### 📊 Professional Chess Integration
+### Professional Chess Integration
 - **Rating Systems**: Native support for **USCF** and **FIDE** ratings (Standard, Rapid, Blitz).
 - **Advanced Seeding**: Algorithms including FIDE World Cup, Slaughter, Random, and Manual.
 - **Automated Tiebreaks**: Professional calculation of Modified Median, Solkoff, and Cumulative tiebreaks.
@@ -89,7 +89,7 @@ The platform supports four primary tournament formats, each with specialized pai
 
 ---
 
-## 🏁 Getting Started
+## Getting Started
 
 ### Prerequisites
 - **Node.js** (v18+)
@@ -131,7 +131,7 @@ The platform supports four primary tournament formats, each with specialized pai
 
 ---
 
-## 🚢 Deployment (Render + Supabase)
+## Deployment (Render + Supabase)
 
 The platform is optimized for deployment on **Render** using a **Supabase** backend.
 
@@ -160,7 +160,7 @@ CREATE TABLE IF NOT EXISTS verification_codes (
 
 ---
 
-## 📜 License
+## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
