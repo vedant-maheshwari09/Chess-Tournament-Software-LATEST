@@ -23,6 +23,8 @@ import {
   type PasswordReset,
   type VerificationCode,
   type InsertVerificationCode,
+  type PendingUser,
+  type InsertPendingUser,
 } from "@shared/schema";
 import { getSupabaseClient } from "../supabaseClient";
 
@@ -255,6 +257,15 @@ export interface IStorage {
   updateUser(id: number, user: Partial<User>): Promise<User | undefined>;
   listUsersByIds(ids: number[]): Promise<User[]>;
   deleteUser(id: number): Promise<boolean>;
+  
+  // Pending users (before verification)
+  createPendingUser(user: InsertPendingUser): Promise<PendingUser>;
+  getPendingUserByEmail(email: string): Promise<PendingUser | undefined>;
+  getPendingUserByUsername(username: string): Promise<PendingUser | undefined>;
+  getPendingUserByCode(code: string, email: string): Promise<PendingUser | undefined>;
+  updatePendingUser(id: number, user: Partial<PendingUser>): Promise<PendingUser | undefined>;
+  deletePendingUser(id: number): Promise<boolean>;
+  deletePendingUserByEmail(email: string): Promise<boolean>;
 
   createSession(userId: number, token: string, expiresAt: Date): Promise<Session>;
   getSessionByToken(token: string): Promise<Session | undefined>;
@@ -373,6 +384,34 @@ class SupabaseStorage implements IStorage {
 
   async deleteUser(id: number): Promise<boolean> {
     return (await deleteMany("users", { id })) > 0;
+  }
+
+  async createPendingUser(user: InsertPendingUser): Promise<PendingUser> {
+    return insertOne<PendingUser>("pending_users", user as AnyRecord);
+  }
+
+  async getPendingUserByEmail(email: string): Promise<PendingUser | undefined> {
+    return fetchOne<PendingUser>("pending_users", { email });
+  }
+
+  async getPendingUserByUsername(username: string): Promise<PendingUser | undefined> {
+    return fetchOne<PendingUser>("pending_users", { username });
+  }
+
+  async getPendingUserByCode(code: string, email: string): Promise<PendingUser | undefined> {
+    return fetchOne<PendingUser>("pending_users", { verificationCode: code, email });
+  }
+
+  async updatePendingUser(id: number, user: Partial<PendingUser>): Promise<PendingUser | undefined> {
+    return updateOne<PendingUser>("pending_users", { id }, user as AnyRecord);
+  }
+
+  async deletePendingUser(id: number): Promise<boolean> {
+    return (await deleteMany("pending_users", { id })) > 0;
+  }
+
+  async deletePendingUserByEmail(email: string): Promise<boolean> {
+    return (await deleteMany("pending_users", { email })) > 0;
   }
 
   async createSession(userId: number, token: string, expiresAt: Date): Promise<Session> {

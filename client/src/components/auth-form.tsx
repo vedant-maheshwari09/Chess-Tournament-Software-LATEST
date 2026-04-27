@@ -44,16 +44,26 @@ type ClientResetPasswordData = z.infer<typeof clientResetPasswordSchema>;
 type AuthMode = 'login' | 'register' | 'forgot-password' | 'forgot-username' | 'reset-password' | 'verify-email';
 
 export default function AuthForm() {
-  const [authMode, setAuthMode] = useState<AuthMode>('login');
+  const [authMode, setAuthMode] = useState<AuthMode>(() => {
+    const saved = localStorage.getItem('auth_mode');
+    return (saved as AuthMode) || 'login';
+  });
   const [resetEmail, setResetEmail] = useState('');
-  const [pendingUserEmail, setPendingUserEmail] = useState('');
+  const [pendingUserEmail, setPendingUserEmail] = useState(() => {
+    return localStorage.getItem('pending_user_email') || '';
+  });
+
+  // Persist auth state for refresh
+  useEffect(() => {
+    localStorage.setItem('auth_mode', authMode);
+    localStorage.setItem('pending_user_email', pendingUserEmail);
+  }, [authMode, pendingUserEmail]);
+
   const [showLoginPassword, setShowLoginPassword] = useState(false);
   const [showRegisterPassword, setShowRegisterPassword] = useState(false);
   const [showResetPassword, setShowResetPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [, setLocation] = useLocation();
-
-  // Real-time validation states
   const [usernameCheck, setUsernameCheck] = useState<{
     checking: boolean;
     available: boolean | null;
@@ -347,6 +357,8 @@ export default function AuthForm() {
     onSuccess: (data) => {
       if (data.token) {
         localStorage.setItem("auth_token", data.token);
+        localStorage.removeItem('auth_mode');
+        localStorage.removeItem('pending_user_email');
         // Set user data immediately to trigger dashboard view
         queryClient.setQueryData(["/api/auth/me"], data.user);
         queryClient.invalidateQueries({ queryKey: ["/api"] });
@@ -850,7 +862,23 @@ export default function AuthForm() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-transparent p-4">
       <Card className="w-full max-w-md">
-        <CardHeader className="space-y-1">
+        <CardHeader className="space-y-1 relative">
+          {authMode === 'verify-email' && (
+            <Button 
+              variant="ghost" 
+              size="icon" 
+              className="absolute right-4 top-4 h-8 w-8 text-muted-foreground hover:text-foreground z-10"
+              onClick={() => {
+                setAuthMode('register');
+                setPendingUserEmail('');
+                localStorage.removeItem('auth_mode');
+                localStorage.removeItem('pending_user_email');
+              }}
+              title="Cancel Registration"
+            >
+              <X className="h-4 w-4" />
+            </Button>
+          )}
           <div className="flex items-center justify-center mb-4">
             <img src="/logo.png" alt="ChessSoftware Logo" className="w-16 h-16 object-contain mix-blend-multiply" />
           </div>

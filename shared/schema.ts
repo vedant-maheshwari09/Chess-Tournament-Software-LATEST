@@ -49,6 +49,23 @@ export const verificationCodes = pgTable("verification_codes", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
+export const pendingUsers = pgTable("pending_users", {
+  id: serial("id").primaryKey(),
+  username: varchar("username", { length: 50 }).notNull(),
+  email: varchar("email", { length: 255 }).notNull(),
+  passwordHash: text("password_hash").notNull(),
+  firstName: text("first_name").notNull(),
+  lastName: text("last_name").notNull(),
+  role: text("role").notNull().default('player'),
+  notifyEmail: boolean("notify_email").default(true),
+  notifyPairings: boolean("notify_pairings").default(true),
+  notifyRegistration: boolean("notify_registration").default(true),
+  notifyTournamentStatus: boolean("notify_tournament_status").default(true),
+  verificationCode: varchar("verification_code", { length: 6 }).notNull(),
+  expiresAt: timestamp("expires_at").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
 export const tournaments = pgTable("tournaments", {
   id: serial("id").primaryKey(),
   name: text("name").notNull(),
@@ -373,6 +390,8 @@ export type Session = typeof sessions.$inferSelect;
 export type PasswordReset = typeof passwordResets.$inferSelect;
 export type VerificationCode = typeof verificationCodes.$inferSelect;
 export type InsertVerificationCode = typeof verificationCodes.$inferInsert;
+export type PendingUser = typeof pendingUsers.$inferSelect;
+export type InsertPendingUser = typeof pendingUsers.$inferInsert;
 
 // Tournament types
 export type Tournament = typeof tournaments.$inferSelect;

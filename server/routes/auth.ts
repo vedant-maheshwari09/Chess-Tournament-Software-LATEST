@@ -26,53 +26,72 @@ app.post("/api/auth/register", async (req, res) => {
       const userData = registerSchema.parse(req.body);
 
 
-      // Check if username already exists
+      // Check if username already exists in users or active pending_users
       const existingUsername = await storage.getUserByUsername(userData.username);
-      if (existingUsername) {
+      const pendingUsername = await storage.getPendingUserByUsername(userData.username);
+      const isUsernamePendingActive = pendingUsername && new Date() <= new Date(pendingUsername.expiresAt);
+      
+      if (existingUsername || isUsernamePendingActive) {
         return res.status(400).json({
           message: "This username is already taken. Please choose a different username."
         });
       }
 
-      // Check if email already exists
+      // Check if email already exists in users or active pending_users
       const existingEmail = await storage.getUserByEmail(userData.email);
-      if (existingEmail) {
+      const pendingEmail = await storage.getPendingUserByEmail(userData.email);
+      const isEmailPendingActive = pendingEmail && new Date() <= new Date(pendingEmail.expiresAt);
+      
+      if (existingEmail || isEmailPendingActive) {
         return res.status(400).json({
           message: "An account with this email already exists. Please use a different email or try logging in."
         });
       }
 
-      // Hash password and create user (email not verified initially)
+      // Hash password and create pending user
       const passwordHash = await hashPassword(userData.password);
-      const newUser = await storage.createUser({
+      const verificationCode = Math.floor(100000 + Math.random() * 900000).toString();
+      const expiresAt = new Date();
+      expiresAt.setMinutes(expiresAt.getMinutes() + 15); // 15 minutes expiration
+
+      // Clear any existing pending registration for this email
+      await storage.deletePendingUserByEmail(userData.email);
+
+      const pendingUser = await storage.createPendingUser({
         username: userData.username,
         email: userData.email,
         firstName: userData.firstName,
         lastName: userData.lastName,
         role: userData.role,
         passwordHash,
-
         notifyEmail: userData.notifyEmail ?? true,
         notifyPairings: userData.notifyPairings ?? true,
         notifyRegistration: userData.notifyRegistration ?? true,
         notifyTournamentStatus: userData.notifyTournamentStatus ?? true,
-        emailVerified: false,
+        verificationCode,
+        expiresAt,
       });
 
-      // Send verification code (don't create session yet)
-      try {
-        await sendEmailVerificationCode(newUser.id, userData.email, userData.firstName);
-      } catch (emailError) {
-        console.error('Failed to send verification email:', emailError);
-        // User is created, but email failed - they can request a resend
-      }
+      // Send verification code in background
+      notificationService.sendEmail({
+        to: userData.email,
+        subject: 'Verify Your Email Address',
+        text: `Hello ${userData.firstName},
+        
+Thank you for creating an account! Please use the following code to verify your email address:
 
-      // Return user info without token (email not verified)
-      const { passwordHash: _, ...userWithoutPassword } = newUser;
+${verificationCode}
+
+This code will expire in 15 minutes.
+
+Best regards,
+Chess Tournament Manager`
+      }).catch(emailError => console.error('Failed to send background verification email:', emailError));
+
       res.status(201).json({
-        user: userWithoutPassword,
         message: "Account created! Please check your email for a verification code.",
-        requiresVerification: true
+        requiresVerification: true,
+        email: userData.email
       });
     } catch (error) {
       console.error('Registration error:', error);
@@ -105,8 +124,10 @@ app.get("/api/auth/check-username/:username", async (req, res) => {
 
       try {
         const existingUser = await storage.getUserByUsername(username);
+        const pendingUser = await storage.getPendingUserByUsername(username);
+        const isPendingActive = pendingUser && new Date() <= new Date(pendingUser.expiresAt);
 
-        if (existingUser) {
+        if (existingUser || isPendingActive) {
           res.json({ available: false, message: "Username is already taken" });
         } else {
           res.json({ available: true, message: "Username is available" });
@@ -188,8 +209,10 @@ app.get("/api/auth/check-email/:email", async (req, res) => {
 
       try {
         const existingUser = await storage.getUserByEmail(email);
+        const pendingUser = await storage.getPendingUserByEmail(email);
+        const isPendingActive = pendingUser && new Date() <= new Date(pendingUser.expiresAt);
 
-        if (existingUser) {
+        if (existingUser || isPendingActive) {
           res.json({ available: false, message: "Email is already registered" });
         } else {
           res.json({ available: true, message: "Email is available" });
@@ -508,57 +531,67 @@ app.post("/api/auth/verify-email", async (req, res) => {
     try {
       const { code, email } = verifyEmailSchema.parse(req.body);
 
-      // Try to get user from auth token if available, otherwise use email
-      let user;
-      const authHeader = req.headers.authorization;
+      if (!email) {
+        return res.status(400).json({ message: "Email address is required for verification." });
+      }
 
-      if (authHeader && authHeader.startsWith('Bearer ')) {
-        const token = authHeader.substring(7);
-        const session = await storage.getSessionByToken(token);
-        if (session && new Date() <= new Date(session.expiresAt)) {
-          user = await storage.getUserById(session.userId);
+      // Check if user is already in main users table
+      const user = await storage.getUserByEmail(email);
+      if (user) {
+        if (user.emailVerified) {
+          return res.json({ message: "Email is already verified" });
         }
+
+        // Standard verification for existing users
+        const verificationCode = await storage.getVerificationCodeByCode(code, user.id, 'email_verification');
+        if (!verificationCode || verificationCode.used || new Date() > new Date(verificationCode.expiresAt)) {
+          return res.status(400).json({ message: "Invalid or expired verification code" });
+        }
+
+        await storage.useVerificationCode(code, user.id, 'email_verification');
+        await storage.updateUser(user.id, { emailVerified: true });
+
+        const session = await createSession(user.id);
+        const { passwordHash: _, ...userWithoutPassword } = user;
+        return res.json({
+          message: "Email verified successfully",
+          user: { ...userWithoutPassword, emailVerified: true },
+          token: session.token
+        });
       }
 
-      // If no user from token, try email
-      if (!user && email) {
-        user = await storage.getUserByEmail(email);
-      }
-
-      if (!user) {
-        return res.status(400).json({ message: "User not found. Please log in first or provide your email address." });
-      }
-
-      if (user.emailVerified) {
-        return res.json({ message: "Email is already verified" });
-      }
-
-      // Verify code
-      const verificationCode = await storage.getVerificationCodeByCode(code, user.id, 'email_verification');
-
-      if (!verificationCode || verificationCode.used || new Date() > new Date(verificationCode.expiresAt)) {
+      // If not in users table, check pending_users
+      const pendingUser = await storage.getPendingUserByCode(code, email);
+      if (!pendingUser || new Date() > new Date(pendingUser.expiresAt)) {
         return res.status(400).json({ message: "Invalid or expired verification code" });
       }
 
-      // Mark code as used and verify email
-      await storage.useVerificationCode(code, user.id, 'email_verification');
-      await storage.updateUser(user.id, { emailVerified: true });
+      // Valid pending registration! Create the actual user now.
+      const newUser = await storage.createUser({
+        username: pendingUser.username,
+        email: pendingUser.email,
+        passwordHash: pendingUser.passwordHash,
+        firstName: pendingUser.firstName,
+        lastName: pendingUser.lastName,
+        role: pendingUser.role,
+        notifyEmail: pendingUser.notifyEmail,
+        notifyPairings: pendingUser.notifyPairings,
+        notifyRegistration: pendingUser.notifyRegistration,
+        notifyTournamentStatus: pendingUser.notifyTournamentStatus,
+        emailVerified: true,
+      });
 
-      // Create session if user doesn't have one
-      let token = authHeader?.substring(7);
-      if (!token || !authHeader?.startsWith('Bearer ')) {
-        const session = await createSession(user.id);
-        token = session.token;
-      }
+      // Cleanup pending record
+      await storage.deletePendingUser(pendingUser.id);
 
-      // Return updated user info
-      const updatedUser = await storage.getUserById(user.id);
-      const { passwordHash: _, ...userWithoutPassword } = updatedUser!;
+      // Create session and log them in
+      const session = await createSession(newUser.id);
+      const { passwordHash: _, ...userWithoutPassword } = newUser;
 
       res.json({
-        message: "Email verified successfully",
+        message: "Email verified successfully! Your account is now active.",
         user: userWithoutPassword,
-        token: token
+        token: session.token
       });
     } catch (error) {
       console.error('Verify email error:', error);
@@ -572,43 +605,60 @@ app.post("/api/auth/verify-email", async (req, res) => {
 
 app.post("/api/auth/resend-verification", async (req, res) => {
     try {
-      // Get user from auth token or email
-      const authHeader = req.headers.authorization;
-      let user;
+      const { email } = resendVerificationSchema.parse(req.body);
+      
+      if (!email) {
+        return res.status(400).json({ message: "Email address is required" });
+      }
 
-      if (authHeader && authHeader.startsWith('Bearer ')) {
-        const token = authHeader.substring(7);
-        const session = await storage.getSessionByToken(token);
-        if (session && new Date() <= new Date(session.expiresAt)) {
-          user = await storage.getUserById(session.userId);
+      // Check main users table first
+      const user = await storage.getUserByEmail(email);
+      if (user) {
+        if (user.emailVerified) {
+          return res.json({ message: "Email is already verified" });
         }
+
+        // Standard resend for existing unverified users
+        await sendEmailVerificationCode(user.id, user.email, user.firstName)
+          .catch(emailError => console.error('Failed to send resend-verification email:', emailError));
+          
+        return res.json({ message: "Verification code sent to your email" });
       }
 
-      // If no user from token, try email
-      if (!user) {
-        const { email } = resendVerificationSchema.parse(req.body);
-        if (email) {
-          user = await storage.getUserByEmail(email);
-        }
+      // If not in users, check pending_users
+      const pendingUser = await storage.getPendingUserByEmail(email);
+      if (pendingUser) {
+        // Generate new code for pending user
+        const newCode = Math.floor(100000 + Math.random() * 900000).toString();
+        const newExpiresAt = new Date();
+        newExpiresAt.setMinutes(newExpiresAt.getMinutes() + 15);
+
+        await storage.updatePendingUser(pendingUser.id, { 
+          verificationCode: newCode, 
+          expiresAt: newExpiresAt 
+        });
+
+        notificationService.sendEmail({
+          to: pendingUser.email,
+          subject: 'Verify Your Email Address',
+          text: `Hello ${pendingUser.firstName},
+          
+Please use the following code to verify your email address:
+
+${newCode}
+
+This code will expire in 15 minutes.
+
+Best regards,
+Chess Tournament Manager`
+        }).catch(emailError => console.error('Failed to send resend-verification email for pending user:', emailError));
+
+        return res.json({ message: "Verification code sent to your email" });
       }
 
-      if (!user) {
-        // Don't reveal if email exists for security
-        return res.json({ message: "If the email exists, a verification code will be sent." });
-      }
+      // Security: don't reveal if email exists
+      res.json({ message: "If the email exists, a verification code will be sent." });
 
-      if (user.emailVerified) {
-        return res.json({ message: "Email is already verified" });
-      }
-
-      // Send verification code
-      try {
-        await sendEmailVerificationCode(user.id, user.email, user.firstName);
-        res.json({ message: "Verification code sent to your email" });
-      } catch (emailError) {
-        console.error('Failed to send verification email:', emailError);
-        res.status(500).json({ message: "Failed to send verification email. Please try again later." });
-      }
     } catch (error) {
       console.error('Resend verification error:', error);
       res.status(400).json({ message: "Invalid request" });
