@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import React, { useEffect } from "react";
 import { useLocation } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -11,10 +11,10 @@ import type { Tournament } from "@shared/schema";
 
 export default function TournamentCreation() {
   const [, setLocation] = useLocation();
-  const { user, isLoading } = useAuth();
+  const { user, logout, isLoading } = useAuth();
 
   // Redirect non-tournament directors to player dashboard
-  useEffect(() => {
+  React.useEffect(() => {
     if (!isLoading && user && user.role !== 'tournament_director') {
       setLocation('/player-dashboard');
     }
@@ -51,7 +51,7 @@ export default function TournamentCreation() {
               <Button onClick={() => setLocation('/player-dashboard')} className="w-full">
                 Go to Player Dashboard
               </Button>
-              <Button variant="outline" onClick={() => setLocation('/auth/logout')} className="w-full">
+              <Button variant="outline" onClick={() => logout()} className="w-full">
                 Log Out & Switch Account
               </Button>
             </div>

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
-import { useLocation } from "wouter";
+import { useLocation, useRoute } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -46,7 +46,8 @@ interface TournamentManagementProps {
 
 export default function TournamentManagement({ tournamentId }: TournamentManagementProps) {
   const [, setLocation] = useLocation();
-  const [activeTab, setActiveTab] = useState("dashboard");
+  const [, params] = useRoute("/tournaments/:id/manage/:tab");
+  const activeTab = params?.tab || "dashboard";
   const [arenaSubTab, setArenaSubTab] = useState<'lobby' | 'matches'>('lobby');
   const { toast } = useToast();
   const { user } = useAuth();
@@ -68,11 +69,16 @@ export default function TournamentManagement({ tournamentId }: TournamentManagem
   }, [tournament, user, isOwner, tournamentId, setLocation]);
 
   // Ensure activeTab is valid for Arena format
-  useEffect(() => {
-    if (tournament?.format === 'arena' && activeTab === 'standings') {
-      setActiveTab('rounds'); // 'rounds' is renamed to 'Arena Lobby' in the UI
+  React.useEffect(() => {
+    const validTabs = ["dashboard", "players", "rounds"];
+    if (tournament?.format !== 'arena') {
+      validTabs.push("standings");
     }
-  }, [tournament?.format, activeTab]);
+
+    if (!validTabs.includes(activeTab)) {
+      setLocation(`/tournaments/${tournamentId}/manage/dashboard`, { replace: true });
+    }
+  }, [tournament?.format, activeTab, tournamentId, setLocation]);
 
   // Fetch players
   const { data: players = [] } = useQuery<Player[]>({
@@ -146,7 +152,7 @@ export default function TournamentManagement({ tournamentId }: TournamentManagem
 
 
   const selectTab = (value: string) => {
-    setActiveTab(value);
+    setLocation(`/tournaments/${tournamentId}/manage/${value}`);
   };
 
   const [upcomingDialogOpen, setUpcomingDialogOpen] = useState(false);
@@ -283,7 +289,7 @@ export default function TournamentManagement({ tournamentId }: TournamentManagem
   const canGenerateNextRound = tournament?.status === 'active' && (tournament?.currentRound || 0) > 0;
 
   const handleTabChange = (value: string) => {
-    selectTab(value);
+    setLocation(`/tournaments/${tournamentId}/manage/${value}`);
   };
 
   return (
@@ -430,7 +436,7 @@ export default function TournamentManagement({ tournamentId }: TournamentManagem
         </Card>
 
         {/* Tournament Management Tabs */}
-        <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+        <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full">
           <TabsList className="flex w-full min-h-[48px] h-auto flex-nowrap overflow-x-auto no-scrollbar items-center gap-1 bg-slate-100 p-1 rounded-xl border border-slate-200/60 shadow-sm backdrop-blur-sm">
             <TabsTrigger
               value="dashboard"

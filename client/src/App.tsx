@@ -65,12 +65,19 @@ function AuthenticatedApp() {
             <Route path="/settings" component={SettingsPage} />
             {(user as any)?.role === 'tournament_director' ? (
               <>
-                <Route path="/" component={TournamentDirectorDashboard} />
-                <Route path="/dashboard" component={TournamentDirectorDashboard} />
+                <Route path="/">
+                  <Redirect to="/dashboard/drafts" />
+                </Route>
+                <Route path="/dashboard">
+                  <Redirect to="/dashboard/drafts" />
+                </Route>
                 <Route path="/dashboard/:tab" component={TournamentDirectorDashboard} />
                 <Route path="/tournaments/new" component={TournamentCreation} />
-                <Route path="/tournaments/:id/manage">
+                <Route path="/tournaments/:id/manage/:tab">
                   {(params) => <TournamentManagement tournamentId={parseInt(params.id)} />}
+                </Route>
+                <Route path="/tournaments/:id/manage">
+                  {(params) => <Redirect to={`/tournaments/${params.id}/manage/dashboard`} />}
                 </Route>
                 <Route path="/tournaments/:id/settings">
                   {(params) => <TournamentActionsPage tournamentId={parseInt(params.id)} />}
@@ -102,13 +109,17 @@ function AuthenticatedApp() {
                   {(params) => <TournamentView tournamentId={parseInt(params.id)} />}
                 </Route>
                 <Route path="/tournaments/:id">
-                  {(params) => <TournamentView tournamentId={parseInt(params.id)} />}
+                  {(params) => <Redirect to={`/tournaments/${params.id}/info`} />}
                 </Route>
               </>
             ) : (
               <>
-                <Route path="/" component={PlayerDashboard} />
-                <Route path="/dashboard" component={PlayerDashboard} />
+                <Route path="/">
+                  <Redirect to="/dashboard/ongoing" />
+                </Route>
+                <Route path="/dashboard">
+                  <Redirect to="/dashboard/ongoing" />
+                </Route>
                 <Route path="/dashboard/:tab" component={PlayerDashboard} />
                 <Route path="/tournaments/:id/register">
                   {(params) => <TournamentRegistrationFormPage tournamentId={parseInt(params.id)} />}
@@ -117,7 +128,7 @@ function AuthenticatedApp() {
                   {(params) => <TournamentView tournamentId={parseInt(params.id)} />}
                 </Route>
                 <Route path="/tournaments/:id">
-                  {(params) => <TournamentView tournamentId={parseInt(params.id)} />}
+                  {(params) => <Redirect to={`/tournaments/${params.id}/info`} />}
                 </Route>
               </>
             )}

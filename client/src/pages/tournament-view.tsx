@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useLocation, useRoute } from "wouter";
 import { Button } from "@/components/ui/button";
@@ -96,6 +96,13 @@ export default function TournamentView({ tournamentId }: TournamentViewProps) {
   }, [tournament?.format, showPredictor]);
 
   const activeTab = availableTabs.includes(tabParam) ? tabParam : availableTabs[0];
+
+  React.useEffect(() => {
+    if (tabParam !== activeTab) {
+      setLocation(`/tournaments/${tournamentId}/${activeTab}`, { replace: true });
+    }
+  }, [tabParam, activeTab, tournamentId, setLocation]);
+
   const infoHtml = useMemo(() => (config.tournamentPageContent ? renderTournamentPageContent(config.tournamentPageContent) : ""), [config.tournamentPageContent]);
 
   const [activeRoundSection, setActiveRoundSection] = useState<string>("all");

@@ -1,4 +1,4 @@
-import { useMemo, type ReactNode } from "react";
+import React, { useEffect, useMemo, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Plus, Trophy, Users } from "lucide-react";
 import { Link, useLocation, useRoute } from "wouter";
@@ -21,6 +21,13 @@ export default function TournamentDirectorDashboard() {
   const { data: tournaments = [], isLoading } = useQuery<Tournament[]>({
     queryKey: ["/api/my-tournaments"],
   });
+
+  const validTabs = ["past", "live", "upcoming", "drafts"];
+  React.useEffect(() => {
+    if (!validTabs.includes(activeTab)) {
+      setLocation("/dashboard/drafts", { replace: true });
+    }
+  }, [activeTab, setLocation]);
 
   const categorized = useMemo(
     () => ({

@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
+import { useLocation } from "wouter";
 import { apiRequest, getQueryFn } from "@/lib/queryClient";
 import type { User, LoginData, RegisterData } from "@shared/schema";
 
@@ -16,6 +17,7 @@ interface RegisterResponse {
 
 export function useAuth() {
   const queryClient = useQueryClient();
+  const [, setLocation] = useLocation();
 
   // Get current user from token
   const { data: user, isLoading, error } = useQuery<User | null>({
@@ -45,6 +47,7 @@ export function useAuth() {
         console.warn("[AUTH] Clearing invalid session due to error:", message);
         localStorage.removeItem("auth_token");
         queryClient.setQueryData(["/api/auth/me"], null);
+        setLocation("/");
       }
     }
   }, [error, queryClient]);
@@ -105,6 +108,7 @@ export function useAuth() {
       localStorage.removeItem("auth_token");
       queryClient.setQueryData(["/api/auth/me"], null);
       queryClient.clear();
+      setLocation("/");
       window.scrollTo(0, 0);
     },
   });

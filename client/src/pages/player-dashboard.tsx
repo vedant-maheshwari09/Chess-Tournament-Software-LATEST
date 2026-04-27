@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import type { ComponentType } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useRoute } from "wouter";
@@ -68,6 +68,13 @@ export default function PlayerDashboard() {
   const queryClient = useQueryClient();
   const isPlayer = user?.role === "player";
   const [pendingStarId, setPendingStarId] = useState<number | null>(null);
+
+  const validTabs = ["ongoing", "upcoming", "past"];
+  React.useEffect(() => {
+    if (!validTabs.includes(activeTab)) {
+      setLocation("/dashboard/ongoing", { replace: true });
+    }
+  }, [activeTab, setLocation]);
 
   useEffect(() => {
     if (isPlayer) {
