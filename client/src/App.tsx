@@ -22,6 +22,7 @@ import TournamentPaymentSetupPage from "@/pages/tournament-payment-setup";
 import TournamentReportsPage from "@/pages/tournament-reports";
 
 import LandingPage from "@/pages/landing-page";
+import ScrollToTop from "@/components/scroll-to-top";
 
 function AuthenticatedApp() {
   const { user, isLoading } = useAuth();
@@ -132,6 +133,7 @@ function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
+        <ScrollToTop />
         <Toaster />
         <AuthenticatedApp />
       </TooltipProvider>

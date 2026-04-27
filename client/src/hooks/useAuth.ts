@@ -105,6 +105,7 @@ export function useAuth() {
       localStorage.removeItem("auth_token");
       queryClient.setQueryData(["/api/auth/me"], null);
       queryClient.clear();
+      window.scrollTo(0, 0);
     },
   });
 
