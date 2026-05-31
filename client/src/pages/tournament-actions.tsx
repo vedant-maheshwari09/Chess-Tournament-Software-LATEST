@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
-import { AlertTriangle, ChevronLeft, Mail, Share2, Trash2 } from "lucide-react";
+import { AlertTriangle, ChevronLeft, Mail, Share2, Trash2, Users } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
@@ -301,6 +301,32 @@ export default function TournamentActionsPage({ tournamentId }: TournamentAction
                 onChange={handleTemplateImport}
               />
             </div>
+          </CardContent>
+        </Card>
+
+        {/* Player Roster Import */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Users className="h-5 w-5 text-indigo-600" />
+              Player Roster
+            </CardTitle>
+            <CardDescription>
+              Import the same set of players from one of your past tournaments to quickly sign everyone up.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <p className="text-sm text-slate-600 leading-relaxed">
+              Go to <strong>Settings → Player Signup</strong> to select a past tournament and choose which players to import into this one. Their name, rating, and section details will carry over.
+            </p>
+            <Button
+              variant="outline"
+              className="border-indigo-200 text-indigo-700 hover:bg-indigo-50"
+              onClick={() => setLocation(`/tournaments/${tournamentId}/settings/player-signup`)}
+            >
+              <Users className="mr-2 h-4 w-4" />
+              Import Players from Past Tournament
+            </Button>
           </CardContent>
         </Card>
 
